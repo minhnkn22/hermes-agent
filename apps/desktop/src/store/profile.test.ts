@@ -19,8 +19,20 @@ vi.mock('@/hermes', () => ({
 vi.mock('@/lib/query-client', () => ({ invalidateProfileScopedQueries: vi.fn() }))
 vi.mock('@/store/starmap', () => ({ resetStarmapGraph }))
 
-const { $activeGatewayProfile, $profiles, ensureGatewayProfile, prewarmProfileBackend, refreshProfiles } =
-  await import('./profile')
+const {
+  $activeGatewayProfile,
+  $profileAliases,
+  $profilePins,
+  $profiles,
+  ensureGatewayProfile,
+  prewarmProfileBackend,
+  profileDisplayName,
+  refreshProfiles,
+  setProfileAlias,
+  setProfilePinned,
+  sortByProfilePinsAndOrder,
+  toggleProfilePinned
+} = await import('./profile')
 
 const { $connection } = await import('./session')
 const { invalidateProfileScopedQueries } = await import('@/lib/query-client')
@@ -50,6 +62,8 @@ beforeEach(() => {
   openGatewayForProfile.mockClear()
   $gateway.set({ id: 'live-socket' })
   $activeGatewayProfile.set('default')
+  $profileAliases.set({})
+  $profilePins.set([])
   $connection.set(localConn())
   $profiles.set([])
   vi.stubGlobal('window', { hermesDesktop: { getConnection } })
@@ -170,5 +184,34 @@ describe('refreshProfiles shared rail list (#49289)', () => {
     await expect(refreshProfiles()).rejects.toThrow('backend unavailable')
 
     expect($profiles.get().map(profile => profile.name)).toEqual(['default', 'test1'])
+  })
+})
+
+describe('profile cosmetic pins and aliases', () => {
+  it('sorts pinned profiles first while preserving stored order within each group', () => {
+    const profiles = [profile('atum-main'), profile('moon-dev'), profile('atum-moon'), profile('dev-ben')]
+
+    expect(
+      sortByProfilePinsAndOrder(profiles, ['atum-main', 'atum-moon'], ['moon-dev', 'atum-moon', 'dev-ben', 'atum-main'])
+        .map(profile => profile.name)
+    ).toEqual(['atum-moon', 'atum-main', 'moon-dev', 'dev-ben'])
+  })
+
+  it('toggles pinned profile keys by canonical name', () => {
+    setProfilePinned('atum-main', true)
+    setProfilePinned('atum-main', true)
+    toggleProfilePinned('atum-main')
+
+    expect($profilePins.get()).toEqual([])
+  })
+
+  it('uses cosmetic aliases without changing the underlying profile key', () => {
+    setProfileAlias('atum-main', 'Atum')
+
+    expect(profileDisplayName('atum-main', $profileAliases.get())).toBe('Atum')
+
+    setProfileAlias('atum-main', '   ')
+
+    expect(profileDisplayName('atum-main', $profileAliases.get())).toBe('atum-main')
   })
 })

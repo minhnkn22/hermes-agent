@@ -115,3 +115,21 @@ activates the per-profile runtime scope (per-profile `HERMES_HOME`, secret scope
 profile-namespaced session keys); routing is the decision layer that picks *which*
 profile a given guild/channel/thread lands in. With multiplexing off, `profile_routes`
 is ignored entirely — behavior is byte-identical to a single-profile gateway.
+
+## Desktop display preferences
+
+The desktop sidebar keeps profile routing identifiers separate from cosmetic
+navigation preferences:
+
+- Profile names such as `atum-main` remain the durable runtime key used for
+  `HERMES_PROFILE`, launchd labels, session ownership, profile routes, and
+  backend API scoping.
+- Sidebar display aliases are renderer-local labels stored in localStorage.
+  They only change what the profile rail/dropdown shows.
+- Sidebar profile pins are also renderer-local. They sort pinned profiles first
+  in the profile rail/dropdown, while preserving the existing drag order inside
+  the pinned and unpinned groups.
+
+Use the real profile rename flow only when the underlying profile directory and
+runtime identity should change. Use the sidebar display-name action when the
+goal is reducing visual repetition, such as showing `atum-main` as `Atum`.

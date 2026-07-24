@@ -50,15 +50,57 @@ export async function refreshProfiles(): Promise<ProfileInfo[]> {
 // Names absent from the list fall back to alphabetical, appended at the tail —
 // so a freshly created profile lands at the end until the user drags it.
 const PROFILE_ORDER_STORAGE_KEY = 'hermes.desktop.profileOrder'
+const PROFILE_PINS_STORAGE_KEY = 'hermes.desktop.profilePins'
+const PROFILE_ALIASES_STORAGE_KEY = 'hermes.desktop.profileAliases'
 
 export const $profileOrder = atom<string[]>(storedStringArray(PROFILE_ORDER_STORAGE_KEY))
+export const $profilePins = atom<string[]>(storedStringArray(PROFILE_PINS_STORAGE_KEY))
+export const $profileAliases = atom<Record<string, string>>(storedStringRecord(PROFILE_ALIASES_STORAGE_KEY))
 
 $profileOrder.subscribe(value => persistStringArray(PROFILE_ORDER_STORAGE_KEY, [...value]))
+$profilePins.subscribe(value => persistStringArray(PROFILE_PINS_STORAGE_KEY, [...value]))
+$profileAliases.subscribe(value => persistStringRecord(PROFILE_ALIASES_STORAGE_KEY, value))
 
 export function setProfileOrder(names: string[]): void {
   if (!arraysEqual($profileOrder.get(), names)) {
     $profileOrder.set(names)
   }
+}
+
+export function setProfilePinned(name: string, pinned: boolean): void {
+  const key = normalizeProfileKey(name)
+  const current = $profilePins.get()
+  const next = pinned ? [...current.filter(item => item !== key), key] : current.filter(item => item !== key)
+
+  if (!arraysEqual(current, next)) {
+    $profilePins.set(next)
+  }
+}
+
+export function toggleProfilePinned(name: string): void {
+  const key = normalizeProfileKey(name)
+
+  setProfilePinned(key, !$profilePins.get().includes(key))
+}
+
+export function setProfileAlias(name: string, alias: null | string): void {
+  const key = normalizeProfileKey(name)
+  const next = { ...$profileAliases.get() }
+  const value = alias?.trim()
+
+  if (value) {
+    next[key] = value
+  } else {
+    delete next[key]
+  }
+
+  $profileAliases.set(next)
+}
+
+export function profileDisplayName(name: string, aliases: Record<string, string>): string {
+  const key = normalizeProfileKey(name)
+
+  return aliases[key]?.trim() || name
 }
 
 // Sort items by the stored order; unordered names alphabetise at the tail.
@@ -75,6 +117,20 @@ export function sortByProfileOrder<T extends { name: string }>(items: T[], order
 
     return ra != null ? -1 : rb != null ? 1 : a.name.localeCompare(b.name)
   })
+}
+
+export function sortByProfilePinsAndOrder<T extends { name: string }>(
+  items: T[],
+  pinned: string[],
+  order: string[]
+): T[] {
+  const pinnedSet = new Set(pinned.map(normalizeProfileKey))
+  const sorted = sortByProfileOrder(items, order)
+
+  return [
+    ...sorted.filter(profile => pinnedSet.has(normalizeProfileKey(profile.name))),
+    ...sorted.filter(profile => !pinnedSet.has(normalizeProfileKey(profile.name)))
+  ]
 }
 
 // ── Rail colors ────────────────────────────────────────────────────────────

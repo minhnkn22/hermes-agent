@@ -28,6 +28,7 @@ import { Codicon } from '@/components/ui/codicon'
 import { ColorSwatches } from '@/components/ui/color-swatches'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -45,19 +46,24 @@ import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
 import {
   $activeGatewayProfile,
+  $profileAliases,
   $profileColors,
   $profileCreateRequest,
   $profileOrder,
+  $profilePins,
   $profiles,
   $profileScope,
   ALL_PROFILES,
   normalizeProfileKey,
+  profileDisplayName,
   refreshActiveProfile,
   selectProfile,
+  setProfileAlias,
   setProfileColor,
   setProfileOrder,
   setShowAllProfiles,
-  sortByProfileOrder
+  sortByProfilePinsAndOrder,
+  toggleProfilePinned
 } from '@/store/profile'
 import type { ProfileInfo } from '@/types/hermes'
 
@@ -111,11 +117,14 @@ export function ProfileRail() {
   const scope = useStore($profileScope)
   const gatewayProfile = useStore($activeGatewayProfile)
   const order = useStore($profileOrder)
+  const pins = useStore($profilePins)
+  const aliases = useStore($profileAliases)
   const colors = useStore($profileColors)
   const navigate = useNavigate()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [pendingRename, setPendingRename] = useState<null | ProfileInfo>(null)
+  const [pendingAlias, setPendingAlias] = useState<null | ProfileInfo>(null)
   const [pendingDelete, setPendingDelete] = useState<null | ProfileInfo>(null)
   const [pendingSoul, setPendingSoul] = useState<null | string>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -155,8 +164,9 @@ export function ProfileRail() {
   const defaultProfile = profiles.find(profile => profile.is_default)
   const onDefault = activeKey === 'default'
 
-  const named = sortByProfileOrder(
+  const named = sortByProfilePinsAndOrder(
     profiles.filter(profile => !profile.is_default),
+    pins,
     order
   )
 
@@ -256,6 +266,7 @@ export function ProfileRail() {
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <ProfileDropdown
             activeKey={activeKey}
+            aliases={aliases}
             colors={colors}
             onSelect={selectProfile}
             profiles={named}
@@ -284,13 +295,17 @@ export function ProfileRail() {
                     <ProfileSquare
                       active={normalizeProfileKey(profile.name) === activeKey}
                       color={resolveProfileColor(profile.name, colors)}
+                      displayName={profileDisplayName(profile.name, aliases)}
                       key={profile.name}
                       label={profile.name}
                       onDelete={() => setPendingDelete(profile)}
+                      onEditAlias={() => setPendingAlias(profile)}
                       onEditSoul={() => setPendingSoul(profile.name)}
+                      onPin={() => toggleProfilePinned(profile.name)}
                       onRecolor={color => setProfileColor(profile.name, color)}
                       onRename={() => setPendingRename(profile)}
                       onSelect={() => selectProfile(profile.name)}
+                      pinned={pins.includes(normalizeProfileKey(profile.name))}
                     />
                   ))}
                 </div>
@@ -327,6 +342,12 @@ export function ProfileRail() {
         open={pendingRename !== null}
       />
 
+      <ProfileAliasDialog
+        aliases={aliases}
+        onClose={() => setPendingAlias(null)}
+        profile={pendingAlias}
+      />
+
       <DeleteProfileDialog
         onClose={() => setPendingDelete(null)}
         onDeleted={refreshActiveProfile}
@@ -336,6 +357,73 @@ export function ProfileRail() {
 
       <EditSoulDialog onClose={() => setPendingSoul(null)} profileName={pendingSoul} />
     </div>
+  )
+}
+
+function ProfileAliasDialog({
+  aliases,
+  onClose,
+  profile
+}: {
+  aliases: Record<string, string>
+  onClose: () => void
+  profile: null | ProfileInfo
+}) {
+  const [value, setValue] = useState('')
+
+  useEffect(() => {
+    if (!profile) {
+      setValue('')
+
+      return
+    }
+
+    setValue(aliases[normalizeProfileKey(profile.name)] ?? '')
+  }, [aliases, profile])
+
+  const save = () => {
+    if (!profile) {
+      return
+    }
+
+    setProfileAlias(profile.name, value)
+    onClose()
+  }
+
+  return (
+    <Dialog onOpenChange={open => !open && onClose()} open={profile !== null}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Display name</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Input
+            aria-label="Display name"
+            autoFocus
+            onChange={event => setValue(event.target.value)}
+            onKeyDown={event => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                save()
+              }
+            }}
+            placeholder={profile?.name}
+            value={value}
+          />
+          <p className="text-xs text-(--ui-text-tertiary)">
+            Cosmetic only. The real profile remains {profile?.name ?? ''}.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button onClick={onClose} type="button" variant="ghost">
+            Cancel
+          </Button>
+          <Button onClick={save} type="button">
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -437,11 +525,13 @@ function AddProfileButton({ label, onClick }: { label: string; onClick: () => vo
 // falls back to the placeholder since the left toggle pill carries that state.
 function ProfileDropdown({
   activeKey,
+  aliases,
   colors,
   onSelect,
   profiles
 }: {
   activeKey: null | string
+  aliases: Record<string, string>
   colors: Record<string, string>
   onSelect: (name: string) => void
   profiles: ProfileInfo[]
@@ -460,6 +550,7 @@ function ProfileDropdown({
         {profiles.map(profile => (
           <ProfileDropdownItem
             color={resolveProfileColor(profile.name, colors)}
+            displayName={profileDisplayName(profile.name, aliases)}
             key={profile.name}
             name={profile.name}
           />
@@ -471,7 +562,7 @@ function ProfileDropdown({
 
 // One dropdown row per profile — its own component so each row can own a
 // hover-intent prewarm timer (see useProfilePrewarm).
-function ProfileDropdownItem({ color, name }: { color: null | string; name: string }) {
+function ProfileDropdownItem({ color, displayName, name }: { color: null | string; displayName: string; name: string }) {
   const hue = color ?? 'var(--ui-text-quaternary)'
   const { cancelPrewarm, startPrewarm } = useProfilePrewarm(name)
 
@@ -483,9 +574,9 @@ function ProfileDropdownItem({ color, name }: { color: null | string; name: stri
           className="grid size-4 shrink-0 place-items-center rounded-[3px] text-[0.5rem] font-semibold uppercase leading-none"
           style={{ backgroundColor: profileColorSoft(hue, 22), color: color ?? undefined }}
         >
-          {name.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
+          {displayName.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
         </span>
-        <span className="truncate">{name}</span>
+        <span className="truncate">{displayName}</span>
       </span>
     </SelectItem>
   )
@@ -523,12 +614,16 @@ function ProfilePill({ active, glyph, label, onSelect }: ProfilePillProps) {
 interface ProfileSquareProps {
   active: boolean
   color: null | string
+  displayName: string
   label: string
   onSelect: () => void
   onRecolor: (color: null | string) => void
+  onPin: () => void
+  onEditAlias: () => void
   onRename: () => void
   onEditSoul: () => void
   onDelete: () => void
+  pinned: boolean
 }
 
 // Hold this long without moving (a drag would have started first) to open the
@@ -545,12 +640,16 @@ const LONG_PRESS_MS = 450
 function ProfileSquare({
   active,
   color,
+  displayName,
   label,
   onDelete,
+  onEditAlias,
   onEditSoul,
+  onPin,
   onRecolor,
   onRename,
-  onSelect
+  onSelect,
+  pinned
 }: ProfileSquareProps) {
   const { t } = useI18n()
   const p = t.profiles
@@ -620,7 +719,7 @@ function ProfileSquare({
                     type="button"
                     {...attributes}
                     {...listeners}
-                    aria-label={label}
+                    aria-label={displayName}
                     aria-pressed={active}
                     // Hold-to-recolor rides alongside the dnd pointer listener (call
                     // it first so drag tracking still arms), then a timer opens the
@@ -657,12 +756,12 @@ function ProfileSquare({
                     }}
                     onPointerUp={clearPress}
                   >
-                    {label.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
+                    {displayName.replace(/[^a-z0-9]/gi, '').charAt(0) || '?'}
                   </button>
                 </TooltipTrigger>
               </ContextMenuTrigger>
             </PopoverAnchor>
-            <TooltipContent>{label}</TooltipContent>
+            <TooltipContent>{displayName === label ? label : `${displayName} (${label})`}</TooltipContent>
           </Tooltip>
         </TooltipProvider>
 
@@ -677,6 +776,14 @@ function ProfileSquare({
           // Suppress the refocus and the picker survives.
           onCloseAutoFocus={event => event.preventDefault()}
         >
+          <ContextMenuItem onSelect={onPin}>
+            <Codicon name={pinned ? 'pinned-dirty' : 'pin'} size="0.875rem" />
+            <span>{pinned ? 'Unpin agent' : 'Pin agent'}</span>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={onEditAlias}>
+            <Codicon name="tag" size="0.875rem" />
+            <span>Edit display name</span>
+          </ContextMenuItem>
           <ContextMenuItem onSelect={() => setPickerOpen(true)}>
             <Codicon name="symbol-color" size="0.875rem" />
             <span>{p.color}</span>
