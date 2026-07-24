@@ -20,8 +20,18 @@ from hermes_cli.commands import resolve_command
 
 
 def test_claude_mode_commands_are_registered():
-    for name in ("claude", "codex", "opus", "sonnet", "exec"):
+    for name in ("claude", "codex", "opus", "sonnet", "fable", "exec"):
         assert resolve_command(name) is not None
+
+
+def test_claude_sidecar_config_resolves_fable_alias(tmp_path):
+    config = ClaudeSidecarConfig.from_gateway_config(
+        {"conversation": {"fable_model": "claude-fable-test"}},
+        hermes_home=tmp_path,
+    )
+
+    assert config.resolve_model("fable") == "claude-fable-test"
+    assert config.resolve_model("claude-fable-5") == "claude-fable-5"
 
 
 def test_should_route_to_claude_respects_force_codex_and_state(tmp_path):
@@ -146,6 +156,33 @@ async def test_claude_model_command_without_prompt_returns_confirmation(tmp_path
     result = await runner._handle_claude_model_command(event, "sonnet")
 
     assert result == "Claude conversation mode is on using `claude-sonnet-test`."
+    assert not hasattr(event, "force_claude")
+
+
+@pytest.mark.asyncio
+async def test_claude_fable_model_command_uses_configured_alias(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(
+        default_mode="codex",
+        fable_model="claude-fable-test",
+    )
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_config = lambda: config
+    runner.session_store = SimpleNamespace(
+        get_or_create_session=lambda source: SimpleNamespace(session_key="session-key")
+    )
+    event = MessageEvent(
+        text="/fable",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    result = await runner._handle_claude_model_command(event, "fable")
+
+    state = runner._claude_sidecar_state.get("session-key", config)
+    assert result == "Claude conversation mode is on using `claude-fable-test`."
+    assert state.mode == "claude"
+    assert state.model == "fable"
     assert not hasattr(event, "force_claude")
 
 

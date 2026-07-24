@@ -11626,6 +11626,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             command = None
             canonical = None
 
+        if canonical == "fable":
+            _mode_result = await self._handle_claude_model_command(event, "fable")
+            if _mode_result is not None:
+                return _mode_result
+            command = None
+            canonical = None
+
         if canonical == "exec":
             _denied = self._check_explicit_slash_admin(source, "exec")
             if _denied is not None:
@@ -15993,7 +16000,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if not config.enabled:
             return "Claude conversation mode is disabled for this gateway profile."
 
-        if lowered in {"opus", "sonnet"}:
+        if lowered in {"opus", "sonnet", "fable"}:
             self._claude_sidecar_state.set_model(session_key, lowered, config)
             self._claude_sidecar_state.set_mode(session_key, "claude", config)
             return f"Claude conversation mode is on using `{config.resolve_model(lowered)}`."

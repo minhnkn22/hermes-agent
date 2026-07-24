@@ -51,6 +51,7 @@ MUTATING_TOOL_ROOTS = frozenset(
 MODEL_ALIASES = {
     "sonnet": "sonnet",
     "opus": "opus",
+    "fable": "fable",
 }
 CLAUDE_SIDECAR_TRANSCRIPT_MARKER = "<!-- hermes:claude-sidecar -->"
 
@@ -64,6 +65,7 @@ class ClaudeSidecarConfig:
     default_model: str = "sonnet"
     opus_model: str = "opus"
     sonnet_model: str = "sonnet"
+    fable_model: str = "fable"
     claude_bin: str = DEFAULT_CLAUDE_BIN
     timeout_seconds: int = DEFAULT_CLAUDE_TIMEOUT_SECONDS
     max_turns: int = DEFAULT_CLAUDE_MAX_TURNS
@@ -92,6 +94,7 @@ class ClaudeSidecarConfig:
         default_model = _normalize_model(raw.get("default_model"), default="sonnet")
         sonnet_model = _normalize_model(raw.get("sonnet_model"), default="sonnet")
         opus_model = _normalize_model(raw.get("opus_model"), default="opus")
+        fable_model = _normalize_model(raw.get("fable_model"), default="fable")
 
         timeout_seconds = _bounded_int(
             raw.get("timeout_seconds"),
@@ -138,6 +141,7 @@ class ClaudeSidecarConfig:
             default_model=default_model,
             opus_model=opus_model,
             sonnet_model=sonnet_model,
+            fable_model=fable_model,
             claude_bin=str(raw.get("claude_bin") or DEFAULT_CLAUDE_BIN),
             timeout_seconds=timeout_seconds,
             max_turns=max_turns,
@@ -160,6 +164,8 @@ class ClaudeSidecarConfig:
             return self.sonnet_model
         if model == "opus":
             return self.opus_model
+        if model == "fable":
+            return self.fable_model
         return model
 
 

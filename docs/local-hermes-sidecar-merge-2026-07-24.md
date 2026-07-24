@@ -11,7 +11,10 @@ preserving local patches that were saved in
 ## Preserved Local Behavior
 
 - Telegram slash commands for Claude sidecar mode: `/claude`, `/codex`,
-  `/opus`, `/sonnet`, and `/exec`.
+  `/opus`, `/sonnet`, `/fable`, and `/exec`.
+- Claude sidecar model settings stay alias-based (`sonnet`, `opus`, `fable`)
+  so Claude Code resolves the latest subscribed model behind each alias. Use
+  explicit model IDs only when a profile must pin a specific release.
 - Claude sidecar routing that can answer through the gateway while keeping
   transcript history readable by the normal Codex path.
 - Shared Codex auth storage and locking so multiple gateway processes do not
@@ -26,7 +29,7 @@ preserving local patches that were saved in
 Run from `/Users/nmmacmini/.hermes/hermes-agent`:
 
 ```bash
-venv/bin/python -m py_compile gateway/run.py gateway/claude_sidecar.py hermes_cli/auth.py hermes_cli/commands.py agent/credential_pool.py
+venv/bin/python -m py_compile gateway/run.py gateway/claude_sidecar.py hermes_cli/auth.py hermes_cli/commands.py hermes_cli/model_switch.py agent/credential_pool.py
 tmpdir=$(mktemp -d)
 HERMES_CODEX_SHARED_AUTH_DIR="$tmpdir" PYTHONPATH=. uv run --extra dev pytest -q \
   tests/gateway/test_claude_sidecar.py \
