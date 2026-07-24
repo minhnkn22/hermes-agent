@@ -25,6 +25,10 @@ preserving local patches that were saved in
   Hermes config can have Telegram disabled while profile-local gateways are
   active from `~/.hermes/profiles/<profile>/.env`; the desktop app should report
   the active profile, not the root install.
+- Desktop messaging sidebar groups multi-profile messaging sessions by platform
+  and owning profile. The Atum cluster runs separate profile-local Telegram
+  gateways as separate agents, so a platform-only bucket makes unrelated agent
+  conversations look like one fragmented Telegram history.
 - Update checking that reports a local checkout with carried commits as current
   when `HEAD..origin/main` has zero missing upstream commits.
 

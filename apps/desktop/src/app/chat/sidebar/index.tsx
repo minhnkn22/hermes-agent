@@ -846,12 +846,12 @@ export function ChatSidebar({
     [onLoadMoreMessaging, runKeyedLoad]
   )
 
-  // Reveal another batch of a platform's rows; fetch from the backend too if we
+  // Reveal another batch of one messaging group's rows; fetch by platform if we
   // run past what's loaded and more remain on disk.
-  const revealMoreMessaging = (platform: string, loaded: number, hasMore: boolean) => {
-    const next = (messagingVisible[platform] ?? NON_SESSION_INITIAL_ROWS) + NON_SESSION_LOAD_STEP
+  const revealMoreMessaging = (groupId: string, platform: string, loaded: number, hasMore: boolean) => {
+    const next = (messagingVisible[groupId] ?? NON_SESSION_INITIAL_ROWS) + NON_SESSION_LOAD_STEP
 
-    setMessagingVisible(prev => ({ ...prev, [platform]: next }))
+    setMessagingVisible(prev => ({ ...prev, [groupId]: next }))
 
     if (next > loaded && hasMore) {
       loadMoreForMessaging(platform)
@@ -867,7 +867,8 @@ export function ChatSidebar({
       return []
     }
 
-    const bySource = new Map<string, SessionInfo[]>()
+    const profileLabels = new Map(profiles.map(profile => [normalizeProfileKey(profile.name), profile.name]))
+    const bySource = new Map<string, { profileKey: null | string; sessions: SessionInfo[]; sourceId: string }>()
 
     for (const session of messagingSessions) {
       const sourceId = normalizeSessionSource(session.source)
@@ -876,30 +877,36 @@ export function ChatSidebar({
         continue
       }
 
-      const list = bySource.get(sourceId) ?? []
-      list.push(session)
-      bySource.set(sourceId, list)
+      const profileKey = multiProfile ? normalizeProfileKey(session.profile) : null
+      const groupId = profileKey ? `${sourceId}::${profileKey}` : sourceId
+      const group = bySource.get(groupId) ?? { profileKey, sessions: [], sourceId }
+      group.sessions.push(session)
+      bySource.set(groupId, group)
     }
 
     return [...bySource.entries()]
-      .map(([sourceId, list]) => {
-        const ordered = [...list].sort((a, b) => sessionTime(b) - sessionTime(a))
-        const known = messagingPlatformTotals[sourceId]
+      .map(([groupId, group]) => {
+        const ordered = [...group.sessions].sort((a, b) => sessionTime(b) - sessionTime(a))
+        const known = group.profileKey ? null : messagingPlatformTotals[group.sourceId]
         const total = Math.max(ordered.length, known ?? 0)
+        const platformLabel = sessionSourceLabel(group.sourceId) ?? group.sourceId
+        const profileLabel = group.profileKey ? (profileLabels.get(group.profileKey) ?? group.profileKey) : null
 
         return {
           // Known exact total → more exist iff total exceeds loaded; otherwise
           // the seed fetch was capped, so assume more until a per-platform load
-          // resolves the count.
+          // resolves the count. Profile-split messaging groups do not currently
+          // have per-profile totals, so their count is the loaded slice only.
           hasMore: known != null ? known > ordered.length : messagingTruncated,
-          label: sessionSourceLabel(sourceId) ?? sourceId,
+          id: groupId,
+          label: profileLabel ? `${platformLabel} · ${profileLabel}` : platformLabel,
           sessions: ordered,
-          sourceId,
+          sourceId: group.sourceId,
           total
         }
       })
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
-  }, [messagingSessions, messagingPlatformTotals, messagingTruncated])
+  }, [messagingSessions, messagingPlatformTotals, messagingTruncated, multiProfile, profiles])
 
   // ALL-profiles view: one collapsible group per profile, color on the header
   // (not on every row). Default profile floats to the top, the rest alpha.
@@ -1424,7 +1431,7 @@ export function ChatSidebar({
             {!trimmedQuery &&
               !worktreeGroupingActive &&
               messagingGroups.map(group => {
-                const visible = messagingVisible[group.sourceId] ?? NON_SESSION_INITIAL_ROWS
+                const visible = messagingVisible[group.id] ?? NON_SESSION_INITIAL_ROWS
                 const shownSessions = group.sessions.slice(0, visible)
                 // More to show if rows are hidden behind the cap, or the backend
                 // still has older threads on disk.
@@ -1439,12 +1446,14 @@ export function ChatSidebar({
                       canRevealMore ? (
                         <SidebarLoadMoreRow
                           loading={Boolean(messagingLoadMorePending[group.sourceId])}
-                          onClick={() => revealMoreMessaging(group.sourceId, group.sessions.length, group.hasMore)}
+                          onClick={() =>
+                            revealMoreMessaging(group.id, group.sourceId, group.sessions.length, group.hasMore)
+                          }
                           step={Math.min(NON_SESSION_LOAD_STEP, Math.max(0, group.total - shownSessions.length))}
                         />
                       ) : null
                     }
-                    key={group.sourceId}
+                    key={group.id}
                     label={group.label}
                     labelIcon={
                       <PlatformAvatar
@@ -1457,9 +1466,9 @@ export function ChatSidebar({
                     onArchiveSession={onArchiveSession}
                     onDeleteSession={onDeleteSession}
                     onResumeSession={onResumeSession}
-                    onToggle={() => toggleSidebarMessagingOpen(group.sourceId)}
+                    onToggle={() => toggleSidebarMessagingOpen(group.id)}
                     onTogglePin={pinSession}
-                    open={messagingOpenIds.includes(group.sourceId)}
+                    open={messagingOpenIds.includes(group.id) || messagingOpenIds.includes(group.sourceId)}
                     pinned={false}
                     rootClassName="shrink-0 p-0"
                     sessions={shownSessions}
@@ -1494,6 +1503,7 @@ export function ChatSidebar({
 }
 
 interface MessagingSection {
+  id: string
   sourceId: string
   label: string
   sessions: SessionInfo[]
