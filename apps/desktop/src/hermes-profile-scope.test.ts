@@ -4,10 +4,13 @@ import {
   checkHermesUpdate,
   getActionStatus,
   getMemoryProviderConfig,
+  getMessagingPlatforms,
   getStatus,
   restartGateway,
   saveMemoryProviderConfig,
   setApiRequestProfile,
+  testMessagingPlatform,
+  updateMessagingPlatform,
   updateHermes
 } from './hermes'
 
@@ -54,6 +57,9 @@ describe('backend action helpers are profile-scoped', () => {
     void updateHermes()
     void checkHermesUpdate()
     void getActionStatus('gateway-restart')
+    void getMessagingPlatforms()
+    void updateMessagingPlatform('telegram', { enabled: true })
+    void testMessagingPlatform('telegram')
 
     for (const call of api.mock.calls) {
       expect(call[0].profile).toBe('coder')

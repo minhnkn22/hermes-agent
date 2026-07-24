@@ -21,6 +21,10 @@ preserving local patches that were saved in
   rotate the same refresh token independently.
 - Profile mirroring from the shared Codex auth store for backwards-compatible
   profile-local reads.
+- Desktop messaging setup views must be profile-scoped. The default/global
+  Hermes config can have Telegram disabled while profile-local gateways are
+  active from `~/.hermes/profiles/<profile>/.env`; the desktop app should report
+  the active profile, not the root install.
 - Update checking that reports a local checkout with carried commits as current
   when `HEAD..origin/main` has zero missing upstream commits.
 
