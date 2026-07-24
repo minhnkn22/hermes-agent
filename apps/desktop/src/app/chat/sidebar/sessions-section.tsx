@@ -196,10 +196,10 @@ export function SidebarSessionsSection({
   const sessionsDraggable = sortable && !!onReorderSessions
   const displayEntries = useMemo(() => flattenSessionsWithBranches(sessions), [sessions])
 
-  const renderRow = (session: SessionInfo, draggable: boolean, branchStem?: string) => {
+  const renderRow = (session: SessionInfo, draggable: boolean, branchStem?: string, rowPinned = pinned) => {
     const rowProps = {
       branchStem,
-      isPinned: pinned,
+      isPinned: rowPinned,
       isSelected: session.id === activeSessionId,
       isWorking: workingSessionIdSet.has(session.id),
       onArchive: () => onArchiveSession(session.id),
@@ -220,8 +220,10 @@ export function SidebarSessionsSection({
   }
 
   // Sessions inside repos/worktrees are date-ordered and static.
-  const renderRows = (items: SessionInfo[]) =>
-    flattenSessionsWithBranches(items).map(({ branchStem, session }) => renderRow(session, false, branchStem))
+  const renderRows = (items: SessionInfo[], rowsPinned = pinned) =>
+    flattenSessionsWithBranches(items).map(({ branchStem, session }) =>
+      renderRow(session, false, branchStem, rowsPinned)
+    )
 
   const flatVirtualized =
     !showEmptyState &&
@@ -296,15 +298,33 @@ export function SidebarSessionsSection({
         rows
       )
   } else if (groups?.length) {
-    // Profile/source groups never reorder; render them flat with static rows.
-    inner = groups.map(group => (
+    // A pinned section may contain pinned agent groups and individually pinned
+    // chats at the same time. Agent pinning moves the group but does not make
+    // every child chat individually pinned, so grouped rows keep their own pin
+    // state while the flat rows below retain the section's state.
+    const groupedRows = groups.map(group => (
       <SidebarWorkspaceGroup
         group={group}
         key={group.id}
         onNewSession={onNewSessionInWorkspace}
-        renderRows={renderRows}
+        renderRows={items => renderRows(items, group.mode === 'profile' ? false : pinned)}
       />
     ))
+
+    const flatRows = sessionsDraggable && onReorderSessions ? (
+      <ReorderableList ids={sessions.map(session => session.id)} onReorder={onReorderSessions} sensors={dndSensors}>
+        {displayEntries.map(({ branchStem, session }) => renderRow(session, true, branchStem))}
+      </ReorderableList>
+    ) : (
+      displayEntries.map(({ branchStem, session }) => renderRow(session, false, branchStem))
+    )
+
+    inner = (
+      <>
+        {groupedRows}
+        {flatRows}
+      </>
+    )
   } else if (flatVirtualized) {
     const virtual = (
       <VirtualSessionList

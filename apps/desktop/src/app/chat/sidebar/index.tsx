@@ -1094,7 +1094,15 @@ export function ChatSidebar({
     }
   }, [onLoadMoreSessions, recentsLoadMorePending])
 
-  const displayAgentGroups = showAllProfiles ? profileGroups : undefined
+  const pinnedAgentGroups = useMemo(
+    () => (showAllProfiles ? profileGroups?.filter(group => group.pinned) : undefined),
+    [profileGroups, showAllProfiles]
+  )
+
+  const displayAgentGroups = useMemo(
+    () => (showAllProfiles ? profileGroups?.filter(group => !group.pinned) : undefined),
+    [profileGroups, showAllProfiles]
+  )
 
   // The recents list owns its own (virtualized) scroll container only when it's a
   // long flat list. In that case it must keep its scroller even in short mode, so
@@ -1325,6 +1333,7 @@ export function ChatSidebar({
                 contentClassName={cn('flex max-h-44 flex-col gap-px rounded-lg pb-2 pt-1', GROUP_BODY)}
                 dndSensors={dndSensors}
                 emptyState={<SidebarPinnedEmptyState />}
+                groups={pinnedAgentGroups}
                 label={s.pinned}
                 onArchiveSession={onArchiveSession}
                 onBranchSession={onBranchSession}

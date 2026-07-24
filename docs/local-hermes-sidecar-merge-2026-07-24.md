@@ -31,8 +31,10 @@ preserving local patches that were saved in
   a profile changes the active runtime/new-session target without hiding the
   other agents. Single-profile installs keep the upstream transport sections.
 - Agent headers provide visible and right-click actions for pinning, editing the
-  display name, and renaming the real profile. Pinned agents sort first, and a
-  real rename carries local sidebar preferences to the new profile key.
+  display name, and renaming the real profile. Pinned agent groups move into the
+  `Pinned` section, while unpinned agents remain under `Sessions`; individually
+  pinned chats remain independent rows. A real rename carries local sidebar
+  preferences to the new profile key.
 - Update checking that reports a local checkout with carried commits as current
   when `HEAD..origin/main` has zero missing upstream commits.
 
