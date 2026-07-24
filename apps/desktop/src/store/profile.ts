@@ -315,24 +315,24 @@ export const ALL_PROFILES = '__all__'
 
 const SHOW_ALL_PROFILES_STORAGE_KEY = 'hermes.desktop.showAllProfiles'
 
-// Opt-in unified view. When false, scope follows the live gateway profile, so
-// single-profile users (who never see the switcher) are completely unaffected.
+// Single-profile installs can still scope the sidebar to the live gateway. A
+// multi-profile install is an agent workspace, though: its sidebar must remain
+// unified while the active gateway changes, just as switching the active project
+// in a coding app does not remove every other project from navigation.
 export const $showAllProfiles = atom<boolean>(storedBoolean(SHOW_ALL_PROFILES_STORAGE_KEY, false))
 
 $showAllProfiles.subscribe(value => persistBoolean(SHOW_ALL_PROFILES_STORAGE_KEY, value))
 
-// The profile context the sidebar is currently showing: a concrete profile key,
-// or ALL_PROFILES for the unified grouped view. Concrete scope is tied to the
-// gateway so opening/selecting a profile (which swaps the gateway) moves the
-// whole sidebar with it — a real context switch, not a separate filter to keep
-// in sync.
-export const $profileScope = computed([$showAllProfiles, $activeGatewayProfile], (showAll, gateway) =>
-  showAll ? ALL_PROFILES : normalizeProfileKey(gateway)
+// The profile context the sidebar is currently showing. Multi-profile installs
+// always expose the unified agent hierarchy; the live gateway still identifies
+// which agent receives new work and owns profile-scoped settings.
+export const $profileScope = computed([$showAllProfiles, $activeGatewayProfile, $profiles], (showAll, gateway, profiles) =>
+  showAll || profiles.length > 1 ? ALL_PROFILES : normalizeProfileKey(gateway)
 )
 
-// Switch the active context to `name`: leave "All profiles" mode, point new
-// chats at it, and swap the single live gateway onto its backend (which moves
-// $activeGatewayProfile → name, so $profileScope follows).
+// Switch the active agent to `name`, point new chats at it, and swap the live
+// gateway onto its backend. In a multi-profile workspace the sidebar remains
+// unified even though the active gateway changes.
 export function selectProfile(name: string): void {
   const target = normalizeProfileKey(name)
   // Switching profiles (or coming back from the all-profiles browse view) starts

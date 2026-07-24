@@ -25,10 +25,11 @@ preserving local patches that were saved in
   Hermes config can have Telegram disabled while profile-local gateways are
   active from `~/.hermes/profiles/<profile>/.env`; the desktop app should report
   the active profile, not the root install.
-- Desktop messaging sidebar groups multi-profile messaging sessions by platform
-  and owning profile. The Atum cluster runs separate profile-local Telegram
-  gateways as separate agents, so a platform-only bucket makes unrelated agent
-  conversations look like one fragmented Telegram history.
+- Desktop uses an agent-first sidebar whenever more than one profile exists.
+  Each profile is one collapsible agent section containing its local, Telegram,
+  API, and other sessions; the session row carries the transport icon. Selecting
+  a profile changes the active runtime/new-session target without hiding the
+  other agents. Single-profile installs keep the upstream transport sections.
 - Update checking that reports a local checkout with carried commits as current
   when `HEAD..origin/main` has zero missing upstream commits.
 
@@ -51,6 +52,21 @@ HERMES_CODEX_SHARED_AUTH_DIR="$tmpdir" PYTHONPATH=. uv run --extra dev pytest -q
 ```
 
 Expected result: compile succeeds and the focused pytest suite passes.
+
+Desktop agent-sidebar verification:
+
+```bash
+cd apps/desktop
+npm run typecheck -- --pretty false
+npm run test -- \
+  src/store/profile-scope.test.ts \
+  src/app/chat/sidebar/session-row.test.tsx \
+  src/app/session/hooks/use-session-list-actions.test.tsx \
+  src/hermes.test.ts \
+  src/hermes-profile-scope.test.ts
+```
+
+Expected result on 2026-07-24: typecheck passes; 5 test files and 36 tests pass.
 
 ## Rollback
 

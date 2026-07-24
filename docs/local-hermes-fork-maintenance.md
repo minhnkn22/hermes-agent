@@ -23,7 +23,8 @@ Important local commits include:
 
 - Claude sidecar alias support, including `fable`.
 - Profile-scoped Desktop messaging settings.
-- Multi-profile Desktop messaging sidebar groups by platform and profile.
+- Multi-profile Desktop sidebar uses profiles as top-level agents and nests all
+  session transports beneath the owning agent.
 
 ## Updating From Upstream
 
@@ -49,7 +50,7 @@ After a successful rebase, verify and rebuild Desktop:
 ```bash
 cd apps/desktop
 npm run typecheck -- --pretty false
-npm run test -- src/app/session/hooks/use-session-list-actions.test.tsx src/hermes.test.ts src/hermes-profile-scope.test.ts
+npm run test -- src/store/profile-scope.test.ts src/app/chat/sidebar/session-row.test.tsx src/app/session/hooks/use-session-list-actions.test.tsx src/hermes.test.ts src/hermes-profile-scope.test.ts
 npm run pack
 ```
 

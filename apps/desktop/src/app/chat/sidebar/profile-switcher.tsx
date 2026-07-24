@@ -153,7 +153,7 @@ export function ProfileRail() {
   const isAll = scope === ALL_PROFILES
   const activeKey = normalizeProfileKey(gatewayProfile)
   const defaultProfile = profiles.find(profile => profile.is_default)
-  const onDefault = !isAll && activeKey === 'default'
+  const onDefault = activeKey === 'default'
 
   const named = sortByProfileOrder(
     profiles.filter(profile => !profile.is_default),
@@ -224,18 +224,16 @@ export function ProfileRail() {
 
   return (
     <div aria-label="Profiles" className="flex items-center gap-0.5" data-slot="profile-rail" role="tablist">
-      {/* One button toggles default ↔ all: home face when scoped to a profile,
-          layers face when showing everything. Pinned left like Manage is right.
-          Hidden until a second profile exists. */}
+      {/* In a multi-agent workspace this is the default agent selector. The
+          sidebar remains grouped across every profile; selecting an agent only
+          changes where new work runs. */}
       {multiProfile &&
         (defaultProfile ? (
-          // On default → toggle to all. Anywhere else (all view or a named
-          // profile) → return to default. So leaving a profile never lands on all.
           <ProfilePill
-            active={isAll || onDefault}
-            glyph={isAll ? 'layers' : 'home'}
-            label={onDefault ? p.showAllProfiles : p.switchToProfile(defaultProfile.name)}
-            onSelect={() => (onDefault ? setShowAllProfiles(true) : selectProfile(defaultProfile.name))}
+            active={onDefault}
+            glyph="home"
+            label={p.switchToProfile(defaultProfile.name)}
+            onSelect={() => selectProfile(defaultProfile.name)}
           />
         ) : (
           <ProfilePill active={isAll} glyph="layers" label={p.allProfiles} onSelect={() => setShowAllProfiles(true)} />
@@ -257,7 +255,7 @@ export function ProfileRail() {
         // covers rename/delete at this scale.
         <div className="flex min-w-0 flex-1 items-center gap-1">
           <ProfileDropdown
-            activeKey={isAll ? null : activeKey}
+            activeKey={activeKey}
             colors={colors}
             onSelect={selectProfile}
             profiles={named}
@@ -284,7 +282,7 @@ export function ProfileRail() {
                 <div className="relative flex items-center gap-1">
                   {named.map(profile => (
                     <ProfileSquare
-                      active={!isAll && normalizeProfileKey(profile.name) === activeKey}
+                      active={normalizeProfileKey(profile.name) === activeKey}
                       color={resolveProfileColor(profile.name, colors)}
                       key={profile.name}
                       label={profile.name}

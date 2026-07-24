@@ -376,13 +376,30 @@ export function ChatSidebar({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
 
-  // Profile scope = the "workspace switcher" context. Concrete scope shows only
-  // that profile's sessions (clean rows, no per-row tags); ALL fans every
-  // profile in, grouped by profile below. Single-profile users land here with
-  // scope === their only profile, so nothing is filtered out.
+  // Multi-profile installs are agent workspaces: combine the separately-paged
+  // local and messaging slices into one catalog, then group by owning profile.
+  // A source is row metadata (Telegram, API, Desktop), never a peer of an agent.
+  const sessionCatalog = useMemo(() => {
+    if (!multiProfile) {
+      return sessions
+    }
+
+    const byId = new Map<string, SessionInfo>()
+
+    // Local rows win if a handoff briefly appears in both slices during refresh.
+    for (const session of [...messagingSessions, ...sessions]) {
+      byId.set(session.id, session)
+    }
+
+    return [...byId.values()]
+  }, [messagingSessions, multiProfile, sessions])
+
   const visibleSessions = useMemo(
-    () => (showAllProfiles ? sessions : sessions.filter(s => normalizeProfileKey(s.profile) === profileScope)),
-    [sessions, showAllProfiles, profileScope]
+    () =>
+      showAllProfiles
+        ? sessionCatalog
+        : sessionCatalog.filter(session => normalizeProfileKey(session.profile) === profileScope),
+    [profileScope, sessionCatalog, showAllProfiles]
   )
 
   // Agent session order is pinned to creation time (started_at), NOT activity —
@@ -525,9 +542,8 @@ export function ChatSidebar({
     [unpinnedAgentSessions, agentOrderIds, agentOrderManual]
   )
 
-  // Recents are local-only: messaging-platform sessions are fetched as their
-  // own slice ($messagingSessions) and rendered in self-managed per-platform
-  // sections below, so there is no source-grouping magic to untangle here.
+  // Recents are agent-owned in multi-profile mode. Single-profile installs keep
+  // the upstream transport sections because there is no ownership ambiguity.
   //
   // Workspace grouping is a `project -> repo -> lane -> sessions` tree computed
   // authoritatively on the backend (projects.tree). Parents reorder via
@@ -908,14 +924,28 @@ export function ChatSidebar({
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
   }, [messagingSessions, messagingPlatformTotals, messagingTruncated, multiProfile, profiles])
 
-  // ALL-profiles view: one collapsible group per profile, color on the header
-  // (not on every row). Default profile floats to the top, the rest alpha.
+  // Agent-first view: one collapsible group per profile, including agents with
+  // no sessions yet. Local, Telegram, API, and other transport rows all live
+  // under their owning agent and sort together by creation time.
   const profileGroups = useMemo<SidebarSessionGroup[] | undefined>(() => {
     if (!showAllProfiles) {
       return undefined
     }
 
     const groups = new Map<string, SidebarSessionGroup>()
+
+    for (const profile of profiles) {
+      const key = normalizeProfileKey(profile.name)
+
+      groups.set(key, {
+        color: profileColor(key),
+        id: key,
+        label: profile.name,
+        mode: 'profile',
+        path: null,
+        sessions: []
+      })
+    }
 
     for (const session of agentSessions) {
       const key = normalizeProfileKey(session.profile)
@@ -940,6 +970,9 @@ export function ChatSidebar({
           ...group,
           loadingMore: Boolean(profileLoadMorePending[group.id]),
           onLoadMore: onLoadMoreProfileSessions ? () => loadMoreForProfileGroup(group.id) : undefined,
+          // The backend's profile total covers local recents; messaging is a
+          // separate slice, so the merged agent count is at least the rows we
+          // currently hold. Per-profile paging still expands local history.
           totalCount: Math.max(group.sessions.length, sessionProfileTotals[group.id] ?? 0)
         }))
         // default (root) first, then the rest alphabetically.
@@ -951,7 +984,8 @@ export function ChatSidebar({
     loadMoreForProfileGroup,
     onLoadMoreProfileSessions,
     profileLoadMorePending,
-    sessionProfileTotals
+    sessionProfileTotals,
+    profiles
   ])
 
   // The flat Sessions list always shows ALL recent sessions; Projects is a
@@ -1429,6 +1463,7 @@ export function ChatSidebar({
             )}
 
             {!trimmedQuery &&
+              !multiProfile &&
               !worktreeGroupingActive &&
               messagingGroups.map(group => {
                 const visible = messagingVisible[group.id] ?? NON_SESSION_INITIAL_ROWS

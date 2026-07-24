@@ -11,7 +11,7 @@ import type { SessionInfo } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
-import { handoffOriginSource, sessionSourceLabel } from '@/lib/session-source'
+import { handoffOriginSource, isMessagingSource, normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { $attentionSessionIds, openSessionTile } from '@/store/session-states'
@@ -84,7 +84,9 @@ export function SidebarSessionRow({
   // messaging platform — surface that origin as a small badge so e.g. a
   // Telegram thread continued here still reads as Telegram.
   const handoffSource = handoffOriginSource(session.handoff_state, session.handoff_platform)
-  const handoffLabel = handoffSource ? (sessionSourceLabel(handoffSource) ?? handoffSource) : null
+  const directMessagingSource = isMessagingSource(session.source) ? normalizeSessionSource(session.source) : null
+  const platformSource = directMessagingSource ?? handoffSource
+  const platformLabel = platformSource ? (sessionSourceLabel(platformSource) ?? platformSource) : null
   // True when a clarify prompt in this session is waiting on the user.
   const needsInput = useStore($attentionSessionIds).includes(session.id)
 
@@ -232,12 +234,12 @@ export function SidebarSessionRow({
               <SessionStatusDot branchStem={branchStem} session={session} storedSessionId={session.id} />
             </SidebarRowLead>
           )}
-          {handoffSource && handoffLabel ? (
-            <Tip label={r.handoffOrigin(handoffLabel)}>
+          {platformSource && platformLabel ? (
+            <Tip label={directMessagingSource ? platformLabel : r.handoffOrigin(platformLabel)}>
               <PlatformAvatar
                 className="size-4 rounded-[4px] text-[0.5rem] [&_svg]:size-2.5"
-                platformId={handoffSource}
-                platformName={handoffLabel}
+                platformId={platformSource}
+                platformName={platformLabel}
               />
             </Tip>
           ) : null}
