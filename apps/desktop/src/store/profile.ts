@@ -103,6 +103,40 @@ export function profileDisplayName(name: string, aliases: Record<string, string>
   return aliases[key]?.trim() || name
 }
 
+// A real profile rename changes the runtime key. Move every renderer-local
+// preference with it so pin/order/color/display-name state does not disappear
+// or remain attached to a profile that no longer exists.
+export function migrateProfilePreferences(from: string, to: string): void {
+  const source = normalizeProfileKey(from)
+  const target = normalizeProfileKey(to)
+
+  if (source === target) {
+    return
+  }
+
+  const replace = (items: string[]) => [
+    ...new Set(items.map(item => (normalizeProfileKey(item) === source ? target : item)))
+  ]
+
+  setProfileOrder(replace($profileOrder.get()))
+  $profilePins.set(replace($profilePins.get()))
+
+  const aliases = { ...$profileAliases.get() }
+  const colors = { ...$profileColors.get() }
+
+  if (aliases[source] != null) {
+    aliases[target] = aliases[source]
+    delete aliases[source]
+    $profileAliases.set(aliases)
+  }
+
+  if (colors[source] != null) {
+    colors[target] = colors[source]
+    delete colors[source]
+    $profileColors.set(colors)
+  }
+}
+
 // Sort items by the stored order; unordered names alphabetise at the tail.
 export function sortByProfileOrder<T extends { name: string }>(items: T[], order: string[]): T[] {
   const rank = new Map(order.map((name, index) => [name, index]))
@@ -382,8 +416,9 @@ $showAllProfiles.subscribe(value => persistBoolean(SHOW_ALL_PROFILES_STORAGE_KEY
 // The profile context the sidebar is currently showing. Multi-profile installs
 // always expose the unified agent hierarchy; the live gateway still identifies
 // which agent receives new work and owns profile-scoped settings.
-export const $profileScope = computed([$showAllProfiles, $activeGatewayProfile, $profiles], (showAll, gateway, profiles) =>
-  showAll || profiles.length > 1 ? ALL_PROFILES : normalizeProfileKey(gateway)
+export const $profileScope = computed(
+  [$showAllProfiles, $activeGatewayProfile, $profiles],
+  (showAll, gateway, profiles) => (showAll || profiles.length > 1 ? ALL_PROFILES : normalizeProfileKey(gateway))
 )
 
 // Switch the active agent to `name`, point new chats at it, and swap the live

@@ -2,6 +2,8 @@ import type * as React from 'react'
 import { useState } from 'react'
 
 import { Codicon } from '@/components/ui/codicon'
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import type { SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { setWorkspaceNodeOpen } from '@/store/layout'
@@ -100,32 +102,48 @@ export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemov
     onNewSession(group.path)
   }
 
+  const agentHeader = (
+    <WorkspaceHeader
+      action={
+        (onNewSession || isProfileGroup || onRemove) && (
+          <div className="flex items-center">
+            {(onNewSession || isProfileGroup) && (
+              <WorkspaceAddButton
+                label={s.newSessionIn(group.label)}
+                // Profile groups start a fresh session in that profile but keep
+                // the all-profiles browse view; workspace groups seed the new
+                // session's cwd. Main checkout lanes are branch-targeted.
+                onClick={() => void handleNewSession()}
+              />
+            )}
+            {isProfileGroup && <AgentProfileMenu group={group} />}
+            {onRemove && <WorkspaceMenu onRemove={onRemove} path={group.path} />}
+          </div>
+        )
+      }
+      count={isProfileGroup ? countLabel(visibleSessions.length, totalCount) : group.sessions.length}
+      icon={leadingIcon}
+      label={group.label}
+      onToggle={toggleOpen}
+      open={open}
+      title={group.profileName && group.profileName !== group.label ? group.profileName : (group.path ?? undefined)}
+    />
+  )
+
   return (
     <SidebarRowStack>
-      <WorkspaceHeader
-        action={
-          (onNewSession || isProfileGroup || onRemove) && (
-            <div className="flex items-center">
-              {(onNewSession || isProfileGroup) && (
-                <WorkspaceAddButton
-                  label={s.newSessionIn(group.label)}
-                  // Profile groups start a fresh session in that profile but keep
-                  // the all-profiles browse view; workspace groups seed the new
-                  // session's cwd. Main checkout lanes are branch-targeted.
-                  onClick={() => void handleNewSession()}
-                />
-              )}
-              {onRemove && <WorkspaceMenu onRemove={onRemove} path={group.path} />}
-            </div>
-          )
-        }
-        count={isProfileGroup ? countLabel(visibleSessions.length, totalCount) : group.sessions.length}
-        icon={leadingIcon}
-        label={group.label}
-        onToggle={toggleOpen}
-        open={open}
-        title={group.path ?? undefined}
-      />
+      {isProfileGroup ? (
+        <ContextMenu>
+          <ContextMenuTrigger asChild>
+            <div>{agentHeader}</div>
+          </ContextMenuTrigger>
+          <ContextMenuContent aria-label={`Actions for ${group.label}`} className="w-44">
+            <AgentProfileContextItems group={group} />
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        agentHeader
+      )}
       {open && (
         <>
           {visibleSessions.length === 0 ? (
@@ -150,5 +168,55 @@ export function SidebarWorkspaceGroup({ group, renderRows, onNewSession, onRemov
         </>
       )}
     </SidebarRowStack>
+  )
+}
+
+function AgentProfileMenu({ group }: { group: SidebarSessionGroup }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          aria-label={`Actions for ${group.label}`}
+          className="grid size-4 shrink-0 place-items-center rounded-sm bg-transparent text-(--ui-text-quaternary) opacity-0 transition-opacity hover:bg-(--ui-control-hover-background) hover:text-foreground group-hover/workspace:opacity-100 data-[state=open]:opacity-100"
+          onClick={event => event.stopPropagation()}
+          type="button"
+        >
+          <Codicon name="kebab-vertical" size="0.75rem" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-44" sideOffset={4}>
+        <DropdownMenuItem onSelect={group.onTogglePinned}>
+          <Codicon name={group.pinned ? 'pinned-dirty' : 'pin'} size="0.875rem" />
+          <span>{group.pinned ? 'Unpin agent' : 'Pin agent'}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={group.onEditDisplayName}>
+          <Codicon name="tag" size="0.875rem" />
+          <span>Edit display name</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={group.onRenameProfile}>
+          <Codicon name="text-size" size="0.875rem" />
+          <span>Rename profile…</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function AgentProfileContextItems({ group }: { group: SidebarSessionGroup }) {
+  return (
+    <>
+      <ContextMenuItem onSelect={group.onTogglePinned}>
+        <Codicon name={group.pinned ? 'pinned-dirty' : 'pin'} size="0.875rem" />
+        <span>{group.pinned ? 'Unpin agent' : 'Pin agent'}</span>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={group.onEditDisplayName}>
+        <Codicon name="tag" size="0.875rem" />
+        <span>Edit display name</span>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={group.onRenameProfile}>
+        <Codicon name="text-size" size="0.875rem" />
+        <span>Rename profile…</span>
+      </ContextMenuItem>
+    </>
   )
 }

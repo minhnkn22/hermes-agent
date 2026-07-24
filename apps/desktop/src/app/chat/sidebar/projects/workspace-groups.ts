@@ -28,7 +28,12 @@ export interface SidebarSessionGroup {
   isKanban?: boolean
   loadingMore?: boolean
   mode?: 'profile' | 'source' | 'workspace'
+  onEditDisplayName?: () => void
   onLoadMore?: () => void
+  onRenameProfile?: () => void
+  onTogglePinned?: () => void
+  pinned?: boolean
+  profileName?: string
   sourceId?: string
   totalCount?: number
 }

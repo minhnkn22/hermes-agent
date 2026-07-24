@@ -54,6 +54,7 @@ import {
   $profiles,
   $profileScope,
   ALL_PROFILES,
+  migrateProfilePreferences,
   normalizeProfileKey,
   profileDisplayName,
   refreshActiveProfile,
@@ -338,15 +339,14 @@ export function ProfileRail() {
       <RenameProfileDialog
         currentName={pendingRename?.name ?? ''}
         onClose={() => setPendingRename(null)}
-        onRenamed={refreshActiveProfile}
+        onRenamed={async name => {
+          migrateProfilePreferences(pendingRename?.name ?? '', name)
+          await refreshActiveProfile()
+        }}
         open={pendingRename !== null}
       />
 
-      <ProfileAliasDialog
-        aliases={aliases}
-        onClose={() => setPendingAlias(null)}
-        profile={pendingAlias}
-      />
+      <ProfileAliasDialog aliases={aliases} onClose={() => setPendingAlias(null)} profile={pendingAlias} />
 
       <DeleteProfileDialog
         onClose={() => setPendingDelete(null)}
@@ -360,7 +360,7 @@ export function ProfileRail() {
   )
 }
 
-function ProfileAliasDialog({
+export function ProfileAliasDialog({
   aliases,
   onClose,
   profile
@@ -562,7 +562,15 @@ function ProfileDropdown({
 
 // One dropdown row per profile — its own component so each row can own a
 // hover-intent prewarm timer (see useProfilePrewarm).
-function ProfileDropdownItem({ color, displayName, name }: { color: null | string; displayName: string; name: string }) {
+function ProfileDropdownItem({
+  color,
+  displayName,
+  name
+}: {
+  color: null | string
+  displayName: string
+  name: string
+}) {
   const hue = color ?? 'var(--ui-text-quaternary)'
   const { cancelPrewarm, startPrewarm } = useProfilePrewarm(name)
 

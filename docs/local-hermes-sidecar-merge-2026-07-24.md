@@ -30,6 +30,9 @@ preserving local patches that were saved in
   API, and other sessions; the session row carries the transport icon. Selecting
   a profile changes the active runtime/new-session target without hiding the
   other agents. Single-profile installs keep the upstream transport sections.
+- Agent headers provide visible and right-click actions for pinning, editing the
+  display name, and renaming the real profile. Pinned agents sort first, and a
+  real rename carries local sidebar preferences to the new profile key.
 - Update checking that reports a local checkout with carried commits as current
   when `HEAD..origin/main` has zero missing upstream commits.
 
@@ -67,6 +70,20 @@ npm run test -- \
 ```
 
 Expected result on 2026-07-24: typecheck passes; 5 test files and 36 tests pass.
+
+Agent-header action verification:
+
+```bash
+cd apps/desktop
+npm run test -- \
+  src/store/profile-preferences-migration.test.ts \
+  src/app/chat/sidebar/projects/agent-profile-actions.test.tsx \
+  src/store/profile.test.ts \
+  src/store/profile-scope.test.ts \
+  src/app/chat/sidebar/session-row.test.tsx
+```
+
+Expected result on 2026-07-24: 5 test files and 22 tests pass.
 
 ## Rollback
 

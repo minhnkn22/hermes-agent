@@ -62,7 +62,21 @@ import {
   toggleSidebarMessagingOpen,
   unpinSession
 } from '@/store/layout'
-import { $newChatProfile, $profiles, $profileScope, ALL_PROFILES, normalizeProfileKey } from '@/store/profile'
+import {
+  $newChatProfile,
+  $profileAliases,
+  $profileOrder,
+  $profilePins,
+  $profiles,
+  $profileScope,
+  ALL_PROFILES,
+  migrateProfilePreferences,
+  normalizeProfileKey,
+  profileDisplayName,
+  refreshActiveProfile,
+  sortByProfilePinsAndOrder,
+  toggleProfilePinned
+} from '@/store/profile'
 import {
   $activeProjectId,
   $projects,
@@ -97,7 +111,9 @@ import {
   setCurrentCwd
 } from '@/store/session'
 import { $focusedStoredSessionId, $workingSessionIds, type SplitDir } from '@/store/session-states'
+import type { ProfileInfo } from '@/types/hermes'
 
+import { RenameProfileDialog } from '../../profiles/rename-profile-dialog'
 import {
   type AppView,
   ARTIFACTS_ROUTE,
@@ -112,7 +128,7 @@ import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { orderByIds, reconcileOrderIds, resolveManualSessionOrderIds, sameIds } from './order'
-import { ProfileRail } from './profile-switcher'
+import { ProfileAliasDialog, ProfileRail } from './profile-switcher'
 import { ProjectDialog } from './project-dialog'
 import {
   overlayLiveLanes,
@@ -303,6 +319,9 @@ export function ChatSidebar({
   const sessionProfileTotals = useStore($sessionProfileTotals)
   const workingSessionIds = useStore($workingSessionIds)
   const profiles = useStore($profiles)
+  const profileAliases = useStore($profileAliases)
+  const profileOrder = useStore($profileOrder)
+  const profilePins = useStore($profilePins)
   const profileScope = useStore($profileScope)
   // Only surface the profile switcher when more than one profile exists, so
   // single-profile users see the unchanged sidebar.
@@ -335,6 +354,8 @@ export function ChatSidebar({
   const [profileLoadMorePending, setProfileLoadMorePending] = useState<Record<string, boolean>>({})
   const [messagingLoadMorePending, setMessagingLoadMorePending] = useState<Record<string, boolean>>({})
   const [recentsLoadMorePending, setRecentsLoadMorePending] = useState(false)
+  const [pendingProfileAlias, setPendingProfileAlias] = useState<null | ProfileInfo>(null)
+  const [pendingProfileRename, setPendingProfileRename] = useState<null | ProfileInfo>(null)
   const messagingOpenIds = useStore($sidebarMessagingOpenIds)
   // Per-platform count of rows currently revealed (starts at NON_SESSION_INITIAL_ROWS).
   const [messagingVisible, setMessagingVisible] = useState<Record<string, number>>({})
@@ -924,6 +945,25 @@ export function ChatSidebar({
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
   }, [messagingSessions, messagingPlatformTotals, messagingTruncated, multiProfile, profiles])
 
+  const orderedAgentProfiles = useMemo(() => {
+    const pinned = new Set(profilePins.map(normalizeProfileKey))
+    const defaults = profiles.filter(profile => profile.is_default)
+
+    const named = sortByProfilePinsAndOrder(
+      profiles.filter(profile => !profile.is_default),
+      profilePins,
+      profileOrder
+    )
+
+    // Pinned agents lead; the default profile remains the stable boundary
+    // between pinned and ordinary agents.
+    return [
+      ...named.filter(profile => pinned.has(normalizeProfileKey(profile.name))),
+      ...defaults,
+      ...named.filter(profile => !pinned.has(normalizeProfileKey(profile.name)))
+    ]
+  }, [profileOrder, profilePins, profiles])
+
   // Agent-first view: one collapsible group per profile, including agents with
   // no sessions yet. Local, Telegram, API, and other transport rows all live
   // under their owning agent and sort together by creation time.
@@ -934,15 +974,20 @@ export function ChatSidebar({
 
     const groups = new Map<string, SidebarSessionGroup>()
 
-    for (const profile of profiles) {
+    for (const profile of orderedAgentProfiles) {
       const key = normalizeProfileKey(profile.name)
 
       groups.set(key, {
         color: profileColor(key),
         id: key,
-        label: profile.name,
+        label: profileDisplayName(profile.name, profileAliases),
         mode: 'profile',
+        onEditDisplayName: () => setPendingProfileAlias(profile),
+        onRenameProfile: () => setPendingProfileRename(profile),
+        onTogglePinned: () => toggleProfilePinned(profile.name),
         path: null,
+        pinned: profilePins.includes(key),
+        profileName: profile.name,
         sessions: []
       })
     }
@@ -964,20 +1009,15 @@ export function ChatSidebar({
       groups.set(key, group)
     }
 
-    return (
-      [...groups.values()]
-        .map(group => ({
-          ...group,
-          loadingMore: Boolean(profileLoadMorePending[group.id]),
-          onLoadMore: onLoadMoreProfileSessions ? () => loadMoreForProfileGroup(group.id) : undefined,
-          // The backend's profile total covers local recents; messaging is a
-          // separate slice, so the merged agent count is at least the rows we
-          // currently hold. Per-profile paging still expands local history.
-          totalCount: Math.max(group.sessions.length, sessionProfileTotals[group.id] ?? 0)
-        }))
-        // default (root) first, then the rest alphabetically.
-        .sort((a, b) => (a.id === 'default' ? -1 : b.id === 'default' ? 1 : a.label.localeCompare(b.label)))
-    )
+    return [...groups.values()].map(group => ({
+      ...group,
+      loadingMore: Boolean(profileLoadMorePending[group.id]),
+      onLoadMore: onLoadMoreProfileSessions ? () => loadMoreForProfileGroup(group.id) : undefined,
+      // The backend's profile total covers local recents; messaging is a
+      // separate slice, so the merged agent count is at least the rows we
+      // currently hold. Per-profile paging still expands local history.
+      totalCount: Math.max(group.sessions.length, sessionProfileTotals[group.id] ?? 0)
+    }))
   }, [
     showAllProfiles,
     agentSessions,
@@ -985,7 +1025,9 @@ export function ChatSidebar({
     onLoadMoreProfileSessions,
     profileLoadMorePending,
     sessionProfileTotals,
-    profiles
+    orderedAgentProfiles,
+    profileAliases,
+    profilePins
   ])
 
   // The flat Sessions list always shows ALL recent sessions; Projects is a
@@ -1533,6 +1575,20 @@ export function ChatSidebar({
         </div>
       </SidebarContent>
       <ProjectDialog />
+      <RenameProfileDialog
+        currentName={pendingProfileRename?.name ?? ''}
+        onClose={() => setPendingProfileRename(null)}
+        onRenamed={async name => {
+          migrateProfilePreferences(pendingProfileRename?.name ?? '', name)
+          await refreshActiveProfile()
+        }}
+        open={pendingProfileRename !== null}
+      />
+      <ProfileAliasDialog
+        aliases={profileAliases}
+        onClose={() => setPendingProfileAlias(null)}
+        profile={pendingProfileAlias}
+      />
     </Sidebar>
   )
 }

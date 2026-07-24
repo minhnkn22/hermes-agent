@@ -127,8 +127,12 @@ navigation preferences:
 - Sidebar display aliases are renderer-local labels stored in localStorage.
   They only change what the profile rail/dropdown shows.
 - Sidebar profile pins are also renderer-local. They sort pinned profiles first
-  in the profile rail/dropdown, while preserving the existing drag order inside
-  the pinned and unpinned groups.
+  in both the agent session list and profile rail/dropdown, while preserving the
+  existing drag order inside the pinned and unpinned groups.
+- Agent headers expose the same preferences through a hover action menu and a
+  right-click context menu: pin/unpin, edit the cosmetic display name, or rename
+  the underlying profile. A real rename migrates the renderer-local pin, order,
+  display alias, and color to the new runtime key.
 
 Use the real profile rename flow only when the underlying profile directory and
 runtime identity should change. Use the sidebar display-name action when the
