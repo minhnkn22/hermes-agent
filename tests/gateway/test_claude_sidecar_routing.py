@@ -1,0 +1,227 @@
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+
+import pytest
+
+from gateway.claude_sidecar import (
+    CLAUDE_SIDECAR_TRANSCRIPT_MARKER,
+    ClaudeModeStateStore,
+    ClaudeSessionState,
+    ClaudeSidecarConfig,
+    ClaudeTurnLockRegistry,
+)
+from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.platforms.base import MessageEvent, MessageType
+from gateway.run import GatewayRunner, _build_replay_entry
+from gateway.session import SessionSource
+from hermes_cli.commands import resolve_command
+
+
+def test_claude_mode_commands_are_registered():
+    for name in ("claude", "codex", "opus", "sonnet", "exec"):
+        assert resolve_command(name) is not None
+
+
+def test_should_route_to_claude_respects_force_codex_and_state(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(default_mode="claude")
+    runner._claude_sidecar_config = lambda: config
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_state.set_mode("k", "claude", config)
+
+    event = MessageEvent(
+        text="hello",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+    assert runner._should_route_to_claude_sidecar(event, "k") is True
+
+    setattr(event, "force_codex", True)
+    assert runner._should_route_to_claude_sidecar(event, "k") is False
+
+
+def test_should_route_to_claude_respects_disabled_config(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(enabled=False, default_mode="claude")
+    runner._claude_sidecar_config = lambda: config
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    event = MessageEvent(
+        text="/claude hi",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    setattr(event, "force_claude", True)
+    assert runner._should_route_to_claude_sidecar(event, "k") is False
+
+
+def test_exec_requires_explicit_slash_admin():
+    runner = object.__new__(GatewayRunner)
+    runner.config = GatewayConfig(
+        platforms={
+            Platform.TELEGRAM: PlatformConfig(
+                enabled=True,
+                token="***",
+                extra={"allow_admin_from": ["111"]},
+            )
+        }
+    )
+    admin = SessionSource(
+        platform=Platform.TELEGRAM,
+        chat_id="1",
+        chat_type="dm",
+        user_id="111",
+    )
+    user = SessionSource(
+        platform=Platform.TELEGRAM,
+        chat_id="1",
+        chat_type="dm",
+        user_id="999",
+    )
+
+    assert runner._check_explicit_slash_admin(admin, "exec") is None
+    assert "requires a configured" in runner._check_explicit_slash_admin(user, "exec")
+
+    runner.config = GatewayConfig(
+        platforms={
+            Platform.TELEGRAM: PlatformConfig(
+                enabled=True,
+                token="***",
+                extra={},
+            )
+        }
+    )
+    assert "requires a configured" in runner._check_explicit_slash_admin(admin, "exec")
+
+
+@pytest.mark.asyncio
+async def test_claude_model_command_with_prompt_falls_through(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(
+        default_mode="codex",
+        default_model="sonnet",
+        opus_model="claude-opus-test",
+    )
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_config = lambda: config
+    runner.session_store = SimpleNamespace(
+        get_or_create_session=lambda source: SimpleNamespace(session_key="session-key")
+    )
+    event = MessageEvent(
+        text="/opus advise me",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    result = await runner._handle_claude_model_command(event, "opus")
+
+    state = runner._claude_sidecar_state.get("session-key", config)
+    assert result is None
+    assert event.text == "advise me"
+    assert getattr(event, "force_claude") is True
+    assert state.mode == "claude"
+    assert state.model == "opus"
+
+
+@pytest.mark.asyncio
+async def test_claude_model_command_without_prompt_returns_confirmation(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(
+        default_mode="codex",
+        sonnet_model="claude-sonnet-test",
+    )
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_config = lambda: config
+    runner.session_store = SimpleNamespace(
+        get_or_create_session=lambda source: SimpleNamespace(session_key="session-key")
+    )
+    event = MessageEvent(
+        text="/sonnet",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    result = await runner._handle_claude_model_command(event, "sonnet")
+
+    assert result == "Claude conversation mode is on using `claude-sonnet-test`."
+    assert not hasattr(event, "force_claude")
+
+
+@pytest.mark.asyncio
+async def test_claude_command_denies_when_disabled(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(enabled=False)
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_config = lambda: config
+    runner.session_store = SimpleNamespace(
+        get_or_create_session=lambda source: SimpleNamespace(session_key="session-key")
+    )
+    event = MessageEvent(
+        text="/claude say hello",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    result = await runner._handle_claude_command(event)
+
+    assert result == "Claude conversation mode is disabled for this gateway profile."
+    assert event.text == "/claude say hello"
+    assert not hasattr(event, "force_claude")
+
+
+@pytest.mark.asyncio
+async def test_run_claude_sidecar_agent_returns_agent_result_shape(monkeypatch):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(default_model="opus", workdir="/tmp")
+    state = ClaudeSessionState(
+        mode="claude",
+        model="opus",
+        claude_session_id=str(uuid.uuid4()),
+    )
+    runner._claude_sidecar_state_for = lambda session_key: (config, state)
+    runner._claude_turn_locks = ClaudeTurnLockRegistry()
+    runner._claude_sidecar_state = object()
+
+    async def fake_run_claude_conversation(**kwargs):
+        assert kwargs["message"] == "hi"
+        assert kwargs["context_prompt"] == "ctx"
+        assert kwargs["shared_history"] == [{"role": "session_meta", "content": ""}]
+        assert kwargs["session_key"] == "session-key"
+        return "hello from claude"
+
+    monkeypatch.setattr(
+        "gateway.claude_sidecar.run_claude_conversation",
+        fake_run_claude_conversation,
+    )
+
+    result = await runner._run_claude_sidecar_agent(
+        message="hi",
+        context_prompt="ctx",
+        history=[{"role": "session_meta", "content": ""}],
+        session_key="session-key",
+        session_id="sid",
+    )
+
+    assert result["final_response"] == "hello from claude"
+    assert result["history_offset"] == 1
+    assert result["session_id"] == "sid"
+    assert result["model"] == "claude:opus"
+    assert result["messages"][-2:] == [
+        {"role": "user", "content": "hi"},
+        {
+            "role": "assistant",
+            "content": f"hello from claude\n\n{CLAUDE_SIDECAR_TRANSCRIPT_MARKER}",
+        },
+    ]
+
+
+def test_replay_entry_strips_claude_sidecar_marker():
+    entry = _build_replay_entry(
+        "assistant",
+        f"visible answer\n\n{CLAUDE_SIDECAR_TRANSCRIPT_MARKER}",
+        {},
+    )
+
+    assert entry == {"role": "assistant", "content": "visible answer"}

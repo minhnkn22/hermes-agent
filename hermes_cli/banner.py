@@ -195,6 +195,22 @@ def _check_via_local_git(repo_dir: Path) -> Optional[int]:
     """Count commits behind origin/main in a local checkout."""
     origin_url = _git_stdout(["remote", "get-url", "origin"], cwd=repo_dir)
     if _is_official_ssh_remote(origin_url):
+        try:
+            subprocess.run(
+                ["git", "fetch", "origin", "--quiet"],
+                capture_output=True, timeout=10, cwd=str(repo_dir),
+            )
+        except Exception:
+            pass
+        try:
+            result = subprocess.run(
+                ["git", "rev-list", "--count", "HEAD..origin/main"],
+                capture_output=True, text=True, timeout=5, cwd=str(repo_dir),
+            )
+            if result.returncode == 0:
+                return int(result.stdout.strip())
+        except Exception:
+            pass
         head_rev = _git_stdout(["rev-parse", "HEAD"], cwd=repo_dir)
         checked = _check_via_rev(head_rev) if head_rev else None
         if checked == UPDATE_AVAILABLE_NO_COUNT:

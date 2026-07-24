@@ -3441,12 +3441,25 @@ def _print_loopback_ssh_hint(redirect_uri: str, *, docs_url: str | None = None) 
 # where one app's refresh invalidates the other's session.
 # =============================================================================
 
-def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
-    """Read Codex OAuth tokens from Hermes auth store (~/.hermes/auth.json).
+def _read_codex_tokens(*, _lock: bool = True, _prefer_shared: bool = True) -> Dict[str, Any]:
+    """Read Codex OAuth tokens from the shared store or profile auth cache.
     
     Returns dict with 'tokens' (access_token, refresh_token) and 'last_refresh'.
     Raises AuthError if no Codex tokens are stored.
     """
+    if _prefer_shared:
+        shared = _read_shared_codex_state()
+        if shared:
+            return {
+                "tokens": {
+                    "access_token": shared["access_token"],
+                    "refresh_token": shared["refresh_token"],
+                    "token_type": shared.get("token_type") or "Bearer",
+                },
+                "last_refresh": shared.get("last_refresh"),
+                "source": "shared-codex-auth-store",
+            }
+
     if _lock:
         with _auth_store_lock():
             auth_store = _load_auth_store()
@@ -3487,6 +3500,7 @@ def _read_codex_tokens(*, _lock: bool = True) -> Dict[str, Any]:
     return {
         "tokens": tokens,
         "last_refresh": state.get("last_refresh"),
+        "source": "profile-auth-store",
     }
 
 
@@ -3591,8 +3605,155 @@ def _sync_codex_pool_entries(
         entry["last_error_reset_at"] = None
 
 
-def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: str = None) -> None:
-    """Save Codex OAuth tokens to Hermes auth store (~/.hermes/auth.json)."""
+CODEX_SHARED_STORE_FILENAME = "codex_auth.json"
+_codex_shared_lock_holder = threading.local()
+
+
+def _codex_shared_auth_dir() -> Path:
+    """Resolve the directory that holds the shared Codex token store."""
+    override = os.getenv("HERMES_CODEX_SHARED_AUTH_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
+    override = os.getenv("HERMES_SHARED_AUTH_DIR", "").strip()
+    if override:
+        return Path(override).expanduser()
+    from hermes_constants import get_default_hermes_root
+    return get_default_hermes_root() / "shared"
+
+
+def _codex_shared_store_path() -> Path:
+    path = _codex_shared_auth_dir() / CODEX_SHARED_STORE_FILENAME
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        from hermes_constants import get_default_hermes_root
+        real_home_shared = (
+            get_default_hermes_root() / "shared" / CODEX_SHARED_STORE_FILENAME
+        ).resolve(strict=False)
+        try:
+            resolved = path.resolve(strict=False)
+        except Exception:
+            resolved = path
+        if resolved == real_home_shared:
+            raise RuntimeError(
+                f"Refusing to touch real user shared Codex auth store during test run: "
+                f"{path}. Set HERMES_CODEX_SHARED_AUTH_DIR or HERMES_SHARED_AUTH_DIR "
+                "to a tmp_path in your test fixture."
+            )
+    return path
+
+
+@contextmanager
+def _codex_shared_store_lock(timeout_seconds: float = AUTH_LOCK_TIMEOUT_SECONDS):
+    """Cross-profile lock for the shared Codex OAuth store."""
+    try:
+        lock_path = _codex_shared_store_path().with_suffix(".lock")
+    except RuntimeError:
+        yield
+        return
+    with _file_lock(
+        lock_path,
+        _codex_shared_lock_holder,
+        timeout_seconds,
+        "Timed out waiting for shared Codex auth lock",
+    ):
+        yield
+
+
+def _read_shared_codex_state() -> Optional[Dict[str, Any]]:
+    """Read the shared Codex OAuth state, returning None when unusable."""
+    try:
+        path = _codex_shared_store_path()
+        if not path.is_file():
+            return None
+        with _codex_shared_store_lock():
+            raw = json.loads(path.read_text())
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    access_token = raw.get("access_token")
+    refresh_token = raw.get("refresh_token")
+    if not (isinstance(access_token, str) and access_token.strip()):
+        return None
+    if not (isinstance(refresh_token, str) and refresh_token.strip()):
+        return None
+    return raw
+
+
+def _write_shared_codex_state(
+    tokens: Dict[str, str],
+    last_refresh: Optional[str] = None,
+    *,
+    _lock: bool = True,
+) -> None:
+    """Persist Codex OAuth tokens to the cross-profile shared store."""
+    access_token = tokens.get("access_token")
+    refresh_token = tokens.get("refresh_token")
+    if not (isinstance(access_token, str) and access_token.strip()):
+        return
+    if not (isinstance(refresh_token, str) and refresh_token.strip()):
+        return
+    shared = {
+        "_schema": 1,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": tokens.get("token_type") or "Bearer",
+        "auth_mode": "chatgpt",
+        "last_refresh": last_refresh,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    def _write() -> None:
+        path = _codex_shared_store_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        secure_parent_dir(path)
+        tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}")
+        fd = os.open(
+            str(tmp),
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            stat.S_IRUSR | stat.S_IWUSR,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(shared, indent=2, sort_keys=True) + "\n")
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+            try:
+                dir_fd = os.open(str(path.parent), os.O_RDONLY)
+            except OSError:
+                dir_fd = None
+            if dir_fd is not None:
+                try:
+                    os.fsync(dir_fd)
+                finally:
+                    os.close(dir_fd)
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+        try:
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        except OSError:
+            pass
+
+    try:
+        if _lock:
+            with _codex_shared_store_lock():
+                _write()
+        else:
+            _write()
+    except Exception as exc:
+        logger.debug("Failed to write shared Codex auth store: %s", exc)
+
+
+def _mirror_codex_tokens_to_profile(
+    tokens: Dict[str, str],
+    last_refresh: str,
+    label: str = None,
+) -> None:
+    """Mirror shared Codex OAuth tokens into the profile-local auth store."""
     if last_refresh is None:
         last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     with _auth_store_lock():
@@ -3609,6 +3770,7 @@ def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: 
         state["auth_mode"] = "chatgpt"
         if label and str(label).strip():
             state["label"] = str(label).strip()
+        state.pop("last_auth_error", None)
         _save_provider_state(auth_store, "openai-codex", state)
         _sync_codex_pool_entries(
             auth_store,
@@ -3617,6 +3779,14 @@ def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: 
             previous_singleton_tokens=previous_singleton_tokens,
         )
         _save_auth_store(auth_store)
+
+
+def _save_codex_tokens(tokens: Dict[str, str], last_refresh: str = None, label: str = None) -> None:
+    """Save Codex OAuth tokens to the shared store and profile auth cache."""
+    if last_refresh is None:
+        last_refresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _write_shared_codex_state(tokens, last_refresh)
+    _mirror_codex_tokens_to_profile(tokens, last_refresh, label=label)
 
 
 def _recover_codex_tokens_from_cli(reason: str) -> Optional[Dict[str, str]]:
@@ -3962,9 +4132,15 @@ def resolve_codex_runtime_credentials(
     if (not should_refresh) and refresh_if_expiring:
         should_refresh = _codex_access_token_is_expiring(access_token, refresh_skew_seconds)
     if should_refresh:
-        # Re-read under lock to avoid racing with other Hermes processes
-        with _auth_store_lock(timeout_seconds=max(float(AUTH_LOCK_TIMEOUT_SECONDS), refresh_timeout_seconds + 5.0)):
-            data = _read_codex_tokens(_lock=False)
+        # Re-read under the shared Codex lock to avoid racing refresh-token
+        # rotation across gateway processes/profiles.
+        with _codex_shared_store_lock(
+            timeout_seconds=max(
+                float(AUTH_LOCK_TIMEOUT_SECONDS),
+                refresh_timeout_seconds + 5.0,
+            )
+        ):
+            data = _read_codex_tokens(_prefer_shared=True)
             tokens = dict(data["tokens"])
             access_token = str(tokens.get("access_token", "") or "").strip()
 
@@ -3975,6 +4151,12 @@ def resolve_codex_runtime_credentials(
             if should_refresh:
                 tokens = _refresh_codex_auth_tokens(tokens, refresh_timeout_seconds)
                 access_token = str(tokens.get("access_token", "") or "").strip()
+                data = {"tokens": tokens, "last_refresh": time.time(), "source": "shared-codex-auth-store"}
+
+            try:
+                _mirror_codex_tokens_to_profile(tokens, data.get("last_refresh"))
+            except Exception:
+                logger.debug("Failed to mirror shared Codex tokens to profile auth store", exc_info=True)
 
     base_url = (
         os.getenv("HERMES_CODEX_BASE_URL", "").strip().rstrip("/")

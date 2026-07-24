@@ -156,6 +156,45 @@ def test_shared_nous_store_writes_0o600_with_0o700_parent(tmp_path, monkeypatch)
 
 
 # ---------------------------------------------------------------------------
+# Codex shared-credential store write (inside _write_shared_codex_state)
+# ---------------------------------------------------------------------------
+
+
+def test_shared_codex_store_writes_0o600_with_0o700_parent(tmp_path, monkeypatch):
+    """The Codex shared-credential store must land at 0o600 / parent 0o700."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_CODEX_SHARED_AUTH_DIR", str(tmp_path / "shared_codex"))
+    old_umask = os.umask(0o022)
+    try:
+        from hermes_cli import auth as auth_mod
+
+        auth_mod._write_shared_codex_state(
+            {
+                "access_token": "codex-access-xxx",
+                "refresh_token": "codex-refresh-xxx",
+            },
+            last_refresh="2026-06-01T00:00:00Z",
+        )
+        path = auth_mod._codex_shared_store_path()
+    finally:
+        os.umask(old_umask)
+
+    assert path.exists(), "shared Codex store was not written"
+    mode = stat.S_IMODE(path.stat().st_mode)
+    parent_mode = stat.S_IMODE(path.parent.stat().st_mode)
+
+    assert mode == 0o600, (
+        f"Codex shared store mode 0o{mode:o} != 0o600 — TOCTOU race regressed"
+    )
+    assert parent_mode == 0o700, (
+        f"Codex shared store parent dir mode 0o{parent_mode:o} != 0o700"
+    )
+
+    data = json.loads(path.read_text())
+    assert data["refresh_token"] == "codex-refresh-xxx"
+
+
+# ---------------------------------------------------------------------------
 # Atomicity: verify ``os.open`` is called with an explicit 0o600 mode.
 # ---------------------------------------------------------------------------
 

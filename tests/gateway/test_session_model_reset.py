@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from gateway.config import GatewayConfig, Platform, PlatformConfig
+from gateway.claude_sidecar import ClaudeModeStateStore, ClaudeSidecarConfig
 from gateway.platforms.base import MessageEvent
 from gateway.session import SessionEntry, SessionSource, build_session_key
 
@@ -39,6 +40,7 @@ def _make_runner():
     runner._session_model_overrides = {}
     runner._session_reasoning_overrides = {}
     runner._pending_model_notes = {}
+    runner._claude_sidecar_state = None
     runner._background_tasks = set()
 
     session_key = build_session_key(_make_source())
@@ -103,6 +105,23 @@ async def test_new_command_no_override_is_noop():
 
     assert session_key not in runner._session_model_overrides
     assert session_key not in runner._session_reasoning_overrides
+
+
+@pytest.mark.asyncio
+async def test_new_command_clears_claude_sidecar_state(tmp_path):
+    """/new must rotate direct-Claude conversation state for that session."""
+    runner = _make_runner()
+    session_key = build_session_key(_make_source())
+    store = ClaudeModeStateStore(tmp_path / "claude_state.json")
+    config = ClaudeSidecarConfig(default_mode="codex", default_model="sonnet")
+    state = store.set_mode(session_key, "claude", config)
+    runner._claude_sidecar_state = store
+
+    await runner._handle_reset_command(_make_event("/new"))
+
+    reset_state = store.get(session_key, config)
+    assert reset_state.mode == "codex"
+    assert reset_state.claude_session_id != state.claude_session_id
 
 
 @pytest.mark.asyncio

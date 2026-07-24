@@ -765,12 +765,21 @@ class CredentialPool:
         if self.provider != "openai-codex" or entry.source != "device_code":
             return entry
         try:
-            with _auth_store_lock():
-                auth_store = _load_auth_store()
-                state = _load_provider_state(auth_store, "openai-codex")
-            if not isinstance(state, dict):
-                return entry
-            tokens = state.get("tokens")
+            shared = auth_mod._read_shared_codex_state()
+            if isinstance(shared, dict):
+                tokens = {
+                    "access_token": shared.get("access_token", ""),
+                    "refresh_token": shared.get("refresh_token", ""),
+                }
+                last_refresh = shared.get("last_refresh")
+            else:
+                with _auth_store_lock():
+                    auth_store = _load_auth_store()
+                    state = _load_provider_state(auth_store, "openai-codex")
+                if not isinstance(state, dict):
+                    return entry
+                tokens = state.get("tokens")
+                last_refresh = state.get("last_refresh")
             if not isinstance(tokens, dict):
                 return entry
             store_access = tokens.get("access_token", "")
@@ -799,8 +808,8 @@ class CredentialPool:
                     "last_error_message": None,
                     "last_error_reset_at": None,
                 }
-                if state.get("last_refresh"):
-                    field_updates["last_refresh"] = state["last_refresh"]
+                if last_refresh:
+                    field_updates["last_refresh"] = last_refresh
                 updated = replace(entry, **field_updates)
                 self._replace_entry(entry, updated)
                 self._persist()
@@ -1005,6 +1014,15 @@ class CredentialPool:
         # and must not write back to the singleton.  All singleton-seeded
         # device-code sources (nous, openai-codex, xAI) use ``device_code``.
         if entry.source != "device_code":
+            return
+        if self.provider == "openai-codex":
+            auth_mod._save_codex_tokens(
+                {
+                    "access_token": entry.access_token,
+                    "refresh_token": entry.refresh_token,
+                },
+                entry.last_refresh,
+            )
             return
         try:
             with _auth_store_lock():
