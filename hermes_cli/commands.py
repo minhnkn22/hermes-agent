@@ -135,6 +135,8 @@ COMMAND_REGISTRY: list[CommandDef] = [
                args_hint="[model] [--provider name] [--global|--session] [--refresh]"),
     CommandDef("claude", "Switch to direct Claude conversation mode",
                "Configuration", args_hint="[status|sonnet|opus|fable|prompt]"),
+    CommandDef("kimi", "Switch to direct Kimi K3 conversation mode",
+               "Configuration", args_hint="[status|prompt]"),
     CommandDef("codex", "Switch back to normal Codex/Hermes execution mode",
                "Configuration", args_hint="[prompt]"),
     CommandDef("opus", "Use Claude Opus conversation mode",

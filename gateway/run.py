@@ -940,6 +940,7 @@ _ASSISTANT_REPLAY_FIELDS: tuple[str, ...] = (
 )
 
 _CLAUDE_SIDECAR_TRANSCRIPT_MARKER = "<!-- hermes:claude-sidecar -->"
+_KIMI_SIDECAR_TRANSCRIPT_MARKER = "<!-- hermes:kimi-sidecar -->"
 
 
 def _build_replay_entry(
@@ -972,7 +973,11 @@ def _build_replay_entry(
     providers.
     """
     if role == "assistant" and isinstance(content, str):
-        content = content.replace(_CLAUDE_SIDECAR_TRANSCRIPT_MARKER, "").strip()
+        content = (
+            content.replace(_CLAUDE_SIDECAR_TRANSCRIPT_MARKER, "")
+            .replace(_KIMI_SIDECAR_TRANSCRIPT_MARKER, "")
+            .strip()
+        )
     entry: Dict[str, Any] = {"role": role, "content": content}
     # api_content sidecar (persist-what-you-send, prompt-cache stability):
     # forward the exact bytes previously sent to the API for this message so
@@ -3513,6 +3518,7 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         from gateway.claude_sidecar import ClaudeModeStateStore, ClaudeTurnLockRegistry
         self._claude_sidecar_state = ClaudeModeStateStore()
         self._claude_turn_locks = ClaudeTurnLockRegistry()
+        self._kimi_turn_locks = ClaudeTurnLockRegistry()
         self._kanban_notifier_profile = self._active_profile_name()
         # Teams meeting pipeline runtime (bound later when msgraph_webhook adapter exists).
         self._teams_pipeline_runtime = None
@@ -11605,6 +11611,13 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             command = None
             canonical = None
 
+        if canonical == "kimi":
+            _mode_result = await self._handle_kimi_command(event)
+            if _mode_result is not None:
+                return _mode_result
+            command = None
+            canonical = None
+
         if canonical == "codex":
             _mode_result = await self._handle_codex_command(event)
             if _mode_result is not None:
@@ -12710,6 +12723,21 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             return True
         return bool(config.enabled and state.mode == "claude")
 
+    def _should_route_to_kimi_sidecar(self, event: MessageEvent, session_key: str) -> bool:
+        if getattr(event, "force_codex", False) or getattr(event, "force_claude", False):
+            return False
+        try:
+            config = self._claude_sidecar_config()
+            state = self._claude_sidecar_state.peek(session_key, config)
+        except Exception as exc:
+            logger.debug("Kimi sidecar state lookup failed: %s", exc)
+            return False
+        if not config.kimi_enabled:
+            return False
+        if getattr(event, "force_kimi", False):
+            return True
+        return state.mode == "kimi"
+
     async def _run_claude_sidecar_agent(
         self,
         *,
@@ -12750,6 +12778,48 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             "session_id": session_id,
             "response_previewed": False,
             "model": f"claude:{config.resolve_model(state.model)}",
+        }
+
+    async def _run_kimi_sidecar_agent(
+        self,
+        *,
+        message: str,
+        context_prompt: str,
+        history: List[Dict[str, Any]],
+        session_key: str,
+        session_id: str,
+    ) -> Dict[str, Any]:
+        from gateway.kimi_sidecar import run_kimi_conversation
+
+        config, state = self._claude_sidecar_state_for(session_key)
+        lock = await self._kimi_turn_locks.get(session_key)
+        async with lock:
+            response = await run_kimi_conversation(
+                message=message,
+                config=config,
+                state=state,
+                context_prompt=context_prompt,
+                shared_history=history,
+                state_store=self._claude_sidecar_state,
+                session_key=session_key,
+            )
+
+        messages = list(history or []) + [
+            {"role": "user", "content": message},
+            {
+                "role": "assistant",
+                "content": f"{response}\n\n{_KIMI_SIDECAR_TRANSCRIPT_MARKER}",
+            },
+        ]
+        return {
+            "final_response": response,
+            "messages": messages,
+            "api_calls": 1,
+            "tools": [],
+            "history_offset": len(history or []),
+            "session_id": session_id,
+            "response_previewed": False,
+            "model": f"kimi:{config.kimi_model}",
         }
 
     async def _handle_message_with_agent(self, event, source, _quick_key: str, run_generation: int):
@@ -13819,6 +13889,14 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             _run_start_session_id = session_entry.session_id
             if self._should_route_to_claude_sidecar(event, session_key):
                 agent_result = await self._run_claude_sidecar_agent(
+                    message=message_text,
+                    context_prompt=context_prompt,
+                    history=history,
+                    session_key=session_key,
+                    session_id=_run_start_session_id,
+                )
+            elif self._should_route_to_kimi_sidecar(event, session_key):
+                agent_result = await self._run_kimi_sidecar_agent(
                     message=message_text,
                     context_prompt=context_prompt,
                     history=history,
@@ -16026,6 +16104,38 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             return "Codex/Hermes execution mode is on."
         event.text = args
         setattr(event, "force_codex", True)
+        return None
+
+    async def _handle_kimi_command(self, event: MessageEvent) -> Optional[str]:
+        """Switch current session to direct Kimi Code ACP conversation mode."""
+        source = event.source
+        session_entry = self.session_store.get_or_create_session(source)
+        session_key = session_entry.session_key
+        config = self._claude_sidecar_config()
+        args = event.get_command_args().strip()
+        lowered = args.lower()
+
+        if lowered in {"status", "mode"}:
+            state = self._claude_sidecar_state.get(session_key, config)
+            enabled = "enabled" if config.kimi_enabled else "disabled"
+            session_id = state.kimi_session_id or "not started"
+            return (
+                f"Kimi sidecar: `{enabled}`\n"
+                f"Conversation mode: `{state.mode}`\n"
+                f"Kimi model: `{config.kimi_model}`\n"
+                f"Kimi ACP mode: `{config.kimi_mode}`\n"
+                f"Kimi session: `{session_id}`"
+            )
+
+        if not config.kimi_enabled:
+            return "Kimi conversation mode is disabled for this gateway profile."
+
+        self._claude_sidecar_state.set_mode(session_key, "kimi", config)
+        if not args:
+            return f"Kimi conversation mode is on using `{config.kimi_model}`."
+
+        event.text = args
+        setattr(event, "force_kimi", True)
         return None
 
     async def _handle_claude_model_command(

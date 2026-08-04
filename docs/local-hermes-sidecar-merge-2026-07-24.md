@@ -3,7 +3,8 @@
 ## Context
 
 This machine runs multiple local Hermes Telegram clusters with Codex as the
-primary driver and Claude sidecar conversation modes for selected agents.
+primary driver and persistent Claude or Kimi ACP conversation modes for
+selected agents.
 The upstream Hermes checkout was updated from the older local install while
 preserving local patches that were saved in
 `stash@{0}: hermes-install-autostash-20260724-030227`.
@@ -12,6 +13,14 @@ preserving local patches that were saved in
 
 - Telegram slash commands for Claude sidecar mode: `/claude`, `/codex`,
   `/opus`, `/sonnet`, `/fable`, and `/exec`.
+- `/kimi` switches the current gateway session to Kimi K3 over the official
+  `kimi acp` protocol. Kimi sessions persist across turns and gateway restarts
+  via ACP `session/load`; `/codex` switches back to normal Hermes execution.
+- Kimi defaults to read-only `plan` mode. Profiles that intentionally permit
+  Kimi to execute tools must set both `conversation.allow_mutating_tools: true`
+  and `conversation.kimi_mode: auto` (or `yolo`). Set
+  `conversation.kimi_bin` when the Kimi Code binary is outside the gateway's
+  service `PATH`.
 - Claude sidecar model settings stay alias-based (`sonnet`, `opus`, `fable`)
   so Claude Code resolves the latest subscribed model behind each alias. Use
   explicit model IDs only when a profile must pin a specific release.
@@ -43,11 +52,12 @@ preserving local patches that were saved in
 Run from `/Users/nmmacmini/.hermes/hermes-agent`:
 
 ```bash
-venv/bin/python -m py_compile gateway/run.py gateway/claude_sidecar.py hermes_cli/auth.py hermes_cli/commands.py hermes_cli/model_switch.py agent/credential_pool.py
+venv/bin/python -m py_compile gateway/run.py gateway/claude_sidecar.py gateway/kimi_sidecar.py hermes_cli/auth.py hermes_cli/commands.py hermes_cli/model_switch.py agent/credential_pool.py
 tmpdir=$(mktemp -d)
 HERMES_CODEX_SHARED_AUTH_DIR="$tmpdir" PYTHONPATH=. uv run --extra dev pytest -q \
   tests/gateway/test_claude_sidecar.py \
   tests/gateway/test_claude_sidecar_routing.py \
+  tests/gateway/test_kimi_sidecar.py \
   tests/gateway/test_session_model_reset.py \
   tests/hermes_cli/test_auth_codex_provider.py \
   tests/hermes_cli/test_auth_toctou_file_modes.py \

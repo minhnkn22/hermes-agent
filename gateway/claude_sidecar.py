@@ -34,9 +34,13 @@ DEFAULT_CLAUDE_TIMEOUT_SECONDS = 600
 DEFAULT_CLAUDE_MAX_TURNS = 60
 MIN_CLAUDE_MAX_TURNS = 1
 MAX_CLAUDE_MAX_TURNS = 60
+DEFAULT_KIMI_BIN = "kimi"
+DEFAULT_KIMI_MODEL = "kimi-code/k3"
+DEFAULT_KIMI_TIMEOUT_SECONDS = 600
 
-VALID_MODES = frozenset({"codex", "claude"})
+VALID_MODES = frozenset({"codex", "claude", "kimi"})
 VALID_PERMISSION_MODES = frozenset({"default", "acceptEdits", "bypassPermissions", "plan"})
+VALID_KIMI_MODES = frozenset({"default", "plan", "auto", "yolo"})
 MUTATING_TOOL_ROOTS = frozenset(
     {
         "bash",
@@ -77,6 +81,11 @@ class ClaudeSidecarConfig:
     prompt_files: tuple[str, ...] = ()
     include_context_prompt: bool = True
     append_system_prompt: str = ""
+    kimi_enabled: bool = True
+    kimi_bin: str = DEFAULT_KIMI_BIN
+    kimi_model: str = DEFAULT_KIMI_MODEL
+    kimi_mode: str = "plan"
+    kimi_timeout_seconds: int = DEFAULT_KIMI_TIMEOUT_SECONDS
 
     @classmethod
     def from_gateway_config(
@@ -134,6 +143,11 @@ class ClaudeSidecarConfig:
             permission_mode,
             allow_mutating_tools=allow_mutating_tools,
         )
+        kimi_mode = _normalize_kimi_mode(raw.get("kimi_mode"))
+        if kimi_mode in {"auto", "yolo"} and not allow_mutating_tools:
+            raise ValueError(
+                f"Kimi conversation mode `{kimi_mode}` requires allow_mutating_tools"
+            )
 
         return cls(
             enabled=is_truthy_value(raw.get("enabled"), default=True),
@@ -156,6 +170,16 @@ class ClaudeSidecarConfig:
                 default=True,
             ),
             append_system_prompt=append_system_prompt,
+            kimi_enabled=is_truthy_value(raw.get("kimi_enabled"), default=True),
+            kimi_bin=str(raw.get("kimi_bin") or DEFAULT_KIMI_BIN),
+            kimi_model=str(raw.get("kimi_model") or DEFAULT_KIMI_MODEL),
+            kimi_mode=kimi_mode,
+            kimi_timeout_seconds=_bounded_int(
+                raw.get("kimi_timeout_seconds"),
+                default=DEFAULT_KIMI_TIMEOUT_SECONDS,
+                minimum=30,
+                maximum=3600,
+            ),
         )
 
     def resolve_model(self, requested: str | None = None) -> str:
@@ -175,6 +199,8 @@ class ClaudeSessionState:
     model: str
     claude_session_id: str
     created: bool = False
+    kimi_session_id: str = ""
+    kimi_created: bool = False
 
 
 class ClaudeModeStateStore:
@@ -208,6 +234,8 @@ class ClaudeModeStateStore:
                 "model": state.model,
                 "claude_session_id": state.claude_session_id,
                 "created": state.created,
+                "kimi_session_id": state.kimi_session_id,
+                "kimi_created": state.kimi_created,
             }
             return self._state_from_data(data, session_key, config)
 
@@ -225,6 +253,8 @@ class ClaudeModeStateStore:
                 "model": _normalize_model(model, default=config.default_model),
                 "claude_session_id": state.claude_session_id,
                 "created": state.created,
+                "kimi_session_id": state.kimi_session_id,
+                "kimi_created": state.kimi_created,
             }
             return self._state_from_data(data, session_key, config)
 
@@ -241,6 +271,31 @@ class ClaudeModeStateStore:
                 "model": state.model,
                 "claude_session_id": state.claude_session_id,
                 "created": True,
+                "kimi_session_id": state.kimi_session_id,
+                "kimi_created": state.kimi_created,
+            }
+            return self._state_from_data(data, session_key, config)
+
+    def set_kimi_session(
+        self,
+        session_key: str,
+        kimi_session_id: str,
+        config: ClaudeSidecarConfig,
+    ) -> ClaudeSessionState:
+        """Persist the ACP-created Kimi session for future ``session/load`` calls."""
+        sid = str(kimi_session_id or "").strip()
+        if not sid:
+            raise ValueError("kimi_session_id is required")
+        with self._locked_data() as data:
+            state = self._state_from_data(data, session_key, config)
+            sessions = data.setdefault("sessions", {})
+            sessions[session_key] = {
+                "mode": state.mode,
+                "model": state.model,
+                "claude_session_id": state.claude_session_id,
+                "created": state.created,
+                "kimi_session_id": sid,
+                "kimi_created": True,
             }
             return self._state_from_data(data, session_key, config)
 
@@ -303,6 +358,8 @@ class ClaudeModeStateStore:
             "model": state.model,
             "claude_session_id": state.claude_session_id,
             "created": state.created,
+            "kimi_session_id": state.kimi_session_id,
+            "kimi_created": state.kimi_created,
         }
         return state
 
@@ -317,6 +374,8 @@ class ClaudeModeStateStore:
         model = _normalize_model(raw.get("model"), default=config.default_model)
         sid = str(raw.get("claude_session_id") or "")
         created = bool(raw.get("created"))
+        kimi_session_id = str(raw.get("kimi_session_id") or "").strip()
+        kimi_created = bool(raw.get("kimi_created") and kimi_session_id)
         if not _is_uuid(sid):
             sid = str(uuid.uuid4())
             created = False
@@ -325,6 +384,8 @@ class ClaudeModeStateStore:
             model=model,
             claude_session_id=sid,
             created=created,
+            kimi_session_id=kimi_session_id,
+            kimi_created=kimi_created,
         )
 
 
@@ -506,6 +567,11 @@ def _normalize_permission_mode(value: Any) -> str:
     return mode if mode in VALID_PERMISSION_MODES else "plan"
 
 
+def _normalize_kimi_mode(value: Any) -> str:
+    mode = str(value or "plan").strip().lower() or "plan"
+    return mode if mode in VALID_KIMI_MODES else "plan"
+
+
 def _normalize_tool_csv(value: Any) -> str:
     if value is None:
         return ""
@@ -544,10 +610,15 @@ def _format_shared_history(
     *,
     max_messages: int = 24,
     max_chars: int = 16000,
+    sidecar_marker: str = CLAUDE_SIDECAR_TRANSCRIPT_MARKER,
 ) -> str:
-    """Render recent Hermes transcript rows for Claude's sidecar prompt."""
+    """Render transcript rows not already held by the selected sidecar session."""
     rendered: list[str] = []
-    selected = _select_shared_history_for_claude(history, max_messages=max_messages)
+    selected = _select_shared_history_for_sidecar(
+        history,
+        max_messages=max_messages,
+        sidecar_marker=sidecar_marker,
+    )
     for msg in selected:
         if not isinstance(msg, dict):
             continue
@@ -561,7 +632,12 @@ def _format_shared_history(
         if not text:
             continue
         if role == "assistant":
-            text = _strip_sidecar_marker(text).strip()
+            text = (
+                text.replace(sidecar_marker, "")
+                .replace(CLAUDE_SIDECAR_TRANSCRIPT_MARKER, "")
+                .replace("<!-- hermes:kimi-sidecar -->", "")
+                .strip()
+            )
         if role == "tool":
             tool_name = str(msg.get("tool_name") or "tool").strip()
             rendered.append(f"tool result ({tool_name}): {text}")
@@ -582,7 +658,21 @@ def _select_shared_history_for_claude(
     *,
     max_messages: int,
 ) -> list[dict[str, Any]]:
-    """Choose transcript rows Claude does not already have in its own session."""
+    """Backward-compatible Claude wrapper for sidecar history selection."""
+    return _select_shared_history_for_sidecar(
+        history,
+        max_messages=max_messages,
+        sidecar_marker=CLAUDE_SIDECAR_TRANSCRIPT_MARKER,
+    )
+
+
+def _select_shared_history_for_sidecar(
+    history: list[dict[str, Any]],
+    *,
+    max_messages: int,
+    sidecar_marker: str,
+) -> list[dict[str, Any]]:
+    """Choose transcript rows the active persistent sidecar does not own."""
     filtered: list[dict[str, Any]] = []
     skip_previous_user = False
     for msg in reversed(history or []):
@@ -593,7 +683,7 @@ def _select_shared_history_for_claude(
         is_sidecar_assistant = (
             role == "assistant"
             and isinstance(content, str)
-            and CLAUDE_SIDECAR_TRANSCRIPT_MARKER in content
+            and sidecar_marker in content
         )
         if is_sidecar_assistant:
             skip_previous_user = True

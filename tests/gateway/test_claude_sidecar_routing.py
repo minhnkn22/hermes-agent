@@ -20,7 +20,7 @@ from hermes_cli.commands import resolve_command
 
 
 def test_claude_mode_commands_are_registered():
-    for name in ("claude", "codex", "opus", "sonnet", "fable", "exec"):
+    for name in ("claude", "kimi", "codex", "opus", "sonnet", "fable", "exec"):
         assert resolve_command(name) is not None
 
 
@@ -254,6 +254,46 @@ async def test_run_claude_sidecar_agent_returns_agent_result_shape(monkeypatch):
     ]
 
 
+@pytest.mark.asyncio
+async def test_run_kimi_sidecar_agent_returns_agent_result_shape(monkeypatch):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(kimi_model="kimi-code/k3", workdir="/tmp")
+    state = ClaudeSessionState(
+        mode="kimi",
+        model="sonnet",
+        claude_session_id=str(uuid.uuid4()),
+        kimi_session_id="session_test",
+        kimi_created=True,
+    )
+    runner._claude_sidecar_state_for = lambda session_key: (config, state)
+    runner._kimi_turn_locks = ClaudeTurnLockRegistry()
+    runner._claude_sidecar_state = object()
+
+    async def fake_run_kimi_conversation(**kwargs):
+        assert kwargs["message"] == "hi"
+        assert kwargs["session_key"] == "session-key"
+        return "hello from kimi"
+
+    monkeypatch.setattr(
+        "gateway.kimi_sidecar.run_kimi_conversation",
+        fake_run_kimi_conversation,
+    )
+
+    result = await runner._run_kimi_sidecar_agent(
+        message="hi",
+        context_prompt="ctx",
+        history=[],
+        session_key="session-key",
+        session_id="sid",
+    )
+
+    assert result["final_response"] == "hello from kimi"
+    assert result["model"] == "kimi:kimi-code/k3"
+    assert result["messages"][-1]["content"].endswith(
+        "<!-- hermes:kimi-sidecar -->"
+    )
+
+
 def test_replay_entry_strips_claude_sidecar_marker():
     entry = _build_replay_entry(
         "assistant",
@@ -262,3 +302,54 @@ def test_replay_entry_strips_claude_sidecar_marker():
     )
 
     assert entry == {"role": "assistant", "content": "visible answer"}
+
+
+def test_replay_entry_strips_kimi_sidecar_marker():
+    entry = _build_replay_entry(
+        "assistant",
+        "visible answer\n\n<!-- hermes:kimi-sidecar -->",
+        {},
+    )
+
+    assert entry == {"role": "assistant", "content": "visible answer"}
+
+
+@pytest.mark.asyncio
+async def test_kimi_command_with_prompt_selects_kimi(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(default_mode="codex", kimi_model="kimi-code/k3")
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_config = lambda: config
+    runner.session_store = SimpleNamespace(
+        get_or_create_session=lambda source: SimpleNamespace(session_key="session-key")
+    )
+    event = MessageEvent(
+        text="/kimi review this",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    result = await runner._handle_kimi_command(event)
+
+    state = runner._claude_sidecar_state.get("session-key", config)
+    assert result is None
+    assert event.text == "review this"
+    assert getattr(event, "force_kimi") is True
+    assert state.mode == "kimi"
+
+
+def test_should_route_to_kimi_respects_state_and_force_claude(tmp_path):
+    runner = object.__new__(GatewayRunner)
+    config = ClaudeSidecarConfig(default_mode="codex", kimi_enabled=True)
+    runner._claude_sidecar_config = lambda: config
+    runner._claude_sidecar_state = ClaudeModeStateStore(tmp_path / "state.json")
+    runner._claude_sidecar_state.set_mode("k", "kimi", config)
+    event = MessageEvent(
+        text="hello",
+        message_type=MessageType.TEXT,
+        source=SessionSource(platform=Platform.TELEGRAM, chat_id="1", chat_type="dm"),
+    )
+
+    assert runner._should_route_to_kimi_sidecar(event, "k") is True
+    setattr(event, "force_claude", True)
+    assert runner._should_route_to_kimi_sidecar(event, "k") is False
