@@ -5,8 +5,9 @@ project locations in the current user's home directory:
 
 - `Documents`, `Desktop`, `Projects`, `Developer`, `Code`, `src`, `Workspace`,
   and `Workspaces`
-- Codex, Hermes, and Atum worktrees under `.codex/worktrees`,
-  `.hermes/worktrees`, and `.atum/worktrees`
+- the installed Hermes repository at `.hermes/hermes-agent`, plus Codex,
+  Hermes, and Atum worktrees under `.codex/worktrees`, `.hermes/worktrees`,
+  and `.atum/worktrees`
 - `/Users/Shared`
 
 `REVIEW_SIDECARS_ALLOWED_ROOTS` adds site-specific or mounted project roots to

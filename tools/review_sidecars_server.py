@@ -86,6 +86,7 @@ DEFAULT_PROJECT_ROOT_RELATIVES = (
     "Workspace",
     "Workspaces",
     ".codex/worktrees",
+    ".hermes/hermes-agent",
     ".hermes/worktrees",
     ".atum/worktrees",
 )

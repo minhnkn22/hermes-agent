@@ -43,6 +43,7 @@ def test_workdir_must_be_inside_configured_root(workspace: Path, tmp_path: Path)
         "Workspace/project",
         "Workspaces/project",
         ".codex/worktrees/feature-a",
+        ".hermes/hermes-agent",
         ".hermes/worktrees/feature-b",
         ".atum/worktrees/feature-c",
     ],
