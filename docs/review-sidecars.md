@@ -1,18 +1,19 @@
 # Review Sidecar Workspace Access
 
-The unified `review-sidecars` MCP server accepts review workdirs under common
-project locations in the current user's home directory:
+The unified `review-sidecars` MCP server accepts any existing project directory
+by default. This includes unusual home-directory layouts, temporary checkouts,
+external volumes, sibling projects, and Codex/Hermes/Atum worktrees.
 
-- `Documents`, `Desktop`, `Projects`, `Developer`, `Code`, `src`, `Workspace`,
-  and `Workspaces`
-- the installed Hermes repository at `.hermes/hermes-agent`, plus Codex,
-  Hermes, and Atum worktrees under `.codex/worktrees`, `.hermes/worktrees`,
-  and `.atum/worktrees`
-- `/Users/Shared`
+Targeted credential and private-data stores remain excluded, including `.ssh`,
+cloud credential directories, keychains, Kimi data, Codex data, Hermes profiles,
+and Atum data. Project exceptions inside those trees remain reviewable:
+`.codex/worktrees`, `.hermes/hermes-agent`, `.hermes/worktrees`, and
+`.atum/worktrees`.
 
-`REVIEW_SIDECARS_ALLOWED_ROOTS` adds site-specific or mounted project roots to
-that list; it does not replace the defaults. Separate multiple roots with the
-platform path separator (`:` on macOS/Linux).
+`REVIEW_SIDECARS_ALLOWED_ROOTS` is an optional administrator lockdown. When it
+is set, reviews are restricted to those roots; when it is unset, there is no
+general project allowlist. Separate multiple roots with the platform path
+separator (`:` on macOS/Linux).
 
 The broader workdir policy does not change provider permissions. Kimi remains
 restricted by the read-only reviewer agent file, Claude remains in plan mode

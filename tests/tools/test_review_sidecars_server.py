@@ -27,7 +27,7 @@ def test_workdir_must_be_inside_configured_root(workspace: Path, tmp_path: Path)
     project = workspace / "project"
     project.mkdir()
     assert review_sidecars._safe_workdir(str(project)) == project.resolve()
-    with pytest.raises(ValueError, match="outside approved workspaces"):
+    with pytest.raises(ValueError, match="outside configured workspaces"):
         review_sidecars._safe_workdir(str(tmp_path))
 
 
@@ -62,23 +62,15 @@ def test_standard_project_and_worktree_roots_are_allowed_by_default(
     assert review_sidecars._safe_workdir(str(project)) == project.resolve()
 
 
-def test_configured_roots_extend_instead_of_replace_defaults(
+def test_arbitrary_existing_project_is_allowed_without_a_lockdown(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    home = tmp_path / "home"
-    default_project = home / ".hermes" / "worktrees" / "default-project"
-    configured_project = tmp_path / "mounted-projects" / "configured-project"
-    default_project.mkdir(parents=True)
-    configured_project.mkdir(parents=True)
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv(
-        "REVIEW_SIDECARS_ALLOWED_ROOTS",
-        str(configured_project.parent),
-    )
+    project = tmp_path / "unusual" / "mount" / "other-project"
+    project.mkdir(parents=True)
+    monkeypatch.delenv("REVIEW_SIDECARS_ALLOWED_ROOTS", raising=False)
 
-    assert review_sidecars._safe_workdir(str(default_project)) == default_project.resolve()
-    assert review_sidecars._safe_workdir(str(configured_project)) == configured_project.resolve()
+    assert review_sidecars._safe_workdir(str(project)) == project.resolve()
 
 
 def test_unrelated_home_directories_remain_out_of_scope(
@@ -91,7 +83,26 @@ def test_unrelated_home_directories_remain_out_of_scope(
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("REVIEW_SIDECARS_ALLOWED_ROOTS", raising=False)
 
-    with pytest.raises(ValueError, match="outside approved workspaces"):
+    with pytest.raises(ValueError, match="credential or private-data store"):
+        review_sidecars._safe_workdir(str(private_dir))
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [".codex", ".hermes/profiles/agent", ".atum", ".kimi-code/credentials"],
+)
+def test_private_agent_data_stores_are_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: str,
+) -> None:
+    home = tmp_path / "home"
+    private_dir = home / relative
+    private_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("REVIEW_SIDECARS_ALLOWED_ROOTS", raising=False)
+
+    with pytest.raises(ValueError, match="credential or private-data store"):
         review_sidecars._safe_workdir(str(private_dir))
 
 

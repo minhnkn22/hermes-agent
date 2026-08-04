@@ -76,20 +76,6 @@ SECRET_FILE_PATTERNS = (
     "*.pfx",
 )
 SECRET_DIRECTORY_NAMES = {".ssh", ".aws", ".azure", ".gnupg", "secrets", "credentials"}
-DEFAULT_PROJECT_ROOT_RELATIVES = (
-    "Documents",
-    "Desktop",
-    "Projects",
-    "Developer",
-    "Code",
-    "src",
-    "Workspace",
-    "Workspaces",
-    ".codex/worktrees",
-    ".hermes/hermes-agent",
-    ".hermes/worktrees",
-    ".atum/worktrees",
-)
 SENSITIVE_CONTENT_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -149,37 +135,68 @@ def _configured_path_list(name: str) -> list[Path]:
 
 
 def _allowed_roots() -> list[Path]:
-    configured = _configured_path_list("REVIEW_SIDECARS_ALLOWED_ROOTS")
-    home = Path.home()
-    roots = [
-        *configured,
-        *(home / relative for relative in DEFAULT_PROJECT_ROOT_RELATIVES),
-        Path("/Users/Shared"),
+    """Return an optional administrator lockdown; empty means unrestricted."""
+    return [root for root in _configured_path_list("REVIEW_SIDECARS_ALLOWED_ROOTS") if root.exists()]
+
+
+def _path_is_within(path: Path, roots: list[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
+
+
+def _sensitive_workspace_roots() -> tuple[list[Path], list[Path]]:
+    home = Path.home().resolve()
+    denied = [
+        home / ".ssh",
+        home / ".aws",
+        home / ".azure",
+        home / ".gnupg",
+        home / ".kube",
+        home / ".docker",
+        home / ".kimi-code",
+        home / ".codex",
+        home / ".hermes",
+        home / ".atum",
+        home / "Library" / "Keychains",
     ]
-    resolved: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        candidate = root.resolve()
-        if candidate.exists() and candidate not in seen:
-            resolved.append(candidate)
-            seen.add(candidate)
-    return resolved
+    project_exceptions = [
+        home / ".codex" / "worktrees",
+        home / ".hermes" / "hermes-agent",
+        home / ".hermes" / "worktrees",
+        home / ".atum" / "worktrees",
+    ]
+    return (
+        [path.resolve() for path in denied],
+        [path.resolve() for path in project_exceptions],
+    )
+
+
+def _is_sensitive_workspace_path(path: Path) -> bool:
+    denied, exceptions = _sensitive_workspace_roots()
+    if _path_is_within(path, exceptions):
+        return False
+    return _path_is_within(path, denied)
 
 
 def _safe_workdir(workdir: str | None) -> Path:
     path = Path(workdir).expanduser().resolve() if workdir else DEFAULT_WORKDIR.resolve()
     if not path.is_dir():
         raise ValueError(f"Review workdir does not exist or is not a directory: {path}")
-    if any(path == root or root in path.parents for root in _allowed_roots()):
-        return path
-    raise ValueError(f"Refusing review outside approved workspaces: {path}")
+    roots = _allowed_roots()
+    if roots and not _path_is_within(path, roots):
+        raise ValueError(f"Refusing review outside configured workspaces: {path}")
+    if _is_sensitive_workspace_path(path):
+        raise ValueError(f"Refusing review inside a credential or private-data store: {path}")
+    return path
 
 
 def _safe_path(value: str, cwd: Path) -> Path:
     raw = Path(value).expanduser()
     path = (cwd / raw).resolve() if not raw.is_absolute() else raw.resolve()
-    if not any(path == root or root in path.parents for root in _allowed_roots()):
-        raise ValueError(f"Refusing context outside approved workspaces: {path}")
+    roots = _allowed_roots()
+    if roots and not _path_is_within(path, roots):
+        raise ValueError(f"Refusing context outside configured workspaces: {path}")
+    if _is_sensitive_workspace_path(path):
+        raise ValueError(f"Refusing context inside a credential or private-data store: {path}")
     return path
 
 
