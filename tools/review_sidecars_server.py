@@ -76,6 +76,19 @@ SECRET_FILE_PATTERNS = (
     "*.pfx",
 )
 SECRET_DIRECTORY_NAMES = {".ssh", ".aws", ".azure", ".gnupg", "secrets", "credentials"}
+DEFAULT_PROJECT_ROOT_RELATIVES = (
+    "Documents",
+    "Desktop",
+    "Projects",
+    "Developer",
+    "Code",
+    "src",
+    "Workspace",
+    "Workspaces",
+    ".codex/worktrees",
+    ".hermes/worktrees",
+    ".atum/worktrees",
+)
 SENSITIVE_CONTENT_PATTERNS = (
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -136,10 +149,20 @@ def _configured_path_list(name: str) -> list[Path]:
 
 def _allowed_roots() -> list[Path]:
     configured = _configured_path_list("REVIEW_SIDECARS_ALLOWED_ROOTS")
-    if configured:
-        return configured
-    roots = [Path.home() / "Documents", Path("/Users/Shared")]
-    return [root.resolve() for root in roots if root.exists()]
+    home = Path.home()
+    roots = [
+        *configured,
+        *(home / relative for relative in DEFAULT_PROJECT_ROOT_RELATIVES),
+        Path("/Users/Shared"),
+    ]
+    resolved: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        candidate = root.resolve()
+        if candidate.exists() and candidate not in seen:
+            resolved.append(candidate)
+            seen.add(candidate)
+    return resolved
 
 
 def _safe_workdir(workdir: str | None) -> Path:

@@ -32,6 +32,69 @@ def test_workdir_must_be_inside_configured_root(workspace: Path, tmp_path: Path)
 
 
 @pytest.mark.parametrize(
+    "relative",
+    [
+        "Documents/project",
+        "Desktop/project",
+        "Projects/project",
+        "Developer/project",
+        "Code/project",
+        "src/project",
+        "Workspace/project",
+        "Workspaces/project",
+        ".codex/worktrees/feature-a",
+        ".hermes/worktrees/feature-b",
+        ".atum/worktrees/feature-c",
+    ],
+)
+def test_standard_project_and_worktree_roots_are_allowed_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relative: str,
+) -> None:
+    home = tmp_path / "home"
+    project = home / relative
+    project.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("REVIEW_SIDECARS_ALLOWED_ROOTS", raising=False)
+
+    assert review_sidecars._safe_workdir(str(project)) == project.resolve()
+
+
+def test_configured_roots_extend_instead_of_replace_defaults(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    default_project = home / ".hermes" / "worktrees" / "default-project"
+    configured_project = tmp_path / "mounted-projects" / "configured-project"
+    default_project.mkdir(parents=True)
+    configured_project.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv(
+        "REVIEW_SIDECARS_ALLOWED_ROOTS",
+        str(configured_project.parent),
+    )
+
+    assert review_sidecars._safe_workdir(str(default_project)) == default_project.resolve()
+    assert review_sidecars._safe_workdir(str(configured_project)) == configured_project.resolve()
+
+
+def test_unrelated_home_directories_remain_out_of_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    private_dir = home / ".ssh"
+    private_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("REVIEW_SIDECARS_ALLOWED_ROOTS", raising=False)
+
+    with pytest.raises(ValueError, match="outside approved workspaces"):
+        review_sidecars._safe_workdir(str(private_dir))
+
+
+@pytest.mark.parametrize(
     "name",
     [".env", ".env.production", "id_rsa", "id_ed25519.pub", "deploy.pem", "api.key", "credentials.json"],
 )
@@ -217,7 +280,13 @@ def test_git_context_omits_secret_file_contents(workspace: Path) -> None:
     (project / "app.py").write_text("print('before')\n", encoding="utf-8")
     (project / ".env").write_text("TOKEN=before\n", encoding="utf-8")
     subprocess.run(["git", "add", "app.py", ".env"], cwd=project, check=True)
-    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=project, check=True)
+    commit_env = {**os.environ, "ALLOW_NO_DOCS_LOG": "1"}
+    subprocess.run(
+        ["git", "commit", "-qm", "fixture"],
+        cwd=project,
+        check=True,
+        env=commit_env,
+    )
     (project / "app.py").write_text("print('after')\n", encoding="utf-8")
     (project / ".env").write_text("TOKEN=do-not-send\n", encoding="utf-8")
 
