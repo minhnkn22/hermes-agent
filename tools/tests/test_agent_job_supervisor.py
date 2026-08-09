@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1]
@@ -172,6 +173,11 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.supervisor.provider_limits["claude"] = 2
         stalled = await self.call(self.spec("slow"))
         await self.wait_for(str(stalled["job_id"]), {"running"})
+        for _ in range(100):
+            stored = self.supervisor.store.get(str(stalled["job_id"]))
+            if stored["last_output_at"] > stored["started_at"]:
+                break
+            await asyncio.sleep(.01)
         self.supervisor.store.update(
             str(stalled["job_id"]), last_output_at=time.time() - 31, soft_stall_seconds=30
         )
@@ -262,10 +268,15 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("completed", result["job"]["status"])
 
     async def test_large_valid_prompt_crosses_socket_transport(self) -> None:
-        spec = self.spec(("line with a quote: \"value\"\n" * 14_000)[:390_000])
+        spec = self.spec(("line with a quote: \"value\"\n" * 18_000)[:500_000])
         submitted = await self.call(spec)
         result = await self.wait_for(str(submitted["job_id"]), {"completed"})
         self.assertEqual(0, result["job"]["exit_code"])
+
+    async def test_prompt_over_four_mib_is_rejected(self) -> None:
+        spec = self.spec("x" * (supervisor_module.MAX_PROMPT_BYTES + 1))
+        with self.assertRaisesRegex(RuntimeError, "Prompt must contain"):
+            await self.call(spec)
 
     async def test_duplicate_idempotency_key_returns_original_job(self) -> None:
         spec = self.spec("complete")
@@ -357,6 +368,7 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         profile = Path(self.temp.name) / "provider.env"
         profile.write_text("MOONSHOT_API_KEY=kimi-secret\nANTHROPIC_API_KEY=claude-secret\n")
         old = os.environ.get("AGENT_JOB_PROFILE_ENV")
+        old_cao_token = os.environ.get("AGENT_JOB_CAO_TOKEN")
         os.environ["AGENT_JOB_PROFILE_ENV"] = str(profile)
         try:
             base = {
@@ -379,14 +391,70 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             argv, _, _ = self.supervisor._build_command(base)
             self.assertNotIn("--max-turns", argv)
             base.update(provider="codex", model="gpt-5.6-codex")
-            argv, stdin_text, _ = self.supervisor._build_command(base)
+            os.environ["AGENT_JOB_CAO_TOKEN"] = "must-not-reach-native"
+            argv, stdin_text, env = self.supervisor._build_command(base)
             self.assertIn("--ignore-user-config", argv)
             self.assertEqual("review", stdin_text)
+            self.assertNotIn("AGENT_JOB_CAO_TOKEN", env)
         finally:
+            if old_cao_token is None:
+                os.environ.pop("AGENT_JOB_CAO_TOKEN", None)
+            else:
+                os.environ["AGENT_JOB_CAO_TOKEN"] = old_cao_token
             if old is None:
                 os.environ.pop("AGENT_JOB_PROFILE_ENV", None)
             else:
                 os.environ["AGENT_JOB_PROFILE_ENV"] = old
+
+    async def test_cao_backend_uses_bridge_without_native_provider_binary(self) -> None:
+        profile = Path(self.temp.name) / "provider.env"
+        profile.write_text("ANTHROPIC_API_KEY=must-not-reach-bridge\n")
+        job = {
+            "job_id": "bridge-job",
+            "provider": "claude",
+            "model": "opus",
+            "mode": "readonly",
+            "prompt": "review",
+            "max_turns": 0,
+            "workdir": str(self.workdir),
+            "execution_backend": "cao",
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "AGENT_JOB_EXECUTION_BACKEND": "cao",
+                "AGENT_JOB_CAO_URL": "http://127.0.0.1:9889",
+                "AGENT_JOB_PROFILE_ENV": str(profile),
+            },
+        ):
+            argv, stdin_text, env = self.supervisor._build_command(job)
+
+        self.assertEqual(sys.executable, argv[0])
+        self.assertTrue(argv[1].endswith("cao_job_bridge.py"))
+        self.assertIn("bridge-job", argv)
+        self.assertEqual("review", stdin_text)
+        self.assertEqual("http://127.0.0.1:9889", env["AGENT_JOB_CAO_URL"])
+        self.assertNotIn("ANTHROPIC_API_KEY", env)
+
+    async def test_cao_backend_fails_closed_for_unenforceable_contracts(self) -> None:
+        with patch.dict(os.environ, {"AGENT_JOB_EXECUTION_BACKEND": "cao"}):
+            codex = self.spec("review")
+            codex.update(provider="codex", model="gpt-5.5-codex")
+            with self.assertRaisesRegex(ValueError, "read-only Codex"):
+                self.supervisor.submit(codex)
+
+            claude = self.spec("review")
+            claude.update(provider="claude", model="opus", max_turns=2)
+            with self.assertRaisesRegex(ValueError, "turn ceiling"):
+                self.supervisor.submit(claude)
+
+    async def test_submit_persists_execution_backend(self) -> None:
+        with patch.dict(os.environ, {"AGENT_JOB_EXECUTION_BACKEND": "cao"}):
+            spec = self.spec("review")
+            spec.update(provider="claude", model="opus", max_turns=0)
+            job = self.supervisor.submit(spec)
+
+        self.assertEqual("cao", job["execution_backend"])
 
 
 if __name__ == "__main__":

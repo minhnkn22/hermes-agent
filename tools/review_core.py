@@ -17,7 +17,7 @@ from agent_job_policy import configured_allowed_roots, SENSITIVE_PATH_PARTS
 
 MAX_CONTEXT_FILE_BYTES = 64_000
 MAX_GIT_CONTEXT_BYTES = 256_000
-MAX_PROMPT_BYTES = 400_000
+MAX_PROMPT_BYTES = 4 * 1024 * 1024
 MAX_WAIT_SECONDS = 60
 PROVIDERS = {"claude", "kimi", "codex"}
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}

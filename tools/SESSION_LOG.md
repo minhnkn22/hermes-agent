@@ -1,5 +1,53 @@
 # Session Log
 
+## 2026-08-09 - Phase 5 CAO compatibility backend
+
+Branch: `feat/thin-agent-job-harness`
+
+- Added an opt-in CAO execution backend behind the existing `job_submit`,
+  `job_read`, `job_list`, and `job_cancel` interface. Native provider execution
+  remains the production default during the observation window.
+- Added a thin bridge that maps Claude, Codex, and Kimi jobs to CAO sessions,
+  preserves model/workspace/mode intent, verifies the actual CAO workspace,
+  emits bounded status transitions, retries transient polling failures,
+  retrieves a non-empty final result, and attempts CAO session cleanup on every
+  exit. Signals now interrupt blocking HTTP calls and all bridge request windows
+  are shorter than the supervisor's forced-termination grace.
+- Raised the accepted review prompt from 400 KB to 4 MiB in the prompt builder,
+  durable supervisor, Unix-socket transport, and compatibility server. Added an
+  end-to-end 500 KB transport regression and a 4 MiB boundary rejection test.
+- Kept provider credentials out of the bridge environment; CAO uses provider
+  authentication already present on its execution host. CAO connection secrets
+  no longer enter native provider environments.
+- Opus review `dd33fb22-bdbe-4879-aff4-bd3772785c34` returned `DO NOT SHIP` on
+  the first pass. Addressed its critical lifecycle and containment findings:
+  cleanup is unconditional, workdir is verified, backend selection is durable,
+  positive turn limits fail closed, and CAO read-only Codex is rejected because
+  this fork cannot enforce its sandbox boundary.
+- Targeted Opus follow-up `30235d3a-0918-405e-94c8-e75bcecb00de` remained
+  `DO NOT SHIP` because cancellation did not interrupt blocking HTTP and the
+  read-only tool policy was not read back. Both blockers are now addressed:
+  signals raise into the cleanup path, request timeouts are bounded, and the
+  create response must report exactly `fs_read,fs_list`. CAO's Kimi ACP test now
+  proves both edits and command execution are denied under that policy.
+- Removed periodic bridge heartbeats so semantic soft-stall detection still
+  works. Added lifecycle, cleanup, retry, empty-result, signal, workspace,
+  credential-isolation, backend-persistence, and fail-closed tests.
+- Final verification after remediation: all 70 sidecar tests passed, including
+  bridge lifecycle and large-prompt transport; `py_compile` and
+  `git diff --check` passed. The affected CAO suite passed 83 status/Kimi/tool
+  policy tests plus the focused Codex structured-error test. A live Codex bridge
+  run completed with exact result `CAO_BRIDGE_CLEANUP_OK`, and its CAO session
+  and tmux process were absent afterward.
+- Rollback: drain running CAO jobs, remove `AGENT_JOB_EXECUTION_BACKEND=cao`,
+  and restart the supervisor. Queued jobs retain their persisted backend.
+- Known pilot gaps carried into Phase 6: CAO-spawned providers do not yet inherit
+  the recursion-depth guard; a lost create response can obscure a CAO-renamed
+  session from immediate cleanup; status-only output can report a quiet live job
+  as `possibly_stalled`; and waiting states rely on the hard deadline.
+- Next: Phase 5 commits, then Phase 6 durable completion delivery, recursion
+  propagation, and orphan reaping.
+
 ## 2026-08-09 - Remove default provider turn ceiling
 
 Branch: `feat/thin-agent-job-harness`

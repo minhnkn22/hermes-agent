@@ -31,7 +31,7 @@ SOCKET_PATH = Path(os.environ.get("AGENT_JOB_SOCKET", str(STATE_DIR / "superviso
 DB_PATH = Path(os.environ.get("AGENT_JOB_DB", str(STATE_DIR / "jobs.sqlite3"))).expanduser()
 LOG_DIR = Path(os.environ.get("AGENT_JOB_LOG_DIR", str(STATE_DIR / "logs"))).expanduser()
 SERVER_DIR = Path(__file__).resolve().parent
-MAX_PROMPT_BYTES = 400_000
+MAX_PROMPT_BYTES = 4 * 1024 * 1024
 MAX_READ_BYTES = 256_000
 MAX_JOB_LOG_BYTES = int(os.environ.get("AGENT_JOB_MAX_LOG_BYTES", str(10 * 1024 * 1024)))
 JOB_RETENTION_SECONDS = int(os.environ.get("AGENT_JOB_RETENTION_SECONDS", str(14 * 24 * 3600)))
@@ -48,6 +48,7 @@ SAFE_ENV_KEYS = {
     "PATH", "LANG", "LC_ALL", "LC_CTYPE", "SSL_CERT_FILE", "SSL_CERT_DIR",
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
 }
+CAO_ENV_KEYS = {"AGENT_JOB_CAO_URL", "AGENT_JOB_CAO_TOKEN", "AGENT_JOB_CAO_LAUNCH_TIMEOUT"}
 CLAUDE_AUTH_KEYS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
 KIMI_AUTH_KEYS = {"KIMI_API_KEY", "KIMI_CN_API_KEY", "MOONSHOT_API_KEY", "MOONSHOT_API_BASE"}
 PROVIDER_AUTH_KEYS = {"claude": CLAUDE_AUTH_KEYS, "kimi": KIMI_AUTH_KEYS, "codex": set()}
@@ -134,6 +135,18 @@ def _provider_env(provider: str) -> dict[str, str]:
     return env
 
 
+def _cao_bridge_env(provider: str) -> dict[str, str]:
+    """Build the bridge environment without forwarding provider credentials."""
+    env = _provider_env(provider)
+    for key in CLAUDE_AUTH_KEYS | KIMI_AUTH_KEYS:
+        env.pop(key, None)
+    env.pop("KIMI_CODE_EXPERIMENTAL_FLAG", None)
+    for key in CAO_ENV_KEYS:
+        if os.environ.get(key):
+            env[key] = os.environ[key]
+    return env
+
+
 class JobStore:
     def __init__(self, path: Path):
         self.path = path
@@ -181,6 +194,10 @@ class JobStore:
             self.db.execute("ALTER TABLE jobs ADD COLUMN binary_path TEXT NOT NULL DEFAULT ''")
         if "process_start" not in columns:
             self.db.execute("ALTER TABLE jobs ADD COLUMN process_start TEXT NOT NULL DEFAULT ''")
+        if "execution_backend" not in columns:
+            self.db.execute(
+                "ALTER TABLE jobs ADD COLUMN execution_backend TEXT NOT NULL DEFAULT 'native'"
+            )
         self.db.execute("CREATE INDEX IF NOT EXISTS jobs_status_created ON jobs(status, created_at)")
         self.db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency ON jobs(idempotency_key) WHERE idempotency_key <> ''"
@@ -208,12 +225,13 @@ class JobStore:
             """INSERT INTO jobs (
                 job_id, provider, model, mode, workdir, prompt, owner, status,
                 created_at, updated_at, timeout_seconds, soft_stall_seconds,
-                max_turns, log_path, idempotency_key, request_hash
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                max_turns, log_path, idempotency_key, request_hash, execution_backend
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job_id, spec["provider"], spec["model"], spec["mode"], spec["workdir"],
                 spec["prompt"], spec.get("owner", ""), now, now, spec["timeout_seconds"],
-                spec["soft_stall_seconds"], spec["max_turns"], str(log_path), key, spec["request_hash"],
+                spec["soft_stall_seconds"], spec["max_turns"], str(log_path), key,
+                spec["request_hash"], spec.get("execution_backend", "native"),
             ),
         )
         self.db.commit()
@@ -351,6 +369,25 @@ class Supervisor:
 
     def _build_command(self, job: dict[str, Any]) -> tuple[list[str], str | None, dict[str, str]]:
         provider = job["provider"]
+        if job.get("execution_backend", "native") == "cao":
+            bridge = SERVER_DIR / "cao_job_bridge.py"
+            if not bridge.is_file():
+                raise RuntimeError(f"CAO job bridge is missing: {bridge}")
+            argv = [
+                sys.executable,
+                str(bridge),
+                "--provider",
+                provider,
+                "--model",
+                job["model"],
+                "--mode",
+                job["mode"],
+                "--workdir",
+                job["workdir"],
+                "--job-id",
+                job["job_id"],
+            ]
+            return argv, job["prompt"], _cao_bridge_env(provider)
         binary = self.binary_finder(provider)
         model = job["model"]
         mode = job["mode"]
@@ -651,7 +688,11 @@ class Supervisor:
         prompt = str(payload.get("prompt") or "")
         if provider not in self.provider_limits:
             raise ValueError(f"Unsupported provider: {provider}")
-        self.binary_finder(provider)
+        execution_backend = os.environ.get("AGENT_JOB_EXECUTION_BACKEND", "native")
+        if execution_backend not in {"native", "cao"}:
+            raise ValueError(f"Unsupported execution backend: {execution_backend}")
+        if execution_backend != "cao":
+            self.binary_finder(provider)
         if mode not in {"readonly", "implement"}:
             raise ValueError(f"Unsupported mode: {mode}")
         if mode == "implement":
@@ -672,15 +713,21 @@ class Supervisor:
         timeout = max(MIN_TIMEOUT_SECONDS, min(int(payload.get("timeout_seconds") or 2700), MAX_TIMEOUT_SECONDS))
         requested_max_turns = int(payload.get("max_turns") or 0)
         max_turns = 0 if requested_max_turns <= 0 else min(requested_max_turns, 10_000)
+        if execution_backend == "cao" and mode == "readonly" and provider == "codex":
+            raise ValueError("CAO cannot enforce read-only Codex execution; use the native backend")
+        if execution_backend == "cao" and max_turns > 0:
+            raise ValueError("CAO does not support an explicit provider turn ceiling")
         soft_stall = max(30, min(int(payload.get("soft_stall_seconds") or DEFAULT_SOFT_STALL_SECONDS), timeout))
         spec = {
             "provider": provider, "model": model, "mode": mode, "workdir": str(workdir),
             "prompt": prompt, "owner": str(payload.get("owner") or "")[:200],
             "timeout_seconds": timeout, "soft_stall_seconds": soft_stall, "max_turns": max_turns,
+            "execution_backend": execution_backend,
             "idempotency_key": str(payload.get("idempotency_key") or "")[:200],
         }
         hash_fields = {key: spec[key] for key in (
-            "provider", "model", "mode", "workdir", "prompt", "timeout_seconds", "max_turns"
+            "provider", "model", "mode", "workdir", "prompt", "timeout_seconds", "max_turns",
+            "execution_backend",
         )}
         spec["request_hash"] = hashlib.sha256(_json(hash_fields).encode("utf-8")).hexdigest()
         job_id = str(uuid.uuid4())
