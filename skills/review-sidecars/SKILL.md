@@ -24,9 +24,19 @@ tests, and local evidence.
   Opus-first policy above for ordinary work.
 - For work likely to exceed the synchronous timeout, use `kimi_start` or
   `claude_start`, then poll with `review_read` and cancel stale work with
-  `review_cancel`. Async provider-specific jobs do not cross-provider fallback.
+  `review_cancel`. Save the returned job ID. Jobs are durable across Codex,
+  Claude, Hermes, and MCP restarts, and `review_list` can recover them from a
+  later session. Async provider-specific jobs do not cross-provider fallback.
+- Treat `possibly_stalled` as a diagnostic state, not proof that a process is
+  dead. Inspect incremental output and silence duration before cancelling.
+- Prefer async submission for any call expected to take more than three
+  minutes. Synchronous compatibility calls have a 540-second internal ceiling
+  so the 600-second MCP transport ceiling cannot fire first.
 
 ## Supply context safely
+
+Context files must be contained by the selected `workdir`; use the repository
+root when review context spans multiple subdirectories.
 
 - Pass the exact project `workdir`.
 - Prefer repository inspection and the server's bounded Git context. Add

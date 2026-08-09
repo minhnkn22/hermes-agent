@@ -8,59 +8,32 @@ import fnmatch
 import json
 import os
 import re
-import shutil
-import signal
 import subprocess
 import time
-import uuid
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
+from agent_job_client import cancel as supervisor_cancel
+from agent_job_client import list_jobs as supervisor_list
+from agent_job_client import read as supervisor_read
+from agent_job_client import submit as supervisor_submit
+from agent_job_client import SupervisorUnavailable
 
-SERVER_DIR = Path(__file__).resolve().parent
-KIMI_AGENT_FILE = SERVER_DIR / "kimi_read_only_reviewer.md"
+
 DEFAULT_WORKDIR = Path(
     os.environ.get("REVIEW_SIDECARS_DEFAULT_WORKDIR", str(Path.home() / "Documents"))
 ).expanduser()
-DEFAULT_SYNC_TIMEOUT_SECONDS = 550
+DEFAULT_SYNC_TIMEOUT_SECONDS = 540
 DEFAULT_ASYNC_TIMEOUT_SECONDS = 1800
-MAX_SYNC_TIMEOUT_SECONDS = 550
+MAX_SYNC_TIMEOUT_SECONDS = 540
 MAX_ASYNC_TIMEOUT_SECONDS = 7200
-MIN_TIMEOUT_SECONDS = 5
+MIN_TIMEOUT_SECONDS = 30
 MAX_CONTEXT_FILE_BYTES = 64_000
 MAX_GIT_CONTEXT_BYTES = 256_000
 MAX_PROMPT_BYTES = 400_000
-MAX_ASYNC_JOBS = 2
-MAX_CONCURRENT_RUNS = 4
-DEFAULT_JOB_TTL_SECONDS = MAX_ASYNC_TIMEOUT_SECONDS + 3600
-CLAUDE_READ_ONLY_TOOLS = ("Read", "Glob", "Grep", "LS")
-CLAUDE_AUTH_KEYS = {
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_AUTH_TOKEN",
-    "ANTHROPIC_TOKEN",
-    "CLAUDE_CODE_OAUTH_TOKEN",
-}
-KIMI_AUTH_KEYS = {
-    "KIMI_API_KEY",
-    "KIMI_CN_API_KEY",
-    "MOONSHOT_API_KEY",
-    "MOONSHOT_API_BASE",
-}
-SAFE_ENV_KEYS = {
-    "HOME",
-    "PATH",
-    "LANG",
-    "LC_ALL",
-    "LC_CTYPE",
-    "SSL_CERT_FILE",
-    "SSL_CERT_DIR",
-    "HTTP_PROXY",
-    "HTTPS_PROXY",
-    "NO_PROXY",
-    "ALL_PROXY",
-}
+MAX_SYNC_OUTPUT_BYTES = 400_000
 SECRET_FILE_PATTERNS = (
     ".env",
     ".env.*",
@@ -122,10 +95,6 @@ MODE_PROMPTS = {
     ),
 }
 
-PROVIDER_AUTH_KEYS = {"claude": CLAUDE_AUTH_KEYS, "kimi": KIMI_AUTH_KEYS}
-ALL_PROVIDER_AUTH_KEYS = CLAUDE_AUTH_KEYS | KIMI_AUTH_KEYS
-ASYNC_JOBS: dict[str, dict[str, Any]] = {}
-RUN_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
 mcp = FastMCP("review-sidecars")
 
 
@@ -135,27 +104,80 @@ def _configured_path_list(name: str) -> list[Path]:
 
 
 def _allowed_roots() -> list[Path]:
-    configured = _configured_path_list("REVIEW_SIDECARS_ALLOWED_ROOTS")
+    """Return configured roots or conservative project/worktree defaults."""
+    configured = [root for root in _configured_path_list("REVIEW_SIDECARS_ALLOWED_ROOTS") if root.exists()]
     if configured:
         return configured
-    roots = [Path.home() / "Documents", Path("/Users/Shared")]
-    return [root.resolve() for root in roots if root.exists()]
+    home = Path.home()
+    defaults = [
+        home / "Documents", home / "projects", Path("/Users/Shared"),
+        Path(__file__).resolve().parent.parent,
+        home / ".codex" / "worktrees", home / ".hermes" / "hermes-agent",
+        home / ".hermes" / "worktrees", home / ".atum" / "worktrees",
+    ]
+    return [path.resolve() for path in defaults if path.exists()]
+
+
+def _path_is_within(path: Path, roots: list[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
+
+
+def _sensitive_workspace_roots() -> tuple[list[Path], list[Path]]:
+    home = Path.home().resolve()
+    denied = [
+        home / ".ssh",
+        home / ".aws",
+        home / ".azure",
+        home / ".gnupg",
+        home / ".kube",
+        home / ".docker",
+        home / ".kimi-code",
+        home / ".codex",
+        home / ".hermes",
+        home / ".atum",
+        home / "Library" / "Keychains",
+    ]
+    project_exceptions = [
+        home / ".codex" / "worktrees",
+        home / ".hermes" / "hermes-agent",
+        home / ".hermes" / "worktrees",
+        home / ".atum" / "worktrees",
+    ]
+    return (
+        [path.resolve() for path in denied],
+        [path.resolve() for path in project_exceptions],
+    )
+
+
+def _is_sensitive_workspace_path(path: Path) -> bool:
+    denied, exceptions = _sensitive_workspace_roots()
+    if _path_is_within(path, exceptions):
+        return False
+    return _path_is_within(path, denied)
 
 
 def _safe_workdir(workdir: str | None) -> Path:
     path = Path(workdir).expanduser().resolve() if workdir else DEFAULT_WORKDIR.resolve()
     if not path.is_dir():
         raise ValueError(f"Review workdir does not exist or is not a directory: {path}")
-    if any(path == root or root in path.parents for root in _allowed_roots()):
-        return path
-    raise ValueError(f"Refusing review outside approved workspaces: {path}")
+    roots = _allowed_roots()
+    if roots and not _path_is_within(path, roots):
+        raise ValueError(f"Refusing review outside configured workspaces: {path}")
+    if _is_sensitive_workspace_path(path):
+        raise ValueError(f"Refusing review inside a credential or private-data store: {path}")
+    return path
 
 
 def _safe_path(value: str, cwd: Path) -> Path:
     raw = Path(value).expanduser()
     path = (cwd / raw).resolve() if not raw.is_absolute() else raw.resolve()
-    if not any(path == root or root in path.parents for root in _allowed_roots()):
-        raise ValueError(f"Refusing context outside approved workspaces: {path}")
+    roots = _allowed_roots()
+    if roots and not _path_is_within(path, roots):
+        raise ValueError(f"Refusing context outside configured workspaces: {path}")
+    if _is_sensitive_workspace_path(path):
+        raise ValueError(f"Refusing context inside a credential or private-data store: {path}")
+    if path != cwd and cwd not in path.parents:
+        raise ValueError(f"Context files must be inside the selected workdir: {path}")
     return path
 
 
@@ -164,56 +186,6 @@ def _is_secret_path(path: Path) -> bool:
     if any(part in SECRET_DIRECTORY_NAMES for part in lowered_parts[:-1]):
         return True
     return any(fnmatch.fnmatch(path.name.lower(), pattern.lower()) for pattern in SECRET_FILE_PATTERNS)
-
-
-def _profile_env_values() -> dict[str, str]:
-    profile_path = os.environ.get("REVIEW_SIDECARS_PROFILE_ENV", "").strip()
-    if not profile_path:
-        return {}
-    path = Path(profile_path).expanduser()
-    if not path.is_file():
-        return {}
-    values: dict[str, str] = {}
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
-
-
-def _provider_env(provider: str) -> dict[str, str]:
-    if provider not in PROVIDER_AUTH_KEYS:
-        raise ValueError(f"Unknown review provider: {provider}")
-    inherited = os.environ
-    env = {key: inherited[key] for key in SAFE_ENV_KEYS if inherited.get(key)}
-    env.setdefault("HOME", str(Path.home()))
-    env.setdefault("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-    profile = _profile_env_values()
-    for key in PROVIDER_AUTH_KEYS[provider]:
-        value = profile.get(key) or inherited.get(key)
-        if value:
-            env[key] = value
-    for key in ALL_PROVIDER_AUTH_KEYS - PROVIDER_AUTH_KEYS[provider]:
-        env.pop(key, None)
-    if provider == "kimi":
-        env["KIMI_CODE_EXPERIMENTAL_FLAG"] = "1"
-    return env
-
-
-def _find_binary(provider: str) -> str:
-    env_name = f"REVIEW_SIDECARS_{provider.upper()}_BIN"
-    configured = os.environ.get(env_name, "").strip()
-    candidate = configured or shutil.which(provider, path=_provider_env(provider).get("PATH"))
-    if not candidate:
-        raise RuntimeError(f"{provider} CLI not found; set {env_name}")
-    path = Path(candidate).expanduser().resolve()
-    if not path.is_file() or not os.access(path, os.X_OK):
-        raise RuntimeError(f"{provider} CLI is not executable: {path}")
-    return str(path)
 
 
 def _timeout(value: int | None, *, asynchronous: bool) -> int:
@@ -266,36 +238,41 @@ def _redact_sensitive_content(text: str) -> tuple[str, int]:
 
 
 def _git_review_context(cwd: Path) -> str:
-    if not (cwd / ".git").exists() and not _run_git(cwd, ["rev-parse", "--git-dir"])[0]:
+    cwd = cwd.resolve()
+    root_ok, root_text = _run_git(cwd, ["rev-parse", "--show-toplevel"])
+    if not root_ok or not root_text.strip():
         return ""
+    repo_root = Path(root_text.strip()).resolve()
     chunks = []
-    status_ok, status = _run_git(cwd, ["status", "--short"])
+    status_ok, status = _run_git(cwd, ["status", "--short", "--", "."])
     if status_ok and status.strip():
         chunks.append(f"--- git status (paths only) ---\n{status.strip()}")
 
-    names_ok, raw_names = _run_git(cwd, ["diff", "--name-only", "-z", "HEAD"])
+    names_ok, raw_names = _run_git(repo_root, ["diff", "--name-only", "-z", "HEAD"])
     safe_names: list[str] = []
-    omitted = 0
+    secret_omitted = 0
+    scope_omitted = 0
     if names_ok:
         for name in raw_names.split("\0"):
             if not name:
                 continue
-            try:
-                path = _safe_path(name, cwd)
-            except ValueError:
-                omitted += 1
+            path = (repo_root / name).resolve()
+            if path != cwd and cwd not in path.parents:
+                scope_omitted += 1
                 continue
             if _is_secret_path(path):
-                omitted += 1
+                secret_omitted += 1
                 continue
             safe_names.append(name)
     for index in range(0, min(len(safe_names), 500), 100):
         batch = safe_names[index:index + 100]
-        ok, output = _run_git(cwd, ["diff", "--no-ext-diff", "--no-color", "HEAD", "--", *batch])
+        ok, output = _run_git(repo_root, ["diff", "--no-ext-diff", "--no-color", "HEAD", "--", *batch])
         if ok and output.strip():
             chunks.append(f"--- working tree diff (safe paths {index + 1}-{index + len(batch)}) ---\n{output.strip()}")
-    if omitted:
-        chunks.append(f"[omitted {omitted} secret-like or out-of-scope changed path(s)]")
+    if secret_omitted:
+        chunks.append(f"[omitted {secret_omitted} secret-like changed path(s)]")
+    if scope_omitted:
+        chunks.append(f"[omitted {scope_omitted} changed path(s) outside the selected workdir]")
     if len(safe_names) > 500:
         chunks.append(f"[omitted {len(safe_names) - 500} additional changed path(s)]")
     joined, redactions = _redact_sensitive_content("\n\n".join(chunks))
@@ -308,7 +285,11 @@ def _git_review_context(cwd: Path) -> str:
 
 
 def _run_git(cwd: Path, args: list[str]) -> tuple[bool, str]:
-    env = {key: value for key, value in _provider_env("kimi").items() if key not in ALL_PROVIDER_AUTH_KEYS}
+    env = {
+        key: os.environ[key]
+        for key in ("HOME", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR")
+        if os.environ.get(key)
+    }
     env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_EXTERNAL_DIFF": "", "GIT_PAGER": "cat"})
     try:
         result = subprocess.run(
@@ -370,62 +351,6 @@ def _build_prompt(
     return prompt
 
 
-def _command(provider: str, prompt: str, model: str, cwd: Path) -> list[str]:
-    binary = _find_binary(provider)
-    if provider == "claude":
-        return [
-            binary,
-            "-p",
-            prompt,
-            "--model",
-            model,
-            "--safe-mode",
-            "--strict-mcp-config",
-            "--mcp-config",
-            '{"mcpServers":{}}',
-            "--permission-mode",
-            "plan",
-            "--allowed-tools",
-            *CLAUDE_READ_ONLY_TOOLS,
-            "--max-turns",
-            os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "60"),
-        ]
-    if not KIMI_AGENT_FILE.is_file():
-        raise RuntimeError(f"Kimi read-only agent file is missing: {KIMI_AGENT_FILE}")
-    return [
-        binary,
-        "--model",
-        model,
-        "--agent-file",
-        str(KIMI_AGENT_FILE),
-        "--prompt",
-        prompt,
-    ]
-
-
-async def _terminate_process(proc: asyncio.subprocess.Process) -> None:
-    if proc.returncode is not None:
-        return
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-    except Exception:
-        proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=5)
-        return
-    except asyncio.TimeoutError:
-        pass
-    try:
-        os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    except Exception:
-        proc.kill()
-    await proc.wait()
-
-
 async def _run_provider(
     provider: str,
     instructions: str,
@@ -439,7 +364,6 @@ async def _run_provider(
     expected_output: str | None = None,
     include_git_diff: bool = False,
     asynchronous: bool = False,
-    on_started=None,
 ) -> dict[str, Any]:
     cwd = _safe_workdir(workdir)
     timeout = _timeout(timeout_seconds, asynchronous=asynchronous)
@@ -453,39 +377,75 @@ async def _run_provider(
         cwd=cwd,
         include_git_diff=include_git_diff,
     )
-    command = _command(provider, prompt, model, cwd)
-    env = _provider_env(provider)
-    async with RUN_SEMAPHORE:
-        if on_started:
-            on_started()
-        started_at = time.time()
-        proc = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=str(cwd),
-            env=env,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
-            await _terminate_process(proc)
-            raise TimeoutError(f"{provider.title()} Code timed out after {timeout}s") from exc
-        except asyncio.CancelledError:
-            await _terminate_process(proc)
-            raise
-    return {
-        "status": "completed" if proc.returncode == 0 else "failed",
-        "returncode": proc.returncode,
-        "output": stdout.decode("utf-8", errors="replace").strip(),
-        "stderr": stderr.decode("utf-8", errors="replace").strip(),
-        "elapsed_seconds": round(time.time() - started_at, 3),
-        "provider": provider,
-        "model": model,
-        "workdir": str(cwd),
-    }
+    submitted = await asyncio.to_thread(
+        supervisor_submit,
+        provider=provider,
+        model=model,
+        mode="readonly",
+        workdir=str(cwd),
+        prompt=prompt,
+        timeout_seconds=timeout,
+        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "60")),
+        owner="review-sidecars:sync",
+    )
+    job_id = str(submitted["job_id"])
+    cursor = 0
+    stdout_cursor = 0
+    stderr_cursor = 0
+    stdout_bytes = bytearray()
+    stderr_bytes = bytearray()
+
+    def append_bounded(target: bytearray, value: str) -> None:
+        remaining = max(0, MAX_SYNC_OUTPUT_BYTES - len(target))
+        if remaining:
+            target.extend(value.encode("utf-8")[:remaining])
+
+    async def poll() -> dict[str, Any]:
+        nonlocal cursor, stdout_cursor, stderr_cursor
+        while True:
+            result = await asyncio.to_thread(
+                supervisor_read, job_id, cursor, 128_000, stream_cursors=True,
+                stdout_cursor=stdout_cursor, stderr_cursor=stderr_cursor,
+            )
+            cursor = int(result.get("cursor") or cursor)
+            stdout_cursor = int(result.get("stdout_cursor") or stdout_cursor)
+            stderr_cursor = int(result.get("stderr_cursor") or stderr_cursor)
+            append_bounded(stdout_bytes, str(result.get("stdout_output") or ""))
+            append_bounded(stderr_bytes, str(result.get("stderr_output") or ""))
+            job = result["job"]
+            if job["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                started = float(job.get("started_at") or job["created_at"])
+                finished = float(job.get("finished_at") or job["updated_at"])
+                stdout_dropped = max(0, int(result.get("stdout_size") or 0) - len(stdout_bytes))
+                stderr_dropped = max(0, int(result.get("stderr_size") or 0) - len(stderr_bytes))
+                output = stdout_bytes.decode("utf-8", errors="replace")
+                error = stderr_bytes.decode("utf-8", errors="replace")
+                if stdout_dropped:
+                    output += f"\n[truncated {stdout_dropped} stdout byte(s)]"
+                if stderr_dropped:
+                    error += f"\n[truncated {stderr_dropped} stderr byte(s)]"
+                return {
+                    "status": job["status"],
+                    "returncode": job.get("exit_code") if job.get("exit_code") is not None else (
+                        0 if job["status"] == "completed" else 1
+                    ),
+                    "output": output.strip(),
+                    "stderr": (error or str(job.get("message") or "")).strip(),
+                    "elapsed_seconds": round(finished - started, 3),
+                    "provider": provider,
+                    "model": model,
+                    "workdir": str(cwd),
+                    "job_id": job_id,
+                }
+            await asyncio.sleep(0.5)
+    try:
+        return await asyncio.wait_for(poll(), timeout=timeout + 5)
+    except asyncio.TimeoutError as exc:
+        await asyncio.to_thread(supervisor_cancel, job_id)
+        raise TimeoutError(f"{provider.title()} Code exceeded its submit-relative {timeout}s deadline") from exc
+    except asyncio.CancelledError:
+        await asyncio.to_thread(supervisor_cancel, job_id)
+        raise
 
 
 def _format_result(result: dict[str, Any], *, metadata: bool = False, attempts: list[str] | None = None) -> str:
@@ -522,8 +482,12 @@ async def _run_with_fallback(
     started_at = time.monotonic()
     provider_order = (primary, fallback)
     for index, (provider, model) in enumerate(provider_order):
+        remaining_raw = int(overall_timeout - (time.monotonic() - started_at))
+        if index > 0 and remaining_raw < 120:
+            errors.append(f"{provider}: fallback skipped; only {max(0, remaining_raw)}s remained")
+            break
         attempts.append(provider)
-        remaining = max(MIN_TIMEOUT_SECONDS, int(overall_timeout - (time.monotonic() - started_at)))
+        remaining = max(MIN_TIMEOUT_SECONDS, remaining_raw)
         attempt_timeout = remaining if index == len(provider_order) - 1 else max(
             MIN_TIMEOUT_SECONDS, int(remaining * 0.7)
         )
@@ -540,20 +504,11 @@ async def _run_with_fallback(
             if int(result.get("returncode") or 0) == 0:
                 return _format_result(result, metadata=True, attempts=attempts)
             errors.append(f"{provider}: {result.get('stderr') or result.get('output')}")
+        except SupervisorUnavailable:
+            raise
         except Exception as exc:
             errors.append(f"{provider}: {exc}")
     raise RuntimeError("All review providers failed: " + " | ".join(errors))
-
-
-def _job_payload(job: dict[str, Any]) -> str:
-    return json.dumps({key: value for key, value in job.items() if key != "task"}, ensure_ascii=False, indent=2)
-
-
-def _prune_jobs() -> None:
-    cutoff = time.time() - DEFAULT_JOB_TTL_SECONDS
-    for job_id, job in list(ASYNC_JOBS.items()):
-        if job.get("status") in {"completed", "failed", "cancelled"} and float(job.get("updated_at", 0)) < cutoff:
-            ASYNC_JOBS.pop(job_id, None)
 
 
 async def _start_job(
@@ -568,52 +523,30 @@ async def _start_job(
     context_text: str,
     expected_output: str,
 ) -> str:
-    _prune_jobs()
-    running = sum(1 for job in ASYNC_JOBS.values() if job.get("status") in {"queued", "running"})
-    if running >= MAX_ASYNC_JOBS:
-        raise RuntimeError(f"Too many running review jobs; limit is {MAX_ASYNC_JOBS}")
-    job_id = str(uuid.uuid4())
-    now = time.time()
+    cwd = _safe_workdir(workdir)
     effective_timeout = _timeout(timeout_seconds, asynchronous=True)
-    ASYNC_JOBS[job_id] = {
-        "job_id": job_id,
-        "status": "queued",
-        "created_at": now,
-        "updated_at": now,
-        "provider": provider,
-        "model": model,
-        "workdir": str(_safe_workdir(workdir)),
-        "timeout_seconds": effective_timeout,
-        "output": "",
-        "stderr": "",
-    }
-
-    async def job_runner() -> None:
-        try:
-            result = await _run_provider(
-                provider,
-                instructions,
-                workdir=workdir,
-                preset=preset,
-                model=model,
-                timeout_seconds=effective_timeout,
-                context_files=context_files,
-                context_text=context_text,
-                expected_output=expected_output,
-                asynchronous=True,
-                on_started=lambda: ASYNC_JOBS[job_id].update(status="running", updated_at=time.time()),
-            )
-            ASYNC_JOBS[job_id].update(result)
-        except asyncio.CancelledError:
-            ASYNC_JOBS[job_id].update(status="cancelled")
-            raise
-        except Exception as exc:
-            ASYNC_JOBS[job_id].update(status="failed", stderr=str(exc))
-        finally:
-            ASYNC_JOBS[job_id]["updated_at"] = time.time()
-
-    ASYNC_JOBS[job_id]["task"] = asyncio.create_task(job_runner())
-    return _job_payload(ASYNC_JOBS[job_id])
+    prompt = _build_prompt(
+        provider,
+        instructions,
+        preset=preset,
+        context_text=context_text,
+        context_files=context_files,
+        expected_output=expected_output,
+        cwd=cwd,
+        include_git_diff=preset == "code_review",
+    )
+    job = await asyncio.to_thread(
+        supervisor_submit,
+        provider=provider,
+        model=model,
+        mode="readonly",
+        workdir=str(cwd),
+        prompt=prompt,
+        timeout_seconds=effective_timeout,
+        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "60")),
+        owner="review-sidecars:async",
+    )
+    return json.dumps(job, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
@@ -722,30 +655,28 @@ async def kimi_start(
 
 
 @mcp.tool()
-async def review_read(job_id: str) -> str:
+async def review_read(job_id: str, cursor: int = 0, max_bytes: int = 64_000) -> str:
     """Read a job started by either review provider."""
-    _prune_jobs()
-    job = ASYNC_JOBS.get(job_id)
-    if not job:
-        raise ValueError(f"Unknown review job id: {job_id}")
-    return _job_payload(job)
+    result = await asyncio.to_thread(supervisor_read, job_id, cursor, max_bytes)
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
 async def review_cancel(job_id: str) -> str:
     """Cancel a job started by either review provider."""
-    job = ASYNC_JOBS.get(job_id)
-    if not job:
-        raise ValueError(f"Unknown review job id: {job_id}")
-    task = job.get("task")
-    if isinstance(task, asyncio.Task) and not task.done():
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        job.update(status="cancelled", updated_at=time.time())
-    return _job_payload(job)
+    job = await asyncio.to_thread(supervisor_cancel, job_id)
+    deadline = time.monotonic() + 12
+    while job["status"] not in {"completed", "failed", "cancelled", "interrupted"} and time.monotonic() < deadline:
+        await asyncio.sleep(0.25)
+        job = (await asyncio.to_thread(supervisor_read, job_id, 0, 1))["job"]
+    return json.dumps(job, ensure_ascii=False, indent=2)
+
+
+@mcp.tool()
+async def review_list(status: str = "", limit: int = 50) -> str:
+    """List durable review jobs across Codex and Claude sessions."""
+    result = await asyncio.to_thread(supervisor_list, status, limit)
+    return json.dumps(result, ensure_ascii=False, indent=2)
 
 
 @mcp.tool()
