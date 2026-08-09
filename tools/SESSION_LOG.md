@@ -1,5 +1,47 @@
 # Session Log
 
+## 2026-08-09 - Phase 7 restart recovery and provider canary gate
+
+Branch: `feat/thin-agent-job-harness`
+
+- Added provider-plus-owner-prefix CAO canary routing while preserving native
+  execution as the default. Provider promotion remains independently scoped and
+  backend choice is fixed when each job is submitted.
+- Added a non-mutating migration evaluator requiring matching fresh CAO mock and
+  live-provider gate reports plus five completed canary jobs spanning 24 hours,
+  no interruptions, and a bounded failure rate. Its owner namespace is derived
+  from the full CAO commit, its minimum thresholds cannot be weakened, and every
+  verdict parameter is recorded. Cancelled jobs cannot satisfy completed work.
+- CAO now recovers compatibility identity for same-session children from its
+  persisted terminal metadata after process restart. Recovery requires complete,
+  matching, live metadata and fails closed on malformed or mixed rows. Fresh
+  unrelated operator sessions intentionally remain outside the lease.
+- Native execution remains deployed. A persistent CAO service and 24-hour
+  provider canary are operational promotion steps, not implicit side effects of
+  this phase.
+- Primary Opus checkpoint `fd31ff0e-1dad-44d9-a399-8cdcf44e447a` returned
+  `SHIP` for merge with three fix-before-promotion findings: caller-selectable
+  evidence namespaces, omitted verdict parameters, and an observation duration
+  measured from any old submission. All three are remediated. The review also
+  prompted protected compatibility metadata, read-only evidence DB access,
+  non-compatibility fast paths, and focused promotion/installer tests.
+- Targeted Opus follow-up `3c2d5264-528f-4691-9395-4d21172d9d35` returned
+  `SHIP` and confirmed all three promotion blockers were closed with no new
+  blockers. Its five non-blocking operational observations were also resolved:
+  metadata updates preserve 404 behavior, acceptance report provenance is
+  hashed and recorded, invalid completion timestamps hold cleanly, database
+  paths expand `~` consistently, and the gate verifies the installed canary
+  LaunchAgent configuration.
+- Verification: the complete sidecar suite passed 87 tests. The post-review
+  gate, installer, promoted-route, and invalid-backend suite passed nine tests;
+  `py_compile`, formatting, and `git diff --check` passed. The affected CAO
+  provider, terminal, lease, and metadata suite passed 48 tests; the final
+  protected-metadata/lease subset passed nine tests after the follow-up fixes.
+- Residual: malformed mixed compatibility membership deliberately fails safe by
+  retaining tracked terminals rather than risking deletion of operator state.
+  Production routing remains native; no canary service was installed in this
+  phase.
+
 ## 2026-08-09 - Phase 6 durable delivery and compatibility leases
 
 Branch: `feat/thin-agent-job-harness`

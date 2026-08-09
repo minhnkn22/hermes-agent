@@ -57,3 +57,28 @@ python3 scripts/delegate.py \
 The script prints `AGENT_JOB_ID` before polling. If the shell exits, recover the
 job through the guarded review CLI's `list`/`read` operations or the low-level
 `agent_job_client.py`.
+
+## CAO Canary Operations
+
+Native execution remains the default. An operator can route only jobs whose
+provider and exact owner prefix match the canary configuration:
+
+```bash
+export AGENT_JOB_EXECUTION_BACKEND=native
+export AGENT_JOB_CAO_URL=http://127.0.0.1:9889
+export AGENT_JOB_CAO_CANARY_PROVIDERS=claude
+export AGENT_JOB_CAO_CANARY_OWNER_PREFIXES=cao-canary:FULL_CAO_COMMIT:
+python3 tools/install_agent_job_supervisor.py install
+```
+
+Submit canary work with a stable owner such as
+`cao-canary:FULL_CAO_COMMIT:claude:checkpoint`.
+Ordinary owners continue through native execution. Do not promote on a smoke
+test alone: run `tools/agent_job_migration_gate.py` with matching mock and live
+CAO gate reports after at least five completed jobs spanning 24 hours.
+The command returns `promote` or `hold` as structured JSON and does not change
+the service. It verifies the installed LaunchAgent contains the exact full-commit
+owner prefix, provider, CAO URL, and native default; a shell-only export without
+reinstalling the service cannot pass. On rollback, remove the canary/provider
+settings, reinstall the service, and allow existing CAO jobs to drain; their
+recorded backend remains unchanged.

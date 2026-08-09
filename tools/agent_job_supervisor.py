@@ -147,6 +147,23 @@ def _cao_bridge_env(provider: str) -> dict[str, str]:
     return env
 
 
+def _csv_values(name: str) -> set[str]:
+    return {item.strip() for item in os.environ.get(name, "").split(",") if item.strip()}
+
+
+def _execution_backend(provider: str, owner: str) -> str:
+    default = os.environ.get("AGENT_JOB_EXECUTION_BACKEND", "native")
+    if default not in {"native", "cao"}:
+        raise ValueError(f"Unsupported execution backend: {default}")
+    if provider in _csv_values("AGENT_JOB_CAO_PROVIDERS"):
+        return "cao"
+    canary_providers = _csv_values("AGENT_JOB_CAO_CANARY_PROVIDERS")
+    canary_prefixes = _csv_values("AGENT_JOB_CAO_CANARY_OWNER_PREFIXES")
+    if provider in canary_providers and any(owner.startswith(prefix) for prefix in canary_prefixes):
+        return "cao"
+    return default
+
+
 class JobStore:
     def __init__(self, path: Path, on_change: Callable[[str], None] | None = None):
         self.path = path
@@ -754,11 +771,10 @@ class Supervisor:
         mode = str(payload.get("mode") or "")
         model = str(payload.get("model") or "")
         prompt = str(payload.get("prompt") or "")
+        owner = str(payload.get("owner") or "")[:200]
         if provider not in self.provider_limits:
             raise ValueError(f"Unsupported provider: {provider}")
-        execution_backend = os.environ.get("AGENT_JOB_EXECUTION_BACKEND", "native")
-        if execution_backend not in {"native", "cao"}:
-            raise ValueError(f"Unsupported execution backend: {execution_backend}")
+        execution_backend = _execution_backend(provider, owner)
         if execution_backend != "cao":
             self.binary_finder(provider)
         if mode not in {"readonly", "implement"}:
@@ -788,7 +804,7 @@ class Supervisor:
         soft_stall = max(30, min(int(payload.get("soft_stall_seconds") or DEFAULT_SOFT_STALL_SECONDS), timeout))
         spec = {
             "provider": provider, "model": model, "mode": mode, "workdir": str(workdir),
-            "prompt": prompt, "owner": str(payload.get("owner") or "")[:200],
+            "prompt": prompt, "owner": owner,
             "timeout_seconds": timeout, "soft_stall_seconds": soft_stall, "max_turns": max_turns,
             "execution_backend": execution_backend,
             "idempotency_key": str(payload.get("idempotency_key") or "")[:200],

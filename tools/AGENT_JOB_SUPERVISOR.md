@@ -74,6 +74,15 @@ workspace roots are defined once in `tools/agent_job_policy.py` and used by the
 installer, supervisor, review core, and profile migrator. Override them
 consistently with `AGENT_JOB_ALLOWED_ROOTS` when deploying elsewhere.
 
+CAO migration is provider-scoped. Keep `AGENT_JOB_EXECUTION_BACKEND=native`,
+then set both `AGENT_JOB_CAO_CANARY_PROVIDERS` and
+`AGENT_JOB_CAO_CANARY_OWNER_PREFIXES` to route only matching provider/owner
+pairs. After the evidence gate passes, move a provider to
+`AGENT_JOB_CAO_PROVIDERS`. These settings and CAO connection settings are
+forwarded by the LaunchAgent installer; reinstall and restart the service after
+changing them. Backend selection is persisted at submission, so rollback does
+not rewrite queued or running jobs.
+
 Durable `implement` mode requires both the installed service policy and a random
 capability stored in `~/.local/state/agent-job-supervisor/implement.token` with
 mode `0600`. The installer enables this policy for the scoped delegation client;
@@ -111,4 +120,16 @@ prevents a second daemon from competing for the same queue.
 ```bash
 python3 -m unittest discover -s tools/tests -v
 python3 -m py_compile tools/agent_job_*.py tools/review_core.py tools/review_cli.py
+```
+
+Evaluate one provider after its observation window:
+
+```bash
+python3 tools/agent_job_migration_gate.py \
+  --provider claude \
+  --source-commit CAO_COMMIT \
+  --model opus \
+  --acceptance-report /tmp/atum-cao-mock.json \
+  --acceptance-report /tmp/atum-cao-claude.json \
+  --report /tmp/atum-agent-job-claude-gate.json
 ```

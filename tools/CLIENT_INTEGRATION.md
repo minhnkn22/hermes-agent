@@ -108,11 +108,36 @@ terminals individually, so an untracked operator-created tmux window is never
 removed by the compatibility reaper. Missing, mixed, malformed, or live leases
 fail closed.
 
-Before CAO becomes the default, the migration gate must prove that compatibility
-identity survives a CAO server restart. The current session-env cache is
-process-local, so same-session children created after a restart require a
-persisted metadata fallback. Fresh child sessions also need explicit identity
-forwarding rather than relying on same-session inheritance.
+Compatibility identity survives a CAO server restart through the terminal
+metadata database. A new window joining the same session and direct Kimi ACP
+startup recover the lease only when every tracked terminal has one matching,
+live identity. Mixed, incomplete, expired, or malformed persisted state fails
+closed. A fresh unrelated operator session deliberately does not inherit the
+lease; normal compatibility children stay in the owned CAO session.
+
+Roll out CAO by provider and exact owner namespace instead of switching every
+job at once:
+
+```bash
+export AGENT_JOB_EXECUTION_BACKEND=native
+export AGENT_JOB_CAO_CANARY_PROVIDERS=claude
+export AGENT_JOB_CAO_CANARY_OWNER_PREFIXES=cao-canary:FULL_CAO_COMMIT:
+```
+
+`AGENT_JOB_CAO_PROVIDERS` promotes named providers independently of the owner.
+`agent_job_migration_gate.py` requires fresh deterministic and live-provider CAO
+acceptance reports from the same source commit and model, then at least five
+completed canary jobs whose first-to-last completion span is 24 hours, no
+interruptions, and a failure rate no greater than ten percent. The evaluator
+derives the exact `cao-canary:FULL_CAO_COMMIT:` owner namespace itself and
+filters database evidence to the requested model. Threshold arguments can only
+tighten those baselines, and the report records every parameter. A passing
+gate also verifies the installed LaunchAgent still has native as its default and
+contains the exact provider, owner namespace, and CAO URL used for the canary.
+Acceptance artifact paths, hashes, source commits, models, and timestamps are
+recorded in the verdict. A passing report authorizes a provider-scoped
+promotion; it never mutates service configuration itself. Native execution
+remains the default until that evidence exists.
 
 To roll back, stop submitting work, let running CAO jobs drain, remove
 `AGENT_JOB_EXECUTION_BACKEND=cao`, and restart the supervisor. New jobs return

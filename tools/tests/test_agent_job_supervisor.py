@@ -571,6 +571,46 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("cao", job["execution_backend"])
 
+    async def test_cao_canary_requires_provider_and_owner_prefix(self) -> None:
+        canary = self.spec("complete")
+        canary["owner"] = "cao-canary:phase-7"
+        canary["max_turns"] = 0
+        ordinary = self.spec("complete")
+        ordinary["owner"] = "codex:ordinary"
+        with patch.dict(
+            os.environ,
+            {
+                "AGENT_JOB_EXECUTION_BACKEND": "native",
+                "AGENT_JOB_CAO_CANARY_PROVIDERS": "claude",
+                "AGENT_JOB_CAO_CANARY_OWNER_PREFIXES": "cao-canary:",
+            },
+            clear=False,
+        ):
+            selected = self.supervisor.submit(canary)
+            native = self.supervisor.submit(ordinary)
+
+        self.assertEqual("cao", selected["execution_backend"])
+        self.assertEqual("native", native["execution_backend"])
+        await self.call({"action": "cancel", "job_id": selected["job_id"]})
+        await self.call({"action": "cancel", "job_id": native["job_id"]})
+
+    async def test_cao_provider_promotion_is_owner_independent(self) -> None:
+        spec = self.spec("complete")
+        spec.update(owner="ordinary-owner", max_turns=0)
+        with patch.dict(
+            os.environ,
+            {"AGENT_JOB_EXECUTION_BACKEND": "native", "AGENT_JOB_CAO_PROVIDERS": "claude"},
+            clear=False,
+        ):
+            job = self.supervisor.submit(spec)
+        self.assertEqual("cao", job["execution_backend"])
+        await self.call({"action": "cancel", "job_id": job["job_id"]})
+
+    async def test_invalid_default_execution_backend_fails_closed(self) -> None:
+        with patch.dict(os.environ, {"AGENT_JOB_EXECUTION_BACKEND": "invalid"}):
+            with self.assertRaisesRegex(ValueError, "Unsupported execution backend"):
+                self.supervisor.submit(self.spec("complete"))
+
 
 if __name__ == "__main__":
     unittest.main()

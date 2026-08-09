@@ -27,20 +27,7 @@ def _run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, text=True, capture_output=True, check=check)
 
 
-def install() -> None:
-    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(STATE_DIR, 0o700)
-    if not IMPLEMENT_TOKEN_PATH.is_file() or not IMPLEMENT_TOKEN_PATH.read_text(encoding="utf-8").strip():
-        IMPLEMENT_TOKEN_PATH.write_text(secrets.token_urlsafe(48) + "\n", encoding="utf-8")
-    os.chmod(IMPLEMENT_TOKEN_PATH, 0o600)
-    for name in ("supervisor.stdout.log", "supervisor.stderr.log"):
-        path = STATE_DIR / name
-        if path.is_file() and path.stat().st_size > 1024 * 1024:
-            rotated = path.with_suffix(path.suffix + ".1")
-            if rotated.exists():
-                rotated.unlink()
-            path.replace(rotated)
+def _service_environment() -> dict[str, str]:
     environment = {
         "HOME": str(Path.home()),
         "USER": Path.home().name,
@@ -62,6 +49,34 @@ def install() -> None:
     }
     if os.environ.get("AGENT_JOB_PROFILE_ENV"):
         environment["AGENT_JOB_PROFILE_ENV"] = os.environ["AGENT_JOB_PROFILE_ENV"]
+    for name in (
+        "AGENT_JOB_EXECUTION_BACKEND",
+        "AGENT_JOB_CAO_URL",
+        "AGENT_JOB_CAO_TOKEN",
+        "AGENT_JOB_CAO_LAUNCH_TIMEOUT",
+        "AGENT_JOB_CAO_PROVIDERS",
+        "AGENT_JOB_CAO_CANARY_PROVIDERS",
+        "AGENT_JOB_CAO_CANARY_OWNER_PREFIXES",
+    ):
+        if os.environ.get(name):
+            environment[name] = os.environ[name]
+    return environment
+
+
+def install() -> None:
+    PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(STATE_DIR, 0o700)
+    if not IMPLEMENT_TOKEN_PATH.is_file() or not IMPLEMENT_TOKEN_PATH.read_text(encoding="utf-8").strip():
+        IMPLEMENT_TOKEN_PATH.write_text(secrets.token_urlsafe(48) + "\n", encoding="utf-8")
+    os.chmod(IMPLEMENT_TOKEN_PATH, 0o600)
+    for name in ("supervisor.stdout.log", "supervisor.stderr.log"):
+        path = STATE_DIR / name
+        if path.is_file() and path.stat().st_size > 1024 * 1024:
+            rotated = path.with_suffix(path.suffix + ".1")
+            if rotated.exists():
+                rotated.unlink()
+            path.replace(rotated)
     payload = {
         "Label": LABEL,
         "ProgramArguments": [sys.executable, str(SUPERVISOR), "serve"],
@@ -70,7 +85,7 @@ def install() -> None:
         "ThrottleInterval": 5,
         "ProcessType": "Background",
         "Umask": 0o077,
-        "EnvironmentVariables": environment,
+        "EnvironmentVariables": _service_environment(),
         "StandardOutPath": str(STATE_DIR / "supervisor.stdout.log"),
         "StandardErrorPath": str(STATE_DIR / "supervisor.stderr.log"),
     }
