@@ -120,6 +120,13 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("", again["output"])
         self.assertNotIn("prompt", result["job"])
 
+    async def test_zero_max_turns_is_preserved_as_unlimited(self) -> None:
+        spec = self.spec("complete")
+        spec["max_turns"] = 0
+        submitted = await self.call(spec)
+        self.assertEqual(0, submitted["max_turns"])
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+
     async def test_cancel_running_process_group(self) -> None:
         submitted = await self.call(self.spec("slow"))
         await self.wait_for(str(submitted["job_id"]), {"running"})
@@ -367,6 +374,10 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("MOONSHOT_API_KEY", env)
             self.assertEqual("review", stdin_text)
             self.assertIn("--safe-mode", argv)
+            self.assertIn("--max-turns", argv)
+            base["max_turns"] = 0
+            argv, _, _ = self.supervisor._build_command(base)
+            self.assertNotIn("--max-turns", argv)
             base.update(provider="codex", model="gpt-5.6-codex")
             argv, stdin_text, _ = self.supervisor._build_command(base)
             self.assertIn("--ignore-user-config", argv)

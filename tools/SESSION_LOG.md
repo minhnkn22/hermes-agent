@@ -1,5 +1,30 @@
 # Session Log
 
+## 2026-08-09 - Remove default provider turn ceiling
+
+Branch: `feat/thin-agent-job-harness`
+
+- Changed the durable job contract so `max_turns=0` means no provider turn
+  ceiling and made zero the default across MCP, CLI, delegation, compatibility,
+  and review-core callers.
+- Claude jobs now omit `--max-turns` entirely unless a caller deliberately
+  supplies a positive value. Explicit positive values remain available and are
+  bounded only by a high defensive parsing cap.
+- Kept wall-clock deadlines, soft-stall reporting, cancellation, and process
+  cleanup unchanged; those controls remain the authoritative runtime bounds.
+- Updated the shared skill so coding agents do not invent arbitrary turn caps
+  that can discard a healthy, already-billed run.
+- Added regression coverage for stored unlimited jobs and Claude command
+  construction with and without an explicit ceiling.
+- Trigger: Opus job `ae7bd8e3-3f15-436d-9820-4d4027b4fc96` was still working
+  when an explicitly low six-turn ceiling terminated it with no usable output.
+- Verification: 34 focused supervisor/core tests passed; `py_compile` passed
+  for the supervisor, MCP server, core, CLI/client, and delegation entrypoints;
+  `git diff --check` passed. Daemon restart and live unlimited-job smoke follow
+  the commit; Codex Desktop reloads the updated MCP default on its next restart.
+- Next: resume CAO Phase 2 acceptance-harness implementation after this shared
+  reliability fix is deployed.
+
 ## 2026-08-09 - CAO adoption spike
 
 Branch: `feat/thin-agent-job-harness`

@@ -48,6 +48,12 @@ submit secrets, credentials, private keys, `.env` contents, or unrelated private
 material. Context files must be inside `workdir`; the guarded interface redacts
 common secret shapes as defense in depth.
 
+Use the wall-clock `timeout_seconds` as the hard execution backstop. Leave
+`max_turns` at its default `0`, which omits the provider turn ceiling. Set a
+positive turn ceiling only when the user explicitly requests one or the task has
+a known bounded interaction protocol; an arbitrary turn cap can discard an
+otherwise healthy run after its tokens have already been spent.
+
 ## Use the available binding
 
 - **Codex/Hermes with MCP:** call `job_submit`, `job_read`, `job_list`, and

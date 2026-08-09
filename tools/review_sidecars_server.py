@@ -385,7 +385,7 @@ async def _run_provider(
         workdir=str(cwd),
         prompt=prompt,
         timeout_seconds=timeout,
-        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "60")),
+        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "0")),
         owner="review-sidecars:sync",
     )
     job_id = str(submitted["job_id"])
@@ -543,7 +543,7 @@ async def _start_job(
         workdir=str(cwd),
         prompt=prompt,
         timeout_seconds=effective_timeout,
-        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "60")),
+        max_turns=int(os.environ.get("REVIEW_SIDECARS_CLAUDE_MAX_TURNS", "0")),
         owner="review-sidecars:async",
     )
     return json.dumps(job, ensure_ascii=False, indent=2)

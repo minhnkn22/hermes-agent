@@ -24,7 +24,12 @@ def _parser() -> argparse.ArgumentParser:
     submit.add_argument("--context-text", default="")
     submit.add_argument("--expected-output", default="")
     submit.add_argument("--timeout-seconds", type=int, default=1800)
-    submit.add_argument("--max-turns", type=int, default=60)
+    submit.add_argument(
+        "--max-turns",
+        type=int,
+        default=0,
+        help="provider turn ceiling; 0 omits the ceiling (default)",
+    )
     submit.add_argument("--idempotency-key", default="")
     submit.add_argument("--label", default="")
     submit.add_argument("--owner", default="")

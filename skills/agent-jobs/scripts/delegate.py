@@ -32,7 +32,12 @@ def main() -> int:
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--timeout-seconds", type=int, default=900)
-    parser.add_argument("--max-turns", type=int, default=60)
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=0,
+        help="provider turn ceiling; 0 omits the ceiling (default)",
+    )
     args = parser.parse_args()
     workdir = Path(args.workdir).expanduser().resolve()
     if not workdir.is_dir():

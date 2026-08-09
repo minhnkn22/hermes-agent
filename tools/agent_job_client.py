@@ -121,7 +121,12 @@ def _parser() -> argparse.ArgumentParser:
     submit_parser.add_argument("--workdir", required=True)
     submit_parser.add_argument("--prompt", required=True)
     submit_parser.add_argument("--timeout-seconds", type=int, default=2700)
-    submit_parser.add_argument("--max-turns", type=int, default=60)
+    submit_parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=0,
+        help="provider turn ceiling; 0 omits the ceiling (default)",
+    )
     submit_parser.add_argument("--owner", default="")
     submit_parser.add_argument("--idempotency-key", default="")
     read_parser = sub.add_parser("read")

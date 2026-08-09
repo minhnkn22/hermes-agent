@@ -26,12 +26,12 @@ async def job_submit(
     context_text: str = "",
     expected_output: str = "",
     timeout_seconds: int = 1800,
-    max_turns: int = 60,
+    max_turns: int = 0,
     idempotency_key: str = "",
     label: str = "",
     owner: str = "",
 ) -> str:
-    """Submit one durable read-only provider job and return its job ID immediately."""
+    """Submit a durable read-only job. max_turns=0 omits the provider turn ceiling."""
     result = await asyncio.to_thread(
         review_core.job_submit,
         provider=provider, model=model, instructions=instructions, workdir=workdir,

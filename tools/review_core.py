@@ -286,7 +286,7 @@ def job_submit(
     context_text: str = "",
     expected_output: str = "",
     timeout_seconds: int = 1800,
-    max_turns: int = 60,
+    max_turns: int = 0,
     idempotency_key: str = "",
     label: str = "",
     owner: str = "",

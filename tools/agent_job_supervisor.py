@@ -355,14 +355,16 @@ class Supervisor:
         model = job["model"]
         mode = job["mode"]
         prompt = job["prompt"]
-        max_turns = str(job["max_turns"])
+        max_turns = int(job["max_turns"])
         if provider == "claude":
             permission = "plan" if mode == "readonly" else "acceptEdits"
             tools = ["Read", "Glob", "Grep", "LS"] if mode == "readonly" else ["Read", "Glob", "Grep", "Edit", "Write"]
             argv = [
                 binary, "-p", "--model", model, "--permission-mode", permission,
-                "--allowed-tools", *tools, "--max-turns", max_turns,
+                "--allowed-tools", *tools,
             ]
+            if max_turns > 0:
+                argv.extend(["--max-turns", str(max_turns)])
             argv.extend(["--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}'])
             if mode == "readonly":
                 argv.append("--safe-mode")
@@ -668,7 +670,8 @@ class Supervisor:
             raise ValueError(f"Prompt must contain 1 to {MAX_PROMPT_BYTES} UTF-8 bytes")
         workdir = _safe_workdir(str(payload.get("workdir") or ""))
         timeout = max(MIN_TIMEOUT_SECONDS, min(int(payload.get("timeout_seconds") or 2700), MAX_TIMEOUT_SECONDS))
-        max_turns = max(1, min(int(payload.get("max_turns") or 60), 60))
+        requested_max_turns = int(payload.get("max_turns") or 0)
+        max_turns = 0 if requested_max_turns <= 0 else min(requested_max_turns, 10_000)
         soft_stall = max(30, min(int(payload.get("soft_stall_seconds") or DEFAULT_SOFT_STALL_SECONDS), timeout))
         spec = {
             "provider": provider, "model": model, "mode": mode, "workdir": str(workdir),
