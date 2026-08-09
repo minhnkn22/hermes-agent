@@ -1,5 +1,29 @@
 # Session Log
 
+## 2026-08-09 - Async events and completion delivery engineering review
+
+Branch: `feat/thin-agent-job-harness`
+
+- Reviewed the cross-agent timeout and silent-run architecture across the
+  supervisor, client, guarded core, MCP binding, skill, and tests.
+- Consulted Claude Opus through durable job
+  `3bdfee63-d1b9-4e9b-a1dc-1978da1a5941`; no cross-model tension remained after
+  repository verification.
+- Chose a bounded hybrid event design: raw stdout/stderr remain authoritative,
+  normalized provider events use per-job JSONL, and SQLite stores job/liveness
+  summaries plus owner-scoped at-least-once completion deliveries.
+- Specified true server-side long polling, dynamic transport timeouts, semantic
+  liveness, explicit inbox acknowledgement, compatibility constraints,
+  retention, rollout, rollback, failure modes, and comprehensive tests.
+- Deferred ACP transport, multi-machine execution, interrupted-job replay,
+  external workflow engines, and rollback-source removal until the local event
+  contract has shipped and been observed.
+
+Durable plan: `tools/AGENT_JOB_ASYNC_EVENTS_PLAN.md`. The gstack engineering
+review recorded 11 resolved findings, zero unresolved decisions, and zero
+critical gaps. This checkpoint changes documentation and implementation design
+only; production behavior is unchanged.
+
 ## 2026-08-09 - Claude Desktop and Kimi caller parity
 
 Branch: `feat/thin-agent-job-harness`
