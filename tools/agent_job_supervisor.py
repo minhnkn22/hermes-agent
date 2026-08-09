@@ -23,6 +23,8 @@ import time
 import uuid
 from typing import Any, Callable
 
+from agent_job_policy import configured_allowed_roots, SENSITIVE_PATH_PARTS
+
 
 STATE_DIR = Path(os.environ.get("AGENT_JOB_STATE_DIR", "~/.local/state/agent-job-supervisor")).expanduser()
 SOCKET_PATH = Path(os.environ.get("AGENT_JOB_SOCKET", str(STATE_DIR / "supervisor.sock"))).expanduser()
@@ -64,8 +66,7 @@ def _json(value: Any) -> str:
 
 
 def _allowed_roots() -> list[Path]:
-    raw = os.environ.get("AGENT_JOB_ALLOWED_ROOTS", "~/Documents:/Users/Shared")
-    return [Path(value).expanduser().resolve() for value in raw.split(os.pathsep) if value.strip()]
+    return configured_allowed_roots()
 
 
 def _safe_workdir(value: str) -> Path:
@@ -76,10 +77,11 @@ def _safe_workdir(value: str) -> Path:
     if not path.is_dir():
         raise ValueError(f"Workdir does not exist or is not a directory: {path}")
     roots = [root for root in _allowed_roots() if root.exists()]
-    if roots and not any(path == root or root in path.parents for root in roots):
+    if not roots:
+        raise ValueError("No configured agent-job workspace roots exist; refusing to run fail-open")
+    if not any(path == root or root in path.parents for root in roots):
         raise ValueError(f"Workdir is outside configured roots: {path}")
-    sensitive = {".ssh", ".aws", ".azure", ".gnupg", "Keychains", "credentials", "secrets"}
-    if any(part in sensitive for part in path.parts):
+    if any(part.lower() in SENSITIVE_PATH_PARTS for part in path.parts):
         raise ValueError(f"Workdir is inside a credential or secret store: {path}")
     return path
 
@@ -254,10 +256,33 @@ class JobStore:
             "SELECT * FROM jobs WHERE status IN ('launching','running') ORDER BY created_at"
         )]
 
-    def list(self, status: str = "", limit: int = 50) -> list[dict[str, Any]]:
-        if status:
+    def list(self, status: str = "", limit: int = 50, owner: str = "") -> list[dict[str, Any]]:
+        if status == "possibly_stalled" and owner:
+            rows = self.db.execute(
+                """SELECT * FROM jobs WHERE status = 'running' AND instr(owner, ?) = 1
+                   AND COALESCE(last_output_at, started_at, created_at) + soft_stall_seconds <= ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (owner, _now(), limit),
+            )
+        elif status == "possibly_stalled":
+            rows = self.db.execute(
+                """SELECT * FROM jobs WHERE status = 'running'
+                   AND COALESCE(last_output_at, started_at, created_at) + soft_stall_seconds <= ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (_now(), limit),
+            )
+        elif status and owner:
+            rows = self.db.execute(
+                "SELECT * FROM jobs WHERE status = ? AND instr(owner, ?) = 1 ORDER BY created_at DESC LIMIT ?",
+                (status, owner, limit),
+            )
+        elif status:
             rows = self.db.execute(
                 "SELECT * FROM jobs WHERE status = ? ORDER BY created_at DESC LIMIT ?", (status, limit)
+            )
+        elif owner:
+            rows = self.db.execute(
+                "SELECT * FROM jobs WHERE instr(owner, ?) = 1 ORDER BY created_at DESC LIMIT ?", (owner, limit)
             )
         else:
             rows = self.db.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,))
@@ -349,7 +374,10 @@ class Supervisor:
                 raise RuntimeError(f"Kimi agent definition is missing: {agent_path}")
             return [binary, "--model", model, "--agent-file", str(agent_path), "--prompt", prompt], None, _provider_env(provider)
         sandbox = "read-only" if mode == "readonly" else "workspace-write"
-        argv = [binary, "exec", "-C", job["workdir"], "-s", sandbox, "--json", "--skip-git-repo-check"]
+        argv = [
+            binary, "exec", "--ignore-user-config", "-C", job["workdir"],
+            "-s", sandbox, "--json", "--skip-git-repo-check",
+        ]
         if model:
             argv.extend(["--model", model])
         argv.append("-")
@@ -719,10 +747,8 @@ class Supervisor:
             elif action == "list":
                 limit = max(1, min(int(payload.get("limit") or 50), 200))
                 requested_status = str(payload.get("status") or "")
-                stored_status = "running" if requested_status == "possibly_stalled" else requested_status
-                jobs = [self._public(job) for job in self.store.list(stored_status, limit)]
-                if requested_status == "possibly_stalled":
-                    jobs = [job for job in jobs if job["status"] == "possibly_stalled"]
+                owner = str(payload.get("owner") or "")[:200]
+                jobs = [self._public(job) for job in self.store.list(requested_status, limit, owner)]
                 result = {"jobs": jobs}
             elif action == "cancel":
                 job_id = str(payload.get("job_id") or "")

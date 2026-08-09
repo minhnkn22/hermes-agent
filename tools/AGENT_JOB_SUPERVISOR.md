@@ -4,6 +4,25 @@ The agent job supervisor owns long-running Claude Code, Codex, and Kimi Code CLI
 processes independently of the Codex, Claude, or Hermes session that submitted
 them. It replaces caller-bound subprocess waits with durable job IDs.
 
+## Architecture
+
+The supported interface follows a fat-skill, thin-harness split:
+
+- `skills/agent-jobs/` owns provider routing, review rubrics, fallback policy,
+  polling judgment, and explicit implementation delegation.
+- `tools/review_core.py` owns non-negotiable read-only enforcement, workspace and
+  context containment, secret refusal/redaction, bounded Git context, and the
+  mapping to supervisor jobs.
+- `tools/agent_jobs_server.py` and `tools/review_cli.py` are equivalent bindings
+  over that core. The MCP server exposes only `job_submit`, `job_read`,
+  `job_list`, and `job_cancel`; it accepts typed instructions rather than a raw
+  prompt and cannot select write mode.
+- `tools/agent_job_supervisor.py` owns process lifecycle, persistence,
+  credentials, deadlines, concurrency, and capability-gated implementation.
+
+The former `review-sidecars` MCP is retained in source for rollback only. It is
+not the active registration after profile migration.
+
 ## Lifecycle
 
 1. A caller submits `provider`, `model`, `mode`, `workdir`, `prompt`, an
@@ -48,7 +67,9 @@ python3 tools/install_agent_job_supervisor.py status
 
 Provider concurrency defaults to Claude 2, Codex 2, and Kimi 1. Override with
 `AGENT_JOB_<PROVIDER>_CONCURRENCY` in the LaunchAgent environment. Approved
-workspace roots default to `~/Documents` and `/Users/Shared`.
+workspace roots are defined once in `tools/agent_job_policy.py` and used by the
+installer, supervisor, review core, and profile migrator. Override them
+consistently with `AGENT_JOB_ALLOWED_ROOTS` when deploying elsewhere.
 
 Durable `implement` mode requires both the installed service policy and a random
 capability stored in `~/.local/state/agent-job-supervisor/implement.token` with
@@ -86,5 +107,5 @@ prevents a second daemon from competing for the same queue.
 
 ```bash
 python3 -m unittest discover -s tools/tests -v
-python3 -m py_compile tools/agent_job_*.py tools/review_sidecars_server.py
+python3 -m py_compile tools/agent_job_*.py tools/review_core.py tools/review_cli.py
 ```

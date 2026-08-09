@@ -1,5 +1,93 @@
 # Session Log
 
+## 2026-08-09 - Fat skill and thin cross-agent harness
+
+Branch: `feat/thin-agent-job-harness`
+
+### Decision
+
+The mode-heavy `review-sidecars` MCP mixed policy, prompting, transport, and
+process lifecycle. It is now retained only as rollback source. The supported
+architecture is:
+
+- `skills/agent-jobs/`: routing, rubrics, fallback, polling judgment, model
+  aliases, and explicit implementation delegation.
+- `tools/review_core.py`: typed read-only prompt construction, common root and
+  context containment, secret refusal/redaction, and bounded Git context.
+- `tools/agent_jobs_server.py` and `tools/review_cli.py`: equivalent thin MCP and
+  CLI bindings over the same review core.
+- `tools/agent_job_supervisor.py`: durable process lifecycle, credentials,
+  deadlines, concurrency, idempotency, and capability-gated write jobs.
+
+The MCP exposes only `job_submit`, `job_read`, `job_list`, and `job_cancel`. It
+does not expose raw prompts or a write mode. Claude and shell-only sessions use
+the CLI binding; Codex and Hermes use MCP. Explicitly requested implementation
+uses the skill's separate capability-gated delegation script.
+
+### Migration
+
+- Installed the shared `agent-jobs` skill under `~/.agents/skills` and linked it
+  into Claude. Retired Codex's separate `delegate-ai-work` skill to
+  `~/.codex/skill-backups/delegate-ai-work-20260809`.
+- Replaced the Codex `review-sidecars` registration with `agent-jobs` and reduced
+  the MCP ceiling to 90 seconds because provider work now runs asynchronously.
+- Migrated all 12 Hermes profiles with per-run config and skill backups. Existing
+  sessions keep their loaded schema until restarted; new sessions load the
+  generic tools.
+- Centralized allowed roots in `agent_job_policy.py`, including ordinary project
+  folders and Codex, Hermes, and Atum worktrees. Credential-store paths remain
+  blocked even when nested below an allowed root.
+- Made profile migration fail on malformed applicable profiles, hash skill
+  content, stage replacements before activation, and restore config plus both
+  old skill directories after a failed apply.
+
+### Review
+
+Planning review job `87164e52-9daf-4310-9b9b-407da4882264` completed with Claude
+Opus and established the layer boundaries above. Kimi assembly review job
+`2060ca27-bdff-4639-9f7f-b9006fd6b0bf` failed because its billing-cycle quota
+was exhausted. Opus fallback job `9ad9d20f-7da8-4d19-9b7d-6d095e6c6d8d`
+completed after a quiet period and found mismatched root sets, swallowed
+migration errors, non-transactional skill replacement, owner filtering after
+the list limit, and omitted untracked files. Those findings were corrected and
+covered by regression tests. Targeted Opus follow-up job
+`88ff87b2-9cac-4096-824f-455d70af830a` confirmed the five named findings were
+resolved, then identified an untracked-symlink containment regression. The final
+fix refuses symlinks and resolved paths outside `workdir`, with a regression test;
+the same patch also applies stalled-status filtering before list limits and makes
+failed profile migrations immediately retryable.
+
+### Verification
+
+```text
+python3 -m unittest discover -s tools/tests -q
+  43 tests passed
+
+Hermes venv python -m pytest -q
+  43 passed, 3 subtests passed
+
+skill-creator quick_validate.py skills/agent-jobs
+  Skill is valid
+
+MCP stdio list_tools
+  job_cancel,job_list,job_read,job_submit
+
+Claude Sonnet guarded review job
+  86bd1814-65bd-49e2-aa56-c522b5957316 completed
+  output included AGENT_JOBS_LIVE_OK
+
+Delegated Codex read-only job with --ignore-user-config
+  d8517936-03ba-4bc3-a838-224f2d19c6fb completed
+  output included DELEGATED_CODEX_LIVE_OK
+
+Supervisor owner-filter recovery after restart
+  returned both assembly jobs before applying limit
+```
+
+Restart the Codex desktop app to load the new MCP registration. Restart existing
+Hermes agent processes when convenient; no running cluster process was killed by
+the profile migration.
+
 ## 2026-08-09 - Durable cross-agent job supervision
 
 Branch: `feat/review-sidecars`

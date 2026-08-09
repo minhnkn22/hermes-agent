@@ -13,6 +13,8 @@ import subprocess
 import sys
 import time
 
+from agent_job_policy import allowed_roots_value
+
 
 LABEL = "com.atum.agent-job-supervisor"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
@@ -39,12 +41,6 @@ def install() -> None:
             if rotated.exists():
                 rotated.unlink()
             path.replace(rotated)
-    default_roots = [
-        Path.home() / "Documents", Path.home() / "projects", Path("/Users/Shared"),
-        SUPERVISOR.parent.parent, Path.home() / ".codex" / "worktrees",
-        Path.home() / ".hermes" / "hermes-agent", Path.home() / ".hermes" / "worktrees",
-        Path.home() / ".atum" / "worktrees",
-    ]
     environment = {
         "HOME": str(Path.home()),
         "USER": Path.home().name,
@@ -58,8 +54,7 @@ def install() -> None:
         "AGENT_JOB_ALLOW_IMPLEMENT": "1",
         "AGENT_JOB_IMPLEMENT_TOKEN_FILE": str(IMPLEMENT_TOKEN_PATH),
         "AGENT_JOB_ALLOWED_ROOTS": os.environ.get(
-            "AGENT_JOB_ALLOWED_ROOTS",
-            os.pathsep.join(str(path) for path in default_roots if path.exists()),
+            "AGENT_JOB_ALLOWED_ROOTS", allowed_roots_value(),
         ),
         "AGENT_JOB_CLAUDE_BIN": os.environ.get("AGENT_JOB_CLAUDE_BIN", str(Path.home() / ".local/bin/claude")),
         "AGENT_JOB_KIMI_BIN": os.environ.get("AGENT_JOB_KIMI_BIN", str(Path.home() / ".kimi-code/bin/kimi")),

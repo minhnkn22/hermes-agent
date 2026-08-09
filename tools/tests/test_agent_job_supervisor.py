@@ -149,6 +149,33 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(str(first["job_id"]), {"cancelled"})
         await self.wait_for(str(second["job_id"]), {"completed"})
 
+    async def test_list_filters_owner_before_applying_limit(self) -> None:
+        wanted = self.spec("complete")
+        wanted["owner"] = "wanted:checkpoint"
+        first = await self.call(wanted)
+        await self.wait_for(str(first["job_id"]), {"completed"})
+        other = self.spec("complete")
+        other["owner"] = "other:checkpoint"
+        second = await self.call(other)
+        await self.wait_for(str(second["job_id"]), {"completed"})
+        result = await self.call({"action": "list", "owner": "wanted", "limit": 1})
+        self.assertEqual([first["job_id"]], [job["job_id"] for job in result["jobs"]])
+
+    async def test_stalled_filter_is_applied_before_limit(self) -> None:
+        self.supervisor.provider_limits["claude"] = 2
+        stalled = await self.call(self.spec("slow"))
+        await self.wait_for(str(stalled["job_id"]), {"running"})
+        self.supervisor.store.update(
+            str(stalled["job_id"]), last_output_at=time.time() - 31, soft_stall_seconds=30
+        )
+        active = await self.call(self.spec("slow"))
+        await self.wait_for(str(active["job_id"]), {"running"})
+        result = await self.call({"action": "list", "status": "possibly_stalled", "limit": 1})
+        self.assertEqual([stalled["job_id"]], [job["job_id"] for job in result["jobs"]])
+        for job in (stalled, active):
+            await self.call({"action": "cancel", "job_id": job["job_id"]})
+            await self.wait_for(str(job["job_id"]), {"cancelled"})
+
     async def test_production_concurrency_never_launches_one_job_twice(self) -> None:
         self.supervisor.provider_limits["claude"] = 2
         submitted = await self.call(self.spec("slow"))
@@ -210,6 +237,12 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         spec["workdir"] = "."
         with self.assertRaisesRegex(RuntimeError, "absolute path"):
             await self.call(spec)
+
+    async def test_missing_allowed_roots_fail_closed(self) -> None:
+        os.environ["AGENT_JOB_ALLOWED_ROOTS"] = str(Path(self.temp.name) / "missing")
+        with self.assertRaisesRegex(RuntimeError, "fail-open"):
+            await self.call(self.spec("complete"))
+        os.environ["AGENT_JOB_ALLOWED_ROOTS"] = str(Path(self.temp.name))
 
     async def test_implementation_requires_capability(self) -> None:
         spec = self.spec("complete")
@@ -334,6 +367,10 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("MOONSHOT_API_KEY", env)
             self.assertEqual("review", stdin_text)
             self.assertIn("--safe-mode", argv)
+            base.update(provider="codex", model="gpt-5.6-codex")
+            argv, stdin_text, _ = self.supervisor._build_command(base)
+            self.assertIn("--ignore-user-config", argv)
+            self.assertEqual("review", stdin_text)
         finally:
             if old is None:
                 os.environ.pop("AGENT_JOB_PROFILE_ENV", None)

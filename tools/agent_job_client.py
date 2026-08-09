@@ -102,8 +102,8 @@ def read(
     })
 
 
-def list_jobs(status: str = "", limit: int = 50) -> dict[str, Any]:
-    return request({"action": "list", "status": status, "limit": limit})
+def list_jobs(status: str = "", limit: int = 50, owner: str = "") -> dict[str, Any]:
+    return request({"action": "list", "status": status, "limit": limit, "owner": owner})
 
 
 def cancel(job_id: str) -> dict[str, Any]:
@@ -131,6 +131,7 @@ def _parser() -> argparse.ArgumentParser:
     list_parser = sub.add_parser("list")
     list_parser.add_argument("--status", default="")
     list_parser.add_argument("--limit", type=int, default=50)
+    list_parser.add_argument("--owner", default="")
     cancel_parser = sub.add_parser("cancel")
     cancel_parser.add_argument("job_id")
     sub.add_parser("ping")
