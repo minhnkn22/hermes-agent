@@ -35,7 +35,7 @@ def request(payload: dict[str, Any], socket_path: Path | str = DEFAULT_SOCKET_PA
     chunks: list[bytes] = []
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(15)
+            client.settimeout(15 + max(0, min(int(payload.get("wait_seconds") or 0), 60)))
             client.connect(str(path))
             client.sendall(data)
             client.shutdown(socket.SHUT_WR)
@@ -94,11 +94,12 @@ def read(
     stream_cursors: bool = False,
     stdout_cursor: int = 0,
     stderr_cursor: int = 0,
+    wait_seconds: int = 0,
 ) -> dict[str, Any]:
     return request({
         "action": "read", "job_id": job_id, "cursor": cursor, "max_bytes": max_bytes,
         "stream_cursors": stream_cursors, "stdout_cursor": stdout_cursor,
-        "stderr_cursor": stderr_cursor,
+        "stderr_cursor": stderr_cursor, "wait_seconds": wait_seconds,
     })
 
 
@@ -108,6 +109,13 @@ def list_jobs(status: str = "", limit: int = 50, owner: str = "") -> dict[str, A
 
 def cancel(job_id: str) -> dict[str, Any]:
     return request({"action": "cancel", "job_id": job_id})
+
+
+def inbox(owner: str, limit: int = 20, ack_delivery_ids: list[str] | None = None) -> dict[str, Any]:
+    return request({
+        "action": "inbox", "owner": owner, "limit": limit,
+        "ack_delivery_ids": ack_delivery_ids or [],
+    })
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -139,6 +147,10 @@ def _parser() -> argparse.ArgumentParser:
     list_parser.add_argument("--owner", default="")
     cancel_parser = sub.add_parser("cancel")
     cancel_parser.add_argument("job_id")
+    inbox_parser = sub.add_parser("inbox")
+    inbox_parser.add_argument("--owner", required=True)
+    inbox_parser.add_argument("--limit", type=int, default=20)
+    inbox_parser.add_argument("--ack-delivery-id", action="append", dest="ack_delivery_ids")
     sub.add_parser("ping")
     return parser
 

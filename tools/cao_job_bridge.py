@@ -80,6 +80,15 @@ def main() -> int:
     stop = False
     safe_job_id = "".join(char if char.isalnum() or char in "-_" else "-" for char in args.job_id)
     session_name = f"agent-job-{safe_job_id}"
+    now = time.time()
+    try:
+        requested_deadline = float(os.environ.get("AGENT_JOB_DEADLINE_EPOCH", now + 7200.0))
+    except ValueError:
+        requested_deadline = now + 7200.0
+    deadline = max(
+        now + 30.0,
+        min(requested_deadline, now + 7200.0),
+    )
     actual_session = ""
     launch_attempted = False
 
@@ -108,10 +117,19 @@ def main() -> int:
             params=params,
             body={
                 "initial_message": prompt,
+                "env_vars": {
+                    "AGENT_JOB_DEPTH": os.environ.get("AGENT_JOB_DEPTH", "1"),
+                    "AGENT_JOB_PROVIDER": args.provider,
+                    "AGENT_JOB_ID": args.job_id,
+                    "AGENT_JOB_MODE": args.mode,
+                    "AGENT_JOB_DEADLINE_EPOCH": str(deadline),
+                },
                 "metadata": {
                     "kind": "agent_job_compat",
                     "job_id": args.job_id,
                     "mode": args.mode,
+                    "provider": args.provider,
+                    "expires_at": deadline,
                 },
             },
             timeout=min(

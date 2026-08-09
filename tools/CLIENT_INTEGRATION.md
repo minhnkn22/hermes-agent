@@ -42,16 +42,25 @@ the corresponding `*.bak.agent-jobs-<suffix>` file, and restart the client.
 | Kimi Code | MCP | `~/.agents/skills` and Kimi `AGENTS.md` | Kimi CLI |
 | Hermes profiles | MCP | Per-profile skill copies | Not a provider |
 
-MCP intentionally exposes only submit, read, list, and cancel for read-only jobs.
+MCP intentionally exposes submit, read, list, cancel, and owner-inbox operations
+for read-only jobs.
 Explicit implementation remains behind the local capability-protected delegation
 CLI. This prevents a general chat client from selecting write mode directly.
 Review prompts may contain up to 4 MiB of UTF-8 data. The supervisor's Unix
 socket reader is sized for that complete JSON request, so prompts larger than the
 former 400 KB ceiling are accepted end to end rather than only by one layer.
 
+`job_read(wait_seconds=N)` waits inside the supervisor and wakes on output,
+liveness, or terminal state; it does not spin up repeated client connections.
+Terminal jobs with an owner produce an at-least-once `job_inbox` delivery that
+survives caller and app restarts and remains until exact-owner acknowledgement.
+The caller must inspect the retained result before acknowledgement. MCP cannot
+proactively inject a result into a suspended model turn, so clients check their
+owner inbox on resume or use a host/app notification layer as an external wakeup.
+
 ## CAO Compatibility Backend
 
-The supervisor can preserve its existing four-tool contract while delegating
+The supervisor preserves its existing lifecycle contract while delegating
 provider execution to CAO. This is an opt-in migration path; native execution
 remains the default:
 
@@ -86,10 +95,24 @@ unlimited value remains supported and bounded by the wall-clock deadline.
 During the pilot, CAO emits status transitions and a retained final result, not
 the provider's incremental token stream. A long quiet processing state can
 therefore become `possibly_stalled` even while CAO is alive. The hard deadline
-still bounds it. Recursion depth is not yet propagated into CAO-spawned provider
-environments, and a create request that loses its response after CAO renames the
-session can require the Phase 6 metadata reaper. Keep the backend opt-in until
-those observation-window gaps are closed.
+still bounds it. Keep the backend opt-in until the observation window confirms
+provider status quality and lease cleanup under real workloads.
+
+Compatibility sessions carry the supervisor hard deadline as a CAO metadata
+lease plus `AGENT_JOB_DEPTH`, provider, and job identity in the provider
+environment. Same-session child CAO terminals inherit and persist the same
+validated lease while the CAO process remains live.
+CAO reaps only DB-tracked terminals in expired, dedicated `cao-agent-job-*`
+sessions when every tracked terminal carries a matching lease. It deletes those
+terminals individually, so an untracked operator-created tmux window is never
+removed by the compatibility reaper. Missing, mixed, malformed, or live leases
+fail closed.
+
+Before CAO becomes the default, the migration gate must prove that compatibility
+identity survives a CAO server restart. The current session-env cache is
+process-local, so same-session children created after a restart require a
+persisted metadata fallback. Fresh child sessions also need explicit identity
+forwarding rather than relying on same-session inheritance.
 
 To roll back, stop submitting work, let running CAO jobs drain, remove
 `AGENT_JOB_EXECUTION_BACKEND=cao`, and restart the supervisor. New jobs return

@@ -1,6 +1,6 @@
 ---
 name: agent-jobs
-description: Route durable cross-agent reviews, consultations, planning, design, copywriting, research, or explicitly delegated implementation among Codex, Claude, and Kimi. Use when an independent model can materially improve a checkpoint or when the user explicitly asks one provider to perform scoped work. The skill owns routing and review policy; the generic job tools only submit, observe, list, and cancel durable jobs.
+description: Route durable cross-agent reviews, consultations, planning, design, copywriting, research, or explicitly delegated implementation among Codex, Claude, and Kimi. Use when an independent model can materially improve a checkpoint or when the user explicitly asks one provider to perform scoped work. The skill owns routing and review policy; the generic job tools only submit, observe, list, cancel, and deliver durable job notices.
 ---
 
 # Agent Jobs
@@ -37,11 +37,20 @@ Do not routinely call both providers.
 2. Load only the relevant rubric and incorporate it into `instructions`.
 3. Submit asynchronously with the exact absolute `workdir`. Set
    `context_git_diff=true` for code review and select the correct base ref.
-4. Save the job ID and cursor. Poll with `job_read(wait_seconds=30)` until terminal.
+4. Save the job ID, cursor, and exact owner. Use
+   `job_read(wait_seconds=30)` for a server-side wait until progress or terminal
+   state; the caller does not need to generate repeated socket polls.
 5. Treat `possibly_stalled` as alive but quiet. Cancel only after inspecting status,
    elapsed time, and the hard deadline.
 6. On primary provider failure, submit the fallback as a new job. Record both IDs.
 7. Verify every finding against repository evidence and run checks yourself.
+
+For work that outlives the calling task, query `job_inbox` with the exact owner
+when the task resumes. Deliveries are redelivered until acknowledged. Read the
+job's retained result first, then acknowledge that delivery ID; never acknowledge
+work that has not been inspected. MCP is request/response and cannot inject a
+tool result into a suspended model turn, so the inbox is the durable notification
+boundary rather than a claim of proactive in-chat wakeup.
 
 Use a stable idempotency key for retries of the same provider/checkpoint. Never
 submit secrets, credentials, private keys, `.env` contents, or unrelated private
@@ -56,10 +65,10 @@ otherwise healthy run after its tokens have already been spent.
 
 ## Use the available binding
 
-- **Codex/Hermes with MCP:** call `job_submit`, `job_read`, `job_list`, and
-  `job_cancel` from the `agent-jobs` server.
+- **Codex/Hermes with MCP:** call `job_submit`, `job_read`, `job_list`,
+  `job_cancel`, and `job_inbox` from the `agent-jobs` server.
 - **Claude or a shell-only session:** run `scripts/review.py` with the equivalent
-  `submit`, `read`, `list`, or `cancel` arguments.
+  `submit`, `read`, `list`, `cancel`, or `inbox` arguments.
 
 Both review bindings use the same safety core. Explicit implementation goes
 directly to the supervisor's capability-gated write path. Read

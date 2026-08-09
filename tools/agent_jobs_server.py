@@ -64,5 +64,16 @@ async def job_cancel(job_id: str) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+@mcp.tool()
+async def job_inbox(
+    owner: str, limit: int = 20, ack_delivery_ids: list[str] | None = None
+) -> str:
+    """Read and acknowledge owner-scoped terminal-job deliveries at least once."""
+    result = await asyncio.to_thread(
+        review_core.job_inbox, owner, limit, ack_delivery_ids
+    )
+    return json.dumps(result, ensure_ascii=False, indent=2)
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

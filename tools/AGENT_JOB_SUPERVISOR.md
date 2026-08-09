@@ -14,9 +14,9 @@ The supported interface follows a fat-skill, thin-harness split:
   context containment, secret refusal/redaction, bounded Git context, and the
   mapping to supervisor jobs.
 - `tools/agent_jobs_server.py` and `tools/review_cli.py` are equivalent bindings
-  over that core. The MCP server exposes only `job_submit`, `job_read`,
-  `job_list`, and `job_cancel`; it accepts typed instructions rather than a raw
-  prompt and cannot select write mode.
+  over that core. The MCP server exposes guarded submit, read, list, cancel, and
+  owner-inbox operations; it accepts typed instructions rather than a raw prompt
+  and cannot select write mode.
 - `tools/agent_job_supervisor.py` owns process lifecycle, persistence,
   credentials, deadlines, concurrency, and capability-gated implementation.
 
@@ -33,12 +33,15 @@ not the active registration after profile migration.
 3. A machine-wide provider queue atomically claims the job as `launching`, then
    launches it once in a new process group.
 4. Output is appended to a cursor log and to separate raw stdout/stderr files.
-5. `read` reports status, new output, silence duration, and terminal output.
+5. `read` reports status, new output, silence duration, and terminal output. A
+   bounded wait is held server-side and wakes without repeated client sockets.
 6. Cancellation sends `SIGTERM` to the process group, waits ten seconds, then
    sends `SIGKILL` if necessary.
 7. On daemon restart, previously running jobs are marked `interrupted`. A process
    group is terminated only when PID, PGID, process start time, and resolved
    executable all exactly match the recorded identity.
+8. Every terminal transition with a non-empty owner creates one durable inbox
+   delivery. Reads redeliver until that exact owner acknowledges it.
 
 Silence does not automatically kill a job. After the configured soft-stall
 threshold, status is reported as `possibly_stalled`; only cancellation or the

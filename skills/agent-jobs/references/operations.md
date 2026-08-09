@@ -21,11 +21,19 @@ For code review, add `--context-git-diff --context-git-base <base-ref>`.
 python3 scripts/review.py read JOB_ID --cursor 0 --wait-seconds 30
 python3 scripts/review.py list --status running
 python3 scripts/review.py cancel JOB_ID
+python3 scripts/review.py inbox --owner codex:task-name
+python3 scripts/review.py inbox --owner codex:task-name --ack-delivery-id DELIVERY_ID
 ```
 
 Preserve the returned cursor and pass it to the next read. A job survives the
 calling session, MCP process, or app. Recover unknown IDs with `list` and filter by
 the owner prefix used at submission.
+
+Terminal jobs with a non-empty owner create an at-least-once inbox delivery.
+Inbox reads are non-destructive and exact-owner scoped. Inspect the retained job
+result before acknowledging the returned delivery ID; do not assume it is the
+same identifier as the job. A server-side `read --wait-seconds`
+holds one bounded socket request and wakes on output, liveness, or terminal state.
 
 Statuses:
 

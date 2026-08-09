@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from io import StringIO
 from pathlib import Path
 import signal
@@ -99,12 +100,34 @@ class CaoBridgeLifecycleTest(unittest.TestCase):
         self.assertEqual(0, self.run_main(client))
 
         self.assertIn(("DELETE", "/sessions/cao-agent-job-test-job", {"timeout": 3.0}), client.calls)
+        post = next(call for call in client.calls if call[0] == "POST")
+        body = post[2]["body"]
+        self.assertEqual("1", body["env_vars"]["AGENT_JOB_DEPTH"])
+        self.assertEqual("claude", body["env_vars"]["AGENT_JOB_PROVIDER"])
+        self.assertEqual("test-job", body["env_vars"]["AGENT_JOB_ID"])
+        self.assertEqual("agent_job_compat", body["metadata"]["kind"])
+        self.assertGreater(body["metadata"]["expires_at"], 0)
 
     def test_empty_completed_result_fails_and_deletes_session(self) -> None:
         client = _FakeClient(str(TOOLS_DIR), ["completed"], "  ")
 
         self.assertEqual(1, self.run_main(client))
         self.assertTrue(any(method == "DELETE" for method, _path, _kwargs in client.calls))
+
+    def test_waiting_for_user_is_recoverable(self) -> None:
+        client = _FakeClient(
+            str(TOOLS_DIR), ["waiting_user_answer", "processing", "completed"], "final result"
+        )
+
+        self.assertEqual(0, self.run_main(client))
+        self.assertTrue(any(method == "DELETE" for method, _path, _kwargs in client.calls))
+
+    def test_malformed_deadline_falls_back_to_bounded_lease(self) -> None:
+        client = _FakeClient(str(TOOLS_DIR), ["completed"], "final result")
+        with patch.dict(os.environ, {"AGENT_JOB_DEADLINE_EPOCH": "not-a-number"}):
+            self.assertEqual(0, self.run_main(client))
+        post = next(call for call in client.calls if call[0] == "POST")
+        self.assertGreater(post[2]["body"]["metadata"]["expires_at"], 0)
 
     def test_workspace_mismatch_fails_closed_and_deletes_session(self) -> None:
         client = _FakeClient(str(TOOLS_DIR.parent), ["completed"])

@@ -44,6 +44,10 @@ def _parser() -> argparse.ArgumentParser:
     listing.add_argument("--owner", default="")
     cancel = sub.add_parser("cancel")
     cancel.add_argument("job_id")
+    inbox = sub.add_parser("inbox")
+    inbox.add_argument("--owner", required=True)
+    inbox.add_argument("--limit", type=int, default=20)
+    inbox.add_argument("--ack-delivery-id", action="append", dest="ack_delivery_ids")
     return parser
 
 
@@ -55,6 +59,8 @@ def dispatch(values: dict[str, object]) -> dict[str, object]:
         return review_core.job_read(**values)  # type: ignore[arg-type]
     if action == "list":
         return review_core.job_list(**values)  # type: ignore[arg-type]
+    if action == "inbox":
+        return review_core.job_inbox(**values)  # type: ignore[arg-type]
     return review_core.job_cancel(**values)  # type: ignore[arg-type]
 
 

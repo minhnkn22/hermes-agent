@@ -1,5 +1,53 @@
 # Session Log
 
+## 2026-08-09 - Phase 6 durable delivery and compatibility leases
+
+Branch: `feat/thin-agent-job-harness`
+
+- Added owner-scoped, at-least-once terminal-job deliveries with explicit
+  acknowledgement. Delivery creation is transactionally coupled to terminal
+  status updates, exact-owner scoped, redelivered until acknowledged, and pruned
+  with retained jobs.
+- Moved bounded `job_read` waiting into the supervisor. The client adjusts its
+  socket deadline to the requested wait, and one request wakes on output,
+  semantic status/liveness change, or terminal state instead of reconnecting in
+  a polling loop.
+- Added the thin `job_inbox` MCP/CLI binding. It exposes no prompts or write mode.
+- CAO compatibility launches now carry recursion/provider/job identity, mode,
+  and a bounded deadline lease. Direct Kimi ACP workers inherit the same session
+  environment, Codex forwards the recursion identity to MCP subprocesses, and
+  child CAO terminals persist validated compatibility metadata.
+- CAO periodically removes only DB-tracked terminals whose complete tracked
+  session membership has a matching expired lease. It never deletes the whole
+  tmux session, so raw operator windows are untouched. Missing, mixed, malformed,
+  non-finite, far-future, and live metadata fail closed.
+- `waiting_user_answer` remains recoverable and does not terminate or delete a
+  CAO worker.
+- Transport boundary: MCP cannot push into a suspended model turn. The durable
+  inbox provides recovery and at-least-once notification when the owner resumes;
+  a separate app/host wakeup can trigger that resume without changing job state.
+- Primary Opus checkpoint `f3568fb8-5e3f-4ee2-a7c1-c26f902954e1` returned
+  `DO NOT SHIP`. Its three blockers were recoverable waiting states, recursion
+  depth not reaching Codex MCP subprocesses, and whole-session lease cleanup.
+  Those are remediated, along with malformed deadline handling, event registry
+  cleanup, exact delivery/pruning coverage, concurrent waiters, and output wakes.
+- Targeted Opus follow-up `1a215e82-77a1-4e93-ad1b-3cff0c0d375b` returned
+  `SHIP`. Its two actionable runtime residuals were sub-second output wake
+  latency and a terminal-race event leak; both are fixed with unconditional
+  chunk wakeups and terminal-state registry cleanup, including a regression
+  inside the one-second timestamp throttle.
+- The remaining restart-persistence residual is an explicit Phase 7 promotion
+  gate: CAO's session-env cache is process-local, so identity fallback for
+  same-session children after restart and explicit forwarding to fresh child
+  sessions must ship before CAO can become the default.
+- Verification: the complete sidecar suite passed 78 tests after the final wake
+  fix; the three focused wake/concurrency/cancel tests also passed. The CAO
+  affected suite passed 213 tests with three environment-dependent skips in
+  445.76 seconds. The exact lease/child-metadata suite passed four tests, and
+  exact Codex MCP plus Kimi ACP propagation tests passed two tests. Black,
+  `py_compile`, and `git diff --check` passed.
+
+
 ## 2026-08-09 - Phase 5 CAO compatibility backend
 
 Branch: `feat/thin-agent-job-harness`

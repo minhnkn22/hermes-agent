@@ -148,8 +148,9 @@ def _cao_bridge_env(provider: str) -> dict[str, str]:
 
 
 class JobStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, on_change: Callable[[str], None] | None = None):
         self.path = path
+        self.on_change = on_change
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(path.parent, 0o700)
         self.db = sqlite3.connect(path)
@@ -182,6 +183,13 @@ class JobStore:
                 exit_code INTEGER,
                 cancel_requested INTEGER NOT NULL DEFAULT 0,
                 log_path TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS deliveries (
+                delivery_id TEXT PRIMARY KEY,
+                job_id TEXT UNIQUE NOT NULL,
+                owner TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                acked_at REAL
             );
             """
         )
@@ -235,6 +243,8 @@ class JobStore:
             ),
         )
         self.db.commit()
+        if self.on_change is not None:
+            self.on_change(job_id)
         return self.get(job_id)
 
     def get(self, job_id: str) -> dict[str, Any]:
@@ -249,7 +259,16 @@ class JobStore:
         values["updated_at"] = _now()
         columns = ", ".join(f"{name} = ?" for name in values)
         self.db.execute(f"UPDATE jobs SET {columns} WHERE job_id = ?", (*values.values(), job_id))
+        if values.get("status") in TERMINAL_STATUSES:
+            self.db.execute(
+                """INSERT OR IGNORE INTO deliveries (delivery_id, job_id, owner, created_at)
+                   SELECT job_id, job_id, owner, COALESCE(finished_at, updated_at)
+                   FROM jobs WHERE job_id = ? AND owner <> ''""",
+                (job_id,),
+            )
         self.db.commit()
+        if self.on_change is not None:
+            self.on_change(job_id)
         return self.get(job_id)
 
     def touch(self, job_id: str) -> None:
@@ -267,6 +286,8 @@ class JobStore:
             (_now(), job_id),
         )
         self.db.commit()
+        if cursor.rowcount == 1 and self.on_change is not None:
+            self.on_change(job_id)
         return cursor.rowcount == 1
 
     def running(self) -> list[dict[str, Any]]:
@@ -315,14 +336,47 @@ class JobStore:
                WHERE status IN ('launching','running')""",
             (now, now),
         )
+        self.db.execute(
+            """INSERT OR IGNORE INTO deliveries (delivery_id, job_id, owner, created_at)
+               SELECT job_id, job_id, owner, ? FROM jobs
+               WHERE status = 'interrupted' AND owner <> '' AND finished_at = ?""",
+            (now, now),
+        )
         self.db.commit()
         return interrupted
+
+    def inbox(
+        self, owner: str, limit: int = 20, ack_delivery_ids: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        acknowledgements = list(dict.fromkeys(ack_delivery_ids or []))[:100]
+        if acknowledgements:
+            placeholders = ",".join("?" for _ in acknowledgements)
+            self.db.execute(
+                f"UPDATE deliveries SET acked_at = COALESCE(acked_at, ?) "
+                f"WHERE owner = ? AND delivery_id IN ({placeholders})",
+                (_now(), owner, *acknowledgements),
+            )
+        rows = self.db.execute(
+            """SELECT d.delivery_id, d.created_at AS delivery_created_at, j.*
+               FROM deliveries d JOIN jobs j ON j.job_id = d.job_id
+               WHERE d.owner = ? AND d.acked_at IS NULL
+               ORDER BY d.created_at ASC LIMIT ?""",
+            (owner, limit),
+        )
+        self.db.commit()
+        return [dict(row) for row in rows]
 
     def prune(self, cutoff: float) -> list[str]:
         rows = self.db.execute(
             "SELECT log_path FROM jobs WHERE status IN ('completed','failed','cancelled','interrupted') AND finished_at < ?",
             (cutoff,),
         ).fetchall()
+        self.db.execute(
+            "DELETE FROM deliveries WHERE job_id IN "
+            "(SELECT job_id FROM jobs WHERE status IN ('completed','failed','cancelled','interrupted') "
+            "AND finished_at < ?)",
+            (cutoff,),
+        )
         self.db.execute(
             "DELETE FROM jobs WHERE status IN ('completed','failed','cancelled','interrupted') AND finished_at < ?",
             (cutoff,),
@@ -351,7 +405,8 @@ class Supervisor:
         self.log_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.state_dir, 0o700)
         os.chmod(self.log_dir, 0o700)
-        self.store = JobStore(db_path)
+        self.change_events: dict[str, asyncio.Event] = {}
+        self.store = JobStore(db_path, self._signal_change)
         self.binary_finder = binary_finder or _find_binary
         self.command_builder = command_builder or self._build_command
         self.tasks: dict[str, asyncio.Task[None]] = {}
@@ -366,6 +421,11 @@ class Supervisor:
         }
         self._stopping = False
         self._lock_handle = None
+
+    def _signal_change(self, job_id: str) -> None:
+        event = self.change_events.get(job_id)
+        if event is not None:
+            event.set()
 
     def _build_command(self, job: dict[str, Any]) -> tuple[list[str], str | None, dict[str, str]]:
         provider = job["provider"]
@@ -387,7 +447,11 @@ class Supervisor:
                 "--job-id",
                 job["job_id"],
             ]
-            return argv, job["prompt"], _cao_bridge_env(provider)
+            env = _cao_bridge_env(provider)
+            env["AGENT_JOB_DEADLINE_EPOCH"] = str(
+                float(job["created_at"]) + int(job["timeout_seconds"])
+            )
+            return argv, job["prompt"], env
         binary = self.binary_finder(provider)
         model = job["model"]
         mode = job["mode"]
@@ -463,6 +527,9 @@ class Supervisor:
             if raw_remaining:
                 with stream_path.open("ab") as handle:
                     handle.write(data[:raw_remaining])
+        # Wake readers for every written chunk. The database timestamp remains
+        # throttled, but transport liveness must not add up to 60 seconds latency.
+        self._signal_change(job_id)
         now = _now()
         if now - self.last_output_writes.get(job_id, 0) >= 1:
             self.store.update(job_id, last_output_at=now)
@@ -611,6 +678,7 @@ class Supervisor:
                 prompt="",
             )
         finally:
+            self.change_events.pop(job_id, None)
             self.processes.pop(job_id, None)
             self.tasks.pop(job_id, None)
             self.log_locks.pop(job_id, None)
@@ -781,6 +849,61 @@ class Supervisor:
                     result[stream] = ""
         return result
 
+    async def read_wait(self, payload: dict[str, Any]) -> dict[str, Any]:
+        wait_seconds = max(0, min(int(payload.get("wait_seconds") or 0), 60))
+        result = self.read(payload)
+        if wait_seconds == 0 or result["output"] or result["job"]["status"] in TERMINAL_STATUSES:
+            return result
+        initial = result["job"]
+        fingerprint = (initial["status"], initial.get("last_output_at"))
+        deadline = time.monotonic() + wait_seconds
+        job_id = str(payload.get("job_id") or "")
+        event = self.change_events.setdefault(job_id, asyncio.Event())
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return result
+                event.clear()
+                result = self.read(payload)
+                current = result["job"]
+                current_fingerprint = (current["status"], current.get("last_output_at"))
+                if (
+                    result["output"]
+                    or current["status"] in TERMINAL_STATUSES
+                    or current_fingerprint != fingerprint
+                ):
+                    return result
+                try:
+                    await asyncio.wait_for(event.wait(), timeout=remaining)
+                except asyncio.TimeoutError:
+                    return self.read(payload)
+        finally:
+            if (
+                self.store.get(job_id)["status"] in TERMINAL_STATUSES
+                and self.change_events.get(job_id) is event
+            ):
+                self.change_events.pop(job_id, None)
+
+    def inbox(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner = str(payload.get("owner") or "")[:200]
+        if not owner:
+            raise ValueError("Inbox owner is required")
+        limit = max(1, min(int(payload.get("limit") or 20), 100))
+        raw_ack = payload.get("ack_delivery_ids") or []
+        if not isinstance(raw_ack, list) or any(not isinstance(item, str) for item in raw_ack):
+            raise ValueError("ack_delivery_ids must be a list of strings")
+        deliveries = []
+        for row in self.store.inbox(owner, limit, raw_ack):
+            delivery_id = row.pop("delivery_id")
+            created_at = row.pop("delivery_created_at")
+            deliveries.append({
+                "delivery_id": delivery_id,
+                "created_at": created_at,
+                "job": self._public(row),
+            })
+        return {"deliveries": deliveries}
+
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
             raw = await asyncio.wait_for(reader.readline(), timeout=10)
@@ -793,7 +916,7 @@ class Supervisor:
             elif action == "submit":
                 result = self.submit(payload)
             elif action == "read":
-                result = self.read(payload)
+                result = await self.read_wait(payload)
             elif action == "list":
                 limit = max(1, min(int(payload.get("limit") or 50), 200))
                 requested_status = str(payload.get("status") or "")
@@ -810,7 +933,12 @@ class Supervisor:
                             job_id, status="cancelled", failure_kind="cancelled",
                             message="Cancelled before launch", prompt="", finished_at=_now(),
                         )
+                        # The terminal update has already signalled existing waiters. Remove
+                        # the registry entry because queued jobs never enter _run_job's cleanup.
+                        self.change_events.pop(job_id, None)
                 result = self._public(job)
+            elif action == "inbox":
+                result = self.inbox(payload)
             else:
                 raise ValueError(f"Unsupported action: {action}")
             response = {"ok": True, "result": result}

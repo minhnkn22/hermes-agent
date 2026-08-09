@@ -11,7 +11,7 @@ import subprocess
 import time
 from typing import Any
 
-from agent_job_client import cancel, list_jobs, read, submit
+from agent_job_client import cancel, inbox, list_jobs, read, submit
 from agent_job_policy import configured_allowed_roots, SENSITIVE_PATH_PARTS
 
 
@@ -307,12 +307,7 @@ def job_submit(
 
 def job_read(job_id: str, cursor: int = 0, max_bytes: int = 64_000, wait_seconds: int = 0) -> dict[str, Any]:
     wait = max(0, min(int(wait_seconds), MAX_WAIT_SECONDS))
-    deadline = time.monotonic() + wait
-    while True:
-        result = read(job_id, cursor=cursor, max_bytes=max_bytes)
-        if result.get("output") or result["job"]["status"] in TERMINAL_STATUSES or time.monotonic() >= deadline:
-            return result
-        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+    return read(job_id, cursor=cursor, max_bytes=max_bytes, wait_seconds=wait)
 
 
 def job_list(status: str = "", limit: int = 50, owner: str = "") -> dict[str, Any]:
@@ -321,3 +316,9 @@ def job_list(status: str = "", limit: int = 50, owner: str = "") -> dict[str, An
 
 def job_cancel(job_id: str) -> dict[str, Any]:
     return cancel(job_id)
+
+
+def job_inbox(
+    owner: str, limit: int = 20, ack_delivery_ids: list[str] | None = None
+) -> dict[str, Any]:
+    return inbox(owner=owner, limit=limit, ack_delivery_ids=ack_delivery_ids)

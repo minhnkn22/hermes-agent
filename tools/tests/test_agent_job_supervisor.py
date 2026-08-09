@@ -24,6 +24,10 @@ def fake_command(job: dict[str, object]) -> tuple[list[str], str | None, dict[st
     prompt = str(job["prompt"])
     if prompt == "complete":
         script = "import time; print('first', flush=True); time.sleep(.1); print('second', flush=True)"
+    elif prompt == "delayed":
+        script = "import time; time.sleep(1); print('delayed output', flush=True); time.sleep(.4)"
+    elif prompt == "rapid-output":
+        script = "import time; print('first', flush=True); time.sleep(.2); print('rapid second', flush=True); time.sleep(2)"
     elif prompt == "slow":
         script = "import time; print('started', flush=True); time.sleep(30)"
     else:
@@ -120,6 +124,95 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         again = await self.call({"action": "read", "job_id": submitted["job_id"], "cursor": cursor})
         self.assertEqual("", again["output"])
         self.assertNotIn("prompt", result["job"])
+
+    async def test_owner_inbox_redelivers_until_exact_owner_acknowledges(self) -> None:
+        spec = self.spec("complete")
+        spec["owner"] = "codex:phase-6"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        first = await self.call({"action": "inbox", "owner": "codex:phase-6"})
+        self.assertEqual(1, len(first["deliveries"]))
+        delivery_id = first["deliveries"][0]["delivery_id"]
+        self.assertEqual(submitted["job_id"], first["deliveries"][0]["job"]["job_id"])
+        again = await self.call({"action": "inbox", "owner": "codex:phase-6"})
+        self.assertEqual([delivery_id], [item["delivery_id"] for item in again["deliveries"]])
+
+        await self.call({
+            "action": "inbox", "owner": "different-owner",
+            "ack_delivery_ids": [delivery_id],
+        })
+        still_pending = await self.call({"action": "inbox", "owner": "codex:phase-6"})
+        self.assertEqual(1, len(still_pending["deliveries"]))
+        acknowledged = await self.call({
+            "action": "inbox", "owner": "codex:phase-6",
+            "ack_delivery_ids": [delivery_id],
+        })
+        self.assertEqual([], acknowledged["deliveries"])
+
+    async def test_server_side_wait_wakes_on_terminal_transition(self) -> None:
+        submitted = await self.call(self.spec("slow"))
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        current = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "max_bytes": 64_000,
+        })
+        waiter = asyncio.create_task(self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "cursor": current["cursor"], "max_bytes": 64_000, "wait_seconds": 5,
+        }))
+        await asyncio.sleep(.1)
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        result = await asyncio.wait_for(waiter, timeout=3)
+        self.assertEqual("cancelled", result["job"]["status"])
+
+    async def test_server_side_wait_wakes_on_new_output(self) -> None:
+        submitted = await self.call(self.spec("delayed"))
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "cursor": current["cursor"], "max_bytes": 64_000, "wait_seconds": 3,
+        })
+        self.assertIn("delayed output", result["output"])
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+    async def test_server_side_wait_wakes_on_output_inside_timestamp_throttle(self) -> None:
+        submitted = await self.call(self.spec("rapid-output"))
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        for _ in range(100):
+            current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+            if "first" in current["output"]:
+                break
+            await asyncio.sleep(.01)
+        else:
+            self.fail("rapid fixture did not emit its first chunk")
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "cursor": current["cursor"], "wait_seconds": 3,
+        })
+        self.assertIn("rapid second", result["output"])
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+    async def test_concurrent_waiters_share_transition_notification(self) -> None:
+        submitted = await self.call(self.spec("slow"))
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        for _ in range(100):
+            current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+            if "started" in current["output"]:
+                break
+            await asyncio.sleep(.01)
+        else:
+            self.fail("slow fixture did not emit its initial output")
+        payload = {
+            "action": "read", "job_id": submitted["job_id"],
+            "cursor": current["cursor"], "wait_seconds": 5,
+        }
+        waiters = [asyncio.create_task(self.call(payload)) for _ in range(2)]
+        await asyncio.sleep(.1)
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        results = await asyncio.gather(*waiters)
+        self.assertEqual(["cancelled", "cancelled"], [item["job"]["status"] for item in results])
 
     async def test_zero_max_turns_is_preserved_as_unlimited(self) -> None:
         spec = self.spec("complete")
@@ -238,6 +331,7 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         result = await self.call({"action": "read", "job_id": second["job_id"]})
         self.assertEqual("cancelled", result["job"]["status"])
         self.assertEqual("", result.get("stdout", ""))
+        self.assertNotIn(str(second["job_id"]), self.supervisor.change_events)
 
     async def test_recursive_submission_is_rejected(self) -> None:
         spec = self.spec("complete")
@@ -289,7 +383,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(matching))
 
     async def test_running_job_is_reconciled_after_restart(self) -> None:
-        submitted = await self.call(self.spec("slow"))
+        spec = self.spec("slow")
+        spec["owner"] = "codex:restart-test"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         job = self.supervisor.store.get(str(submitted["job_id"]))
         self.supervisor.store.update(str(submitted["job_id"]), pgid=None)
@@ -297,10 +393,26 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item["job_id"] == submitted["job_id"] for item in reconciled))
         current = self.supervisor.store.get(str(submitted["job_id"]))
         self.assertEqual("interrupted", current["status"])
+        inbox = await self.call({"action": "inbox", "owner": "codex:restart-test"})
+        self.assertEqual([submitted["job_id"]], [item["job"]["job_id"] for item in inbox["deliveries"]])
         # Restore running state so normal teardown owns and terminates the live test process.
         self.supervisor.store.update(str(submitted["job_id"]), status="running", pgid=job["pgid"])
         await self.call({"action": "cancel", "job_id": submitted["job_id"]})
         await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+    async def test_prune_removes_delivery_with_terminal_job(self) -> None:
+        spec = self.spec("complete")
+        spec["owner"] = "codex:prune-test"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        self.supervisor.store.update(str(submitted["job_id"]), finished_at=1)
+
+        self.supervisor.store.prune(cutoff=2)
+
+        inbox = await self.call({"action": "inbox", "owner": "codex:prune-test"})
+        self.assertEqual([], inbox["deliveries"])
+        with self.assertRaisesRegex(RuntimeError, "Unknown job id"):
+            await self.call({"action": "read", "job_id": submitted["job_id"]})
 
     async def test_restart_cleanup_refuses_mismatched_process_identity(self) -> None:
         process = subprocess.Popen(
@@ -418,6 +530,8 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             "max_turns": 0,
             "workdir": str(self.workdir),
             "execution_backend": "cao",
+            "created_at": 1000.0,
+            "timeout_seconds": 1800,
         }
         with patch.dict(
             os.environ,
@@ -434,6 +548,7 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("bridge-job", argv)
         self.assertEqual("review", stdin_text)
         self.assertEqual("http://127.0.0.1:9889", env["AGENT_JOB_CAO_URL"])
+        self.assertEqual("2800.0", env["AGENT_JOB_DEADLINE_EPOCH"])
         self.assertNotIn("ANTHROPIC_API_KEY", env)
 
     async def test_cao_backend_fails_closed_for_unenforceable_contracts(self) -> None:

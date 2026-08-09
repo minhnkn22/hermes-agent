@@ -82,9 +82,11 @@ class ReviewCoreTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("checkpoint-kimi", kwargs["idempotency_key"])
         self.assertNotIn("implement_capability", kwargs)
 
-    async def test_mcp_surface_has_only_four_generic_tools(self) -> None:
+    async def test_mcp_surface_has_only_guarded_generic_tools(self) -> None:
         tools = set(agent_jobs_server.mcp._tool_manager._tools)
-        self.assertEqual({"job_submit", "job_read", "job_list", "job_cancel"}, tools)
+        self.assertEqual(
+            {"job_submit", "job_read", "job_list", "job_cancel", "job_inbox"}, tools
+        )
         parameters = inspect.signature(agent_jobs_server.job_submit).parameters
         self.assertNotIn("mode", parameters)
         self.assertNotIn("prompt", parameters)
@@ -114,6 +116,11 @@ class ReviewCoreTest(unittest.IsolatedAsyncioTestCase):
             ("read", {"job_id": "job", "cursor": 7, "max_bytes": 10, "wait_seconds": 3}, "job_read"),
             ("list", {"status": "running", "limit": 4, "owner": "codex"}, "job_list"),
             ("cancel", {"job_id": "job"}, "job_cancel"),
+            (
+                "inbox",
+                {"owner": "codex", "limit": 20, "ack_delivery_ids": ["delivery"]},
+                "job_inbox",
+            ),
         ]
         for action, values, target in cases:
             with self.subTest(action=action), patch.object(
