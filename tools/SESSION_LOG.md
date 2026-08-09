@@ -1,5 +1,34 @@
 # Session Log
 
+## 2026-08-09 - Claude Desktop and Kimi caller parity
+
+Branch: `feat/thin-agent-job-harness`
+
+- Added an idempotent client installer for Claude Desktop and Kimi Code MCP
+  registrations, the shared skill link, and marked Kimi global guidance.
+- Confirmed Kimi Code natively discovers `~/.agents/skills` and supports a
+  user-level `~/.kimi-code/mcp.json`; no Kimi-specific skill copy is required.
+- Preserved the safety boundary: all general-client MCP calls are read-only and
+  explicit implementation stays behind the capability-protected CLI.
+- Documented current client parity and the local-supervisor/multi-machine
+  boundary in `tools/CLIENT_INTEGRATION.md`.
+
+Verification after review: 57 tests and 5 subtests passed, including structured JSON
+merge preservation, idempotency, dry-run behavior, guidance replacement, and
+malformed-marker refusal. Kimi review job
+`6de74efa-a288-41ae-8e66-c006ff884499` reached the provider but failed on its
+billing-cycle quota. Opus fallback job `87e309d1-a844-489f-bef9-35f9b7f760bd`
+verified the live configuration preserved unrelated settings and the MCP remained
+structurally read-only. Its rerun/second-host findings were addressed with unique
+backup suffixes, two-phase preflight, cross-target rollback, runtime validation,
+actionable JSON errors, conflict reporting, and expanded tests. A live Codex Desktop MCP job
+`2f73bb13-3710-419b-ba44-55be87fe344b` completed through Claude Sonnet and
+correctly inspected all four registered tools.
+
+Targeted Opus job `47220a2d-a802-4f22-a453-5158d5acfab6` verified every named
+finding against the revised preflight/apply/rollback flow and returned `SHIP`.
+Its residual fresh-install rollback branch was added to the suite before commit.
+
 ## 2026-08-09 - Fat skill and thin cross-agent harness
 
 Branch: `feat/thin-agent-job-harness`

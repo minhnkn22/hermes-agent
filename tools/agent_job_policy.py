@@ -12,8 +12,8 @@ SENSITIVE_PATH_PARTS = {
 }
 
 
-def default_allowed_roots() -> list[Path]:
-    home = Path.home()
+def default_allowed_roots(home: Path | None = None) -> list[Path]:
+    home = (home or Path.home()).expanduser().resolve()
     return [
         home / "Documents",
         home / "projects",
@@ -33,5 +33,5 @@ def configured_allowed_roots() -> list[Path]:
     return [Path(value).expanduser().resolve() for value in raw.split(os.pathsep) if value.strip()]
 
 
-def allowed_roots_value() -> str:
-    return os.pathsep.join(str(path) for path in default_allowed_roots())
+def allowed_roots_value(home: Path | None = None) -> str:
+    return os.pathsep.join(str(path) for path in default_allowed_roots(home))
