@@ -1,5 +1,29 @@
 # Session Log
 
+## 2026-08-09 - CAO adoption spike
+
+Branch: `feat/thin-agent-job-harness`
+
+- Audited AWS Labs CLI Agent Orchestrator and found it already implements most
+  of the desired centralized coding-agent control plane.
+- Installed pinned CAO `2.4.1` side-by-side with isolated state and port while
+  leaving the current job supervisor and all live Hermes gateways running.
+- Live-tested detached Claude, Codex, and Kimi sessions. Claude completed
+  successfully; Codex retained the correct result but remained falsely marked
+  processing; Kimi failed because current Kimi Code rejects CAO's obsolete
+  `--mcp-config` option.
+- Restarted only the pilot CAO server. Claude/Codex records, tmux sessions, and
+  output survived, but both terminals became `unknown` and could not receive
+  follow-up work.
+- Shut down all pilot sessions and the pilot server. No CAO process or tmux
+  pilot session remains; the existing `com.atum.agent-job-supervisor` remains
+  healthy.
+- Superseded the custom async-events implementation plan. The revised strategy
+  adopts CAO in stages, keeps the current one-shot path during migration,
+  prioritizes ACP-backed providers, and sends general fixes upstream.
+
+Durable findings and acceptance gate: `tools/CAO_ADOPTION_SPIKE.md`.
+
 ## 2026-08-09 - Async events and completion delivery engineering review
 
 Branch: `feat/thin-agent-job-harness`

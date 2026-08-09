@@ -1,6 +1,13 @@
 # Agent Job Async Events Plan
 
-Status: engineering reviewed
+Status: superseded by the CAO adoption spike documented in
+`tools/CAO_ADOPTION_SPIKE.md`. Do not implement this plan as written.
+
+The event, long-poll, inbox, and liveness requirements remain valid acceptance
+criteria. The implementation recommendation changed after live testing found
+that AWS Labs CLI Agent Orchestrator already owns most of this control plane.
+Retain this document as the requirements and failure-mode record, not as an
+authorization to rebuild CAO capabilities locally.
 
 Outside architecture consultation: Claude Opus job
 `3bdfee63-d1b9-4e9b-a1dc-1978da1a5941`.
