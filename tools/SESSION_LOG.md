@@ -20,8 +20,12 @@ Branch: `feat/thin-agent-job-harness`
   when an explicitly low six-turn ceiling terminated it with no usable output.
 - Verification: 34 focused supervisor/core tests passed; `py_compile` passed
   for the supervisor, MCP server, core, CLI/client, and delegation entrypoints;
-  `git diff --check` passed. Daemon restart and live unlimited-job smoke follow
-  the commit; Codex Desktop reloads the updated MCP default on its next restart.
+  `git diff --check` passed. Restarted LaunchAgent
+  `com.atum.agent-job-supervisor` successfully. Live Claude Sonnet job
+  `616f2675-3b60-470a-89e3-635b75ff18f0` stored `max_turns=0`, completed with
+  `UNLIMITED_TURNS_OK`, and remained bounded by its 300-second hard deadline.
+  Existing MCP processes were left intact to avoid disrupting active coding
+  sessions; restarted apps and new sessions load the updated default schema.
 - Next: resume CAO Phase 2 acceptance-harness implementation after this shared
   reliability fix is deployed.
 
