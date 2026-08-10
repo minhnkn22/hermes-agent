@@ -23,6 +23,12 @@ import time
 import uuid
 from typing import Any, Callable
 
+from agent_job_events import (
+    MAX_EVENT_RECORD_BYTES,
+    MAX_EVENT_TEXT_CHARS,
+    ProviderEventDecoder,
+    bound_event_payload,
+)
 from agent_job_policy import configured_allowed_roots, SENSITIVE_PATH_PARTS
 
 
@@ -34,6 +40,10 @@ SERVER_DIR = Path(__file__).resolve().parent
 MAX_PROMPT_BYTES = 4 * 1024 * 1024
 MAX_READ_BYTES = 256_000
 MAX_JOB_LOG_BYTES = int(os.environ.get("AGENT_JOB_MAX_LOG_BYTES", str(10 * 1024 * 1024)))
+MAX_EVENT_LOG_BYTES = int(os.environ.get("AGENT_JOB_MAX_EVENT_BYTES", str(2 * 1024 * 1024)))
+MAX_PARTIAL_RESPONSE_BYTES = int(
+    os.environ.get("AGENT_JOB_MAX_PARTIAL_RESPONSE_BYTES", str(256 * 1024))
+)
 JOB_RETENTION_SECONDS = int(os.environ.get("AGENT_JOB_RETENTION_SECONDS", str(14 * 24 * 3600)))
 MIN_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 7200
@@ -43,6 +53,11 @@ IMPLEMENT_TOKEN_PATH = Path(
 ).expanduser()
 MODEL_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
+SEMANTIC_PROGRESS_KINDS = {
+    "turn_started", "thinking_delta", "message_delta", "tool_started",
+    "tool_finished", "progress", "usage", "provider_raw", "parse_error",
+    "warning", "job_started",
+}
 SAFE_ENV_KEYS = {
     "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "__CF_USER_TEXT_ENCODING",
     "PATH", "LANG", "LC_ALL", "LC_CTYPE", "SSL_CERT_FILE", "SSL_CERT_DIR",
@@ -223,6 +238,19 @@ class JobStore:
             self.db.execute(
                 "ALTER TABLE jobs ADD COLUMN execution_backend TEXT NOT NULL DEFAULT 'native'"
             )
+        migrations = {
+            "last_event_at": "REAL",
+            "last_event_kind": "TEXT NOT NULL DEFAULT ''",
+            "last_progress_at": "REAL",
+            "open_tool": "TEXT NOT NULL DEFAULT ''",
+            "open_tool_since": "REAL",
+            "partial_response_bytes": "INTEGER NOT NULL DEFAULT 0",
+            "partial_response_truncated": "INTEGER NOT NULL DEFAULT 0",
+            "journal_truncated": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for name, definition in migrations.items():
+            if name not in columns:
+                self.db.execute(f"ALTER TABLE jobs ADD COLUMN {name} {definition}")
         self.db.execute("CREATE INDEX IF NOT EXISTS jobs_status_created ON jobs(status, created_at)")
         self.db.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency ON jobs(idempotency_key) WHERE idempotency_key <> ''"
@@ -270,7 +298,7 @@ class JobStore:
             raise ValueError(f"Unknown job id: {job_id}")
         return dict(row)
 
-    def update(self, job_id: str, **values: Any) -> dict[str, Any]:
+    def update(self, job_id: str, *, notify: bool = True, **values: Any) -> dict[str, Any]:
         if not values:
             return self.get(job_id)
         values["updated_at"] = _now()
@@ -284,7 +312,7 @@ class JobStore:
                 (job_id,),
             )
         self.db.commit()
-        if self.on_change is not None:
+        if notify and self.on_change is not None:
             self.on_change(job_id)
         return self.get(job_id)
 
@@ -316,16 +344,14 @@ class JobStore:
         if status == "possibly_stalled" and owner:
             rows = self.db.execute(
                 """SELECT * FROM jobs WHERE status = 'running' AND instr(owner, ?) = 1
-                   AND COALESCE(last_output_at, started_at, created_at) + soft_stall_seconds <= ?
                    ORDER BY created_at DESC LIMIT ?""",
-                (owner, _now(), limit),
+                (owner, max(limit * 10, 200)),
             )
         elif status == "possibly_stalled":
             rows = self.db.execute(
                 """SELECT * FROM jobs WHERE status = 'running'
-                   AND COALESCE(last_output_at, started_at, created_at) + soft_stall_seconds <= ?
                    ORDER BY created_at DESC LIMIT ?""",
-                (_now(), limit),
+                (max(limit * 10, 200),),
             )
         elif status and owner:
             rows = self.db.execute(
@@ -430,7 +456,13 @@ class Supervisor:
         self.processes: dict[str, asyncio.subprocess.Process] = {}
         self.log_locks: dict[str, asyncio.Lock] = {}
         self.last_output_writes: dict[str, float] = {}
+        self.last_event_writes: dict[str, float] = {}
         self.job_log_paths: dict[str, Path] = {}
+        self.event_decoders: dict[str, ProviderEventDecoder] = {}
+        self.event_sequences: dict[str, int] = {}
+        self.event_summaries: dict[str, dict[str, Any]] = {}
+        self.event_truncated: set[str] = set()
+        self.normalization_failed: set[str] = set()
         self.provider_limits = {
             "claude": int(os.environ.get("AGENT_JOB_CLAUDE_CONCURRENCY", "2")),
             "kimi": int(os.environ.get("AGENT_JOB_KIMI_CONCURRENCY", "1")),
@@ -505,13 +537,227 @@ class Supervisor:
 
     def _public(self, job: dict[str, Any]) -> dict[str, Any]:
         result = {key: value for key, value in job.items() if key != "prompt"}
-        if result["status"] == "running":
-            last = result.get("last_output_at") or result.get("started_at") or result["created_at"]
-            silence = max(0, int(_now() - float(last)))
-            result["seconds_without_output"] = silence
-            if silence >= int(result["soft_stall_seconds"]):
+        summary = self.event_summaries.get(str(job["job_id"]))
+        if summary:
+            result.update(summary)
+        lifecycle_status = str(result["status"])
+        result["lifecycle_status"] = lifecycle_status
+        if lifecycle_status in {"queued", "launching"}:
+            result["activity"] = "starting"
+        elif lifecycle_status in TERMINAL_STATUSES:
+            result["activity"] = "terminal"
+        elif lifecycle_status == "running":
+            now = _now()
+            output_anchor = result.get("last_output_at") or result.get("started_at") or result["created_at"]
+            output_silence = max(0, int(now - float(output_anchor)))
+            result["seconds_without_output"] = output_silence
+            semantic_stream = (
+                self._has_semantic_adapter(result)
+                and str(result["job_id"]) not in self.normalization_failed
+            )
+            progress_anchor = result.get("last_progress_at") if semantic_stream else output_anchor
+            if progress_anchor is None:
+                progress_anchor = result.get("started_at") if semantic_stream else output_anchor
+            progress_silence = max(0, int(now - float(progress_anchor)))
+            result["seconds_without_progress"] = progress_silence
+            open_tool = str(result.get("open_tool") or "")
+            if open_tool:
+                result["activity"] = f"tool_running:{open_tool}"
+                if result.get("open_tool_since"):
+                    result["open_tool_seconds"] = max(
+                        0, int(now - float(result["open_tool_since"]))
+                    )
+            elif progress_silence >= int(result["soft_stall_seconds"]):
+                result["activity"] = "idle_unknown"
+                # Compatibility alias for existing callers during the transition.
                 result["status"] = "possibly_stalled"
+            elif result.get("last_event_kind") == "message_delta":
+                result["activity"] = "streaming"
+            elif result.get("last_event_kind") in {"turn_started", "thinking_delta"}:
+                result["activity"] = "reasoning"
+            else:
+                result["activity"] = "waiting_on_provider"
+        result["has_partial_response"] = bool(result.get("partial_response_bytes"))
+        partial_path = self._partial_path(result)
+        if partial_path.is_file():
+            result["partial_response_bytes"] = max(
+                int(result.get("partial_response_bytes") or 0), partial_path.stat().st_size
+            )
+            result["has_partial_response"] = True
         return result
+
+    @staticmethod
+    def _has_semantic_adapter(job: dict[str, Any]) -> bool:
+        return (
+            job.get("provider") == "codex"
+            and job.get("execution_backend", "native") == "native"
+        )
+
+    def _event_path(self, job: dict[str, Any]) -> Path:
+        return Path(f"{job['log_path']}.events.jsonl")
+
+    def _partial_path(self, job: dict[str, Any]) -> Path:
+        return Path(f"{job['log_path']}.partial.txt")
+
+    def _next_event_seq(self, job_id: str, path: Path) -> int:
+        if job_id not in self.event_sequences:
+            last = 0
+            if path.is_file():
+                with path.open("rb") as handle:
+                    for line in handle:
+                        try:
+                            last = max(last, int(json.loads(line).get("seq") or 0))
+                        except (ValueError, TypeError, json.JSONDecodeError):
+                            continue
+            self.event_sequences[job_id] = last
+        self.event_sequences[job_id] += 1
+        return self.event_sequences[job_id]
+
+    def _split_event_payloads(self, kind: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        text = payload.get("text")
+        if kind not in {"message_delta", "thinking_delta"} or not isinstance(text, str):
+            return [payload]
+        if not text:
+            return [payload]
+        remaining = text.encode("utf-8")
+        chunks: list[str] = []
+        while remaining:
+            chunk = remaining[:MAX_EVENT_TEXT_CHARS].decode("utf-8", errors="ignore")
+            consumed = len(chunk.encode("utf-8"))
+            if consumed == 0:
+                chunk = remaining.decode("utf-8", errors="replace")[0]
+                consumed = len(chunk.encode("utf-8"))
+            chunks.append(chunk)
+            remaining = remaining[consumed:]
+        return [{**payload, "text": chunk} for chunk in chunks]
+
+    @staticmethod
+    def _append_private(path: Path, data: bytes) -> None:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(descriptor, "ab") as handle:
+            handle.write(data)
+
+    def _write_partial_response(self, job: dict[str, Any], text: str) -> tuple[int, bool]:
+        current_truncated = bool(job.get("partial_response_truncated"))
+        if not text:
+            return int(job.get("partial_response_bytes") or 0), current_truncated
+        path = self._partial_path(job)
+        current = path.stat().st_size if path.is_file() else 0
+        remaining = max(0, MAX_PARTIAL_RESPONSE_BYTES - current)
+        if not remaining:
+            return current, True
+        data = text.encode("utf-8")
+        truncated = current_truncated or len(data) > remaining
+        if len(data) > remaining:
+            data = data[:remaining].decode("utf-8", errors="ignore").encode("utf-8")
+        self._append_private(path, data)
+        return current + len(data), truncated
+
+    def _persist_event_summary(self, job_id: str, *, force: bool = False) -> None:
+        summary = self.event_summaries.get(job_id)
+        if not summary:
+            return
+        now = _now()
+        if not force and now - self.last_event_writes.get(job_id, 0) < 1:
+            return
+        self.store.update(job_id, **summary)
+        self.last_event_writes[job_id] = now
+
+    def _record_event(
+        self, job_id: str, kind: str, payload: dict[str, Any] | None = None, *, force: bool = False
+    ) -> None:
+        job = self.store.get(job_id)
+        path = self._event_path(job)
+        summary = self.event_summaries.setdefault(job_id, {
+            "last_event_at": job.get("last_event_at"),
+            "last_event_kind": str(job.get("last_event_kind") or ""),
+            "last_progress_at": job.get("last_progress_at"),
+            "open_tool": str(job.get("open_tool") or ""),
+            "open_tool_since": job.get("open_tool_since"),
+            "partial_response_bytes": int(job.get("partial_response_bytes") or 0),
+            "partial_response_truncated": int(job.get("partial_response_truncated") or 0),
+            "journal_truncated": int(job.get("journal_truncated") or 0),
+        })
+        for raw_event_payload in self._split_event_payloads(kind, payload or {}):
+            if kind == "message_delta":
+                partial_bytes, partial_truncated = self._write_partial_response(
+                    {**job, **summary}, str(raw_event_payload.get("text") or "")
+                )
+                summary["partial_response_bytes"] = partial_bytes
+                summary["partial_response_truncated"] = int(partial_truncated)
+            event_payload = bound_event_payload(raw_event_payload)
+            now = _now()
+            event = {
+                "v": 1,
+                "seq": self._next_event_seq(job_id, path),
+                "job_id": job_id,
+                "ts": now,
+                "provider": job["provider"],
+                "kind": kind,
+                "payload": event_payload,
+            }
+            line = (_json(event) + "\n").encode("utf-8")
+            current = path.stat().st_size if path.is_file() else 0
+            if current + len(line) <= MAX_EVENT_LOG_BYTES:
+                self._append_private(path, line)
+            elif job_id not in self.event_truncated:
+                self.event_truncated.add(job_id)
+                summary["journal_truncated"] = 1
+                warning = {
+                    "v": 1,
+                    "seq": self._next_event_seq(job_id, path),
+                    "job_id": job_id,
+                    "ts": now,
+                    "provider": job["provider"],
+                    "kind": "warning",
+                    "payload": {"message": "Normalized event journal reached its byte budget"},
+                }
+                warning_line = (_json(warning) + "\n").encode("utf-8")
+                if current + len(warning_line) <= MAX_EVENT_LOG_BYTES:
+                    self._append_private(path, warning_line)
+            summary["last_event_at"] = now
+            summary["last_event_kind"] = kind
+            if kind in SEMANTIC_PROGRESS_KINDS:
+                summary["last_progress_at"] = now
+            if kind == "tool_started":
+                summary["open_tool"] = str(event_payload.get("name") or "tool")[:200]
+                summary["open_tool_since"] = now
+            elif kind == "tool_finished":
+                summary["open_tool"] = ""
+                summary["open_tool_since"] = None
+        self._persist_event_summary(job_id, force=force or kind in {
+            "job_started", "tool_started", "tool_finished", "job_terminal",
+        })
+        self._signal_change(job_id)
+
+    def _finish_job(
+        self, job_id: str, status: str, failure_kind: str, message: str, **values: Any
+    ) -> dict[str, Any]:
+        self.store.update(
+            job_id, status=status, failure_kind=failure_kind, message=message,
+            prompt="", finished_at=_now(), notify=False, **values,
+        )
+        try:
+            self._record_event(job_id, "job_terminal", {
+                "status": status,
+                "failure_kind": failure_kind,
+                "message": message[:2_000],
+                "exit_code": values.get("exit_code"),
+            }, force=True)
+        except Exception:
+            self._signal_change(job_id)
+        result = self.store.get(job_id)
+        if job_id not in self.tasks:
+            self._forget_job_state(job_id)
+        return result
+
+    def _forget_job_state(self, job_id: str) -> None:
+        self.last_event_writes.pop(job_id, None)
+        self.event_decoders.pop(job_id, None)
+        self.event_sequences.pop(job_id, None)
+        self.event_summaries.pop(job_id, None)
+        self.event_truncated.discard(job_id)
+        self.normalization_failed.discard(job_id)
 
     async def _append_log(self, job_id: str, stream: str, data: bytes) -> None:
         if not data:
@@ -552,14 +798,41 @@ class Supervisor:
             self.store.update(job_id, last_output_at=now)
             self.last_output_writes[job_id] = now
 
+    async def _normalize_provider_bytes(
+        self, job_id: str, decoder: ProviderEventDecoder, data: bytes, *, final: bool = False
+    ) -> None:
+        try:
+            for event in decoder.feed(data, final=final):
+                self._record_event(job_id, event["kind"], event["payload"])
+        except Exception as exc:
+            self.event_decoders.pop(job_id, None)
+            if job_id in self.normalization_failed:
+                return
+            self.normalization_failed.add(job_id)
+            message = f"Semantic event normalization disabled: {type(exc).__name__}: {exc}"
+            try:
+                self._record_event(job_id, "warning", {"message": message[:2_000]}, force=True)
+            except Exception:
+                pass
+            try:
+                await self._append_log(job_id, "stderr", message.encode("utf-8"))
+            except Exception:
+                pass
+
     async def _stream(self, job_id: str, stream: str, reader: asyncio.StreamReader | None) -> None:
         if reader is None:
             return
         while True:
             chunk = await reader.read(16 * 1024)
             if not chunk:
+                decoder = self.event_decoders.get(job_id) if stream == "stdout" else None
+                if decoder is not None:
+                    await self._normalize_provider_bytes(job_id, decoder, b"", final=True)
                 return
             await self._append_log(job_id, stream, chunk)
+            decoder = self.event_decoders.get(job_id) if stream == "stdout" else None
+            if decoder is not None:
+                await self._normalize_provider_bytes(job_id, decoder, chunk)
 
     async def _terminate(self, proc: asyncio.subprocess.Process) -> None:
         if proc.returncode is not None:
@@ -599,15 +872,14 @@ class Supervisor:
             if job["status"] != "launching":
                 return
             if job["cancel_requested"]:
-                self.store.update(
-                    job_id, status="cancelled", failure_kind="cancelled",
-                    message="Cancelled before provider launch", prompt="", finished_at=_now(),
+                self._finish_job(
+                    job_id, "cancelled", "cancelled", "Cancelled before provider launch",
                 )
                 return
             if _now() >= float(job["created_at"]) + int(job["timeout_seconds"]):
-                self.store.update(
-                    job_id, status="failed", failure_kind="queue_timeout",
-                    message="Hard deadline reached before a provider slot became available", prompt="", finished_at=_now(),
+                self._finish_job(
+                    job_id, "failed", "queue_timeout",
+                    "Hard deadline reached before a provider slot became available",
                 )
                 return
             argv, stdin_text, env = self.command_builder(job)
@@ -628,9 +900,9 @@ class Supervisor:
             current = self.store.get(job_id)
             if current["cancel_requested"] or current["status"] != "launching":
                 await self._terminate(proc)
-                self.store.update(
-                    job_id, status="cancelled", failure_kind="cancelled",
-                    message="Cancelled during provider launch", prompt="", exit_code=proc.returncode, finished_at=_now(),
+                self._finish_job(
+                    job_id, "cancelled", "cancelled", "Cancelled during provider launch",
+                    exit_code=proc.returncode,
                 )
                 return
             started = _now()
@@ -639,6 +911,14 @@ class Supervisor:
                 pid=proc.pid, pgid=proc.pid, binary_path=str(Path(live_first_arg).resolve()),
                 process_start=process_start, prompt="", message="",
             )
+            if job["provider"] == "codex" and job.get("execution_backend", "native") == "native":
+                self.event_decoders[job_id] = ProviderEventDecoder("codex")
+            try:
+                self._record_event(job_id, "job_started", {"pid": proc.pid}, force=True)
+            except Exception:
+                self.normalization_failed.add(job_id)
+                self.event_decoders.pop(job_id, None)
+                self._signal_change(job_id)
             if stdin_text is not None and proc.stdin is not None:
                 proc.stdin.write(stdin_text.encode("utf-8"))
                 await proc.stdin.drain()
@@ -675,25 +955,21 @@ class Supervisor:
             await asyncio.gather(*streams, return_exceptions=True)
             if outcome == "completed" and proc.returncode != 0:
                 outcome, failure_kind, message = "failed", "provider_exit", f"Provider exited with code {proc.returncode}"
-            self.store.update(
-                job_id, status=outcome, failure_kind=failure_kind, message=message,
-                prompt="", exit_code=proc.returncode, finished_at=_now(),
+            self._finish_job(
+                job_id, outcome, failure_kind, message, exit_code=proc.returncode,
             )
         except asyncio.CancelledError:
             if proc is not None:
                 await self._terminate(proc)
-            self.store.update(
-                job_id, status="interrupted", failure_kind="supervisor_shutdown",
-                message="Supervisor stopped while the job was running", prompt="", finished_at=_now(),
+            self._finish_job(
+                job_id, "interrupted", "supervisor_shutdown",
+                "Supervisor stopped while the job was running",
             )
             raise
         except Exception as exc:
             if proc is not None:
                 await self._terminate(proc)
-            self.store.update(
-                job_id, status="failed", failure_kind="launch_error", message=str(exc), finished_at=_now(),
-                prompt="",
-            )
+            self._finish_job(job_id, "failed", "launch_error", str(exc))
         finally:
             self.change_events.pop(job_id, None)
             self.processes.pop(job_id, None)
@@ -701,6 +977,7 @@ class Supervisor:
             self.log_locks.pop(job_id, None)
             self.last_output_writes.pop(job_id, None)
             self.job_log_paths.pop(job_id, None)
+            self._forget_job_state(job_id)
 
     async def _scheduler(self) -> None:
         next_prune = 0.0
@@ -708,7 +985,10 @@ class Supervisor:
             try:
                 if _now() >= next_prune:
                     for base in self.store.prune(_now() - JOB_RETENTION_SECONDS):
-                        for candidate in (Path(base), Path(f"{base}.stdout"), Path(f"{base}.stderr")):
+                        for candidate in (
+                            Path(base), Path(f"{base}.stdout"), Path(f"{base}.stderr"),
+                            Path(f"{base}.events.jsonl"), Path(f"{base}.partial.txt"),
+                        ):
                             try:
                                 candidate.unlink()
                             except FileNotFoundError:
@@ -733,6 +1013,16 @@ class Supervisor:
 
     async def _cleanup_interrupted(self) -> None:
         for job in self.store.reconcile():
+            try:
+                self._record_event(job["job_id"], "job_terminal", {
+                    "status": "interrupted",
+                    "failure_kind": "supervisor_restart",
+                    "message": "Supervisor restarted while the job was running",
+                }, force=True)
+            except Exception:
+                self._signal_change(job["job_id"])
+            finally:
+                self._forget_job_state(job["job_id"])
             pgid = job.get("pgid")
             if not pgid:
                 continue
@@ -819,9 +1109,67 @@ class Supervisor:
         job = self.store.create(spec, job_id, log_path)
         return self._public(self.store.get(job["job_id"]))
 
+    def _read_events(
+        self, job: dict[str, Any], cursor: int, max_bytes: int
+    ) -> tuple[int, int, list[dict[str, Any]]]:
+        path = self._event_path(job)
+        size = path.stat().st_size if path.is_file() else 0
+        cursor = min(max(0, cursor), size)
+        if not path.is_file() or cursor >= size:
+            return cursor, size, []
+        events: list[dict[str, Any]] = []
+        consumed = 0
+        next_cursor = cursor
+        with path.open("rb") as handle:
+            handle.seek(cursor)
+            while consumed < max_bytes or not events:
+                line = handle.readline(MAX_EVENT_RECORD_BYTES + 1)
+                if not line:
+                    break
+                if not line.endswith(b"\n"):
+                    skipped = len(line)
+                    while line and not line.endswith(b"\n"):
+                        line = handle.readline(MAX_EVENT_RECORD_BYTES + 1)
+                        skipped += len(line)
+                    consumed += skipped
+                    next_cursor += skipped
+                    events.append({
+                        "v": 1,
+                        "seq": None,
+                        "job_id": job["job_id"],
+                        "ts": _now(),
+                        "provider": job["provider"],
+                        "kind": "truncated_event",
+                        "source": "reader",
+                        "payload": {
+                            "message": "Oversized normalized event was skipped",
+                            "bytes_skipped": skipped,
+                        },
+                    })
+                    continue
+                consumed += len(line)
+                next_cursor += len(line)
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError:
+                    value = {
+                        "v": 1,
+                        "seq": None,
+                        "job_id": job["job_id"],
+                        "ts": _now(),
+                        "provider": job["provider"],
+                        "kind": "parse_error",
+                        "source": "reader",
+                        "payload": {"message": "Corrupt normalized event journal entry"},
+                    }
+                events.append(value)
+        return next_cursor, size, events
+
     def read(self, payload: dict[str, Any]) -> dict[str, Any]:
         job = self.store.get(str(payload.get("job_id") or ""))
         cursor = max(0, int(payload.get("cursor") or 0))
+        include_events = "event_cursor" in payload
+        event_cursor = max(0, int(payload.get("event_cursor") or 0))
         max_bytes = max(1, min(int(payload.get("max_bytes") or 64_000), MAX_READ_BYTES))
         terminal = job["status"] in TERMINAL_STATUSES
         output_budget = max_bytes if not terminal else max(1, max_bytes // 2)
@@ -836,7 +1184,20 @@ class Supervisor:
                 data = handle.read(output_budget)
             output = data.decode("utf-8", errors="replace")
             next_cursor = cursor + len(data)
-        result = {"job": self._public(job), "cursor": next_cursor, "output": output}
+        if include_events:
+            next_event_cursor, event_size, events = self._read_events(job, event_cursor, max_bytes)
+        else:
+            event_path = self._event_path(job)
+            event_size = event_path.stat().st_size if event_path.is_file() else 0
+            next_event_cursor, events = event_size, []
+        result = {
+            "job": self._public(job),
+            "cursor": next_cursor,
+            "output": output,
+            "event_cursor": next_event_cursor,
+            "event_size": event_size,
+            "events": events,
+        }
         if payload.get("stream_cursors"):
             for stream in ("stdout", "stderr"):
                 stream_cursor = max(0, int(payload.get(f"{stream}_cursor") or 0))
@@ -863,15 +1224,40 @@ class Supervisor:
                     result[stream] = data.decode("utf-8", errors="replace")
                 else:
                     result[stream] = ""
+            partial_path = self._partial_path(job)
+            if partial_path.is_file():
+                result["partial_response"] = partial_path.read_text(
+                    encoding="utf-8", errors="replace"
+                )
+            else:
+                result["partial_response"] = ""
+            if not self._has_semantic_adapter(job):
+                result["partial_result_state"] = "unavailable"
+            elif result["partial_response"] and job.get("partial_response_truncated"):
+                result["partial_result_state"] = "truncated"
+            elif job["status"] == "completed" and result["partial_response"]:
+                result["partial_result_state"] = "complete"
+            elif result["partial_response"]:
+                result["partial_result_state"] = "partial"
+            else:
+                result["partial_result_state"] = "none"
         return result
 
     async def read_wait(self, payload: dict[str, Any]) -> dict[str, Any]:
         wait_seconds = max(0, min(int(payload.get("wait_seconds") or 0), 60))
         result = self.read(payload)
-        if wait_seconds == 0 or result["output"] or result["job"]["status"] in TERMINAL_STATUSES:
+        if (
+            wait_seconds == 0
+            or result["output"]
+            or result["events"]
+            or result["job"]["lifecycle_status"] in TERMINAL_STATUSES
+        ):
             return result
         initial = result["job"]
-        fingerprint = (initial["status"], initial.get("last_output_at"))
+        fingerprint = (
+            initial["status"], initial.get("last_output_at"), initial.get("last_event_at"),
+            initial.get("last_event_kind"), initial.get("open_tool"),
+        )
         deadline = time.monotonic() + wait_seconds
         job_id = str(payload.get("job_id") or "")
         event = self.change_events.setdefault(job_id, asyncio.Event())
@@ -883,10 +1269,14 @@ class Supervisor:
                 event.clear()
                 result = self.read(payload)
                 current = result["job"]
-                current_fingerprint = (current["status"], current.get("last_output_at"))
+                current_fingerprint = (
+                    current["status"], current.get("last_output_at"), current.get("last_event_at"),
+                    current.get("last_event_kind"), current.get("open_tool"),
+                )
                 if (
                     result["output"]
-                    or current["status"] in TERMINAL_STATUSES
+                    or result["events"]
+                    or current["lifecycle_status"] in TERMINAL_STATUSES
                     or current_fingerprint != fingerprint
                 ):
                     return result
@@ -938,6 +1328,8 @@ class Supervisor:
                 requested_status = str(payload.get("status") or "")
                 owner = str(payload.get("owner") or "")[:200]
                 jobs = [self._public(job) for job in self.store.list(requested_status, limit, owner)]
+                if requested_status == "possibly_stalled":
+                    jobs = [job for job in jobs if job["status"] == "possibly_stalled"][:limit]
                 result = {"jobs": jobs}
             elif action == "cancel":
                 job_id = str(payload.get("job_id") or "")
@@ -945,9 +1337,8 @@ class Supervisor:
                 if job["status"] not in TERMINAL_STATUSES:
                     job = self.store.update(job_id, cancel_requested=1, message="Cancellation requested")
                     if job["status"] == "queued":
-                        job = self.store.update(
-                            job_id, status="cancelled", failure_kind="cancelled",
-                            message="Cancelled before launch", prompt="", finished_at=_now(),
+                        job = self._finish_job(
+                            job_id, "cancelled", "cancelled", "Cancelled before launch"
                         )
                         # The terminal update has already signalled existing waiters. Remove
                         # the registry entry because queued jobs never enter _run_job's cleanup.

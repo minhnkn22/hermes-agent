@@ -1,5 +1,49 @@
 # Session Log
 
+## 2026-08-10 - Phase 1 semantic agent-job observability
+
+Branch: `feat/thin-agent-job-harness`
+
+- Added a pure incremental provider-event decoder and normalized native Codex
+  JSONL into a versioned, bounded, append-only event journal while preserving
+  existing combined and raw logs.
+- Added additive `event_cursor` reads, semantic `activity`, authoritative
+  `lifecycle_status`, progress and open-tool timing, and durable bounded partial
+  responses for completed, failed, cancelled, and interrupted Codex jobs.
+- Preserved legacy callers: reads that omit `event_cursor` remain log-only and
+  `status=possibly_stalled` remains a compatibility alias. Claude and Kimi keep
+  output-byte liveness until their structured adapters are implemented.
+- Ensured stderr noise cannot impersonate Codex semantic progress, open tools are
+  not marked stalled, terminal status is visible before terminal wakeup, unknown
+  provider payloads are globally bounded, and retention removes event and
+  partial-response artifacts.
+- Opus architecture consultation `2e943a8a-0745-4038-bc44-13304314d696`
+  recommended native structured streams, typed activity, CLI credential
+  preservation, and deferring ACP. The implementation follows that boundary.
+- Opus assembly review `ae474780-e2b0-4b1e-91b8-b47d0bfe8ec7` initially returned
+  `DO NOT SHIP`. Its oversized-record cursor wedge and silent stdout-drain failure
+  were reproduced and fixed. The remediation also bounds stalled-job scans,
+  clears terminal in-memory state, distinguishes unavailable/truncated partials,
+  counts schema-drift records as Codex progress, reports journal truncation, and
+  creates private artifacts atomically.
+- Targeted Opus follow-up `7a5d9211-613c-4671-8871-eddd396d3880` returned
+  `SHIP`, confirming all original findings were remediated. Its deployment
+  hardening follow-ups were also applied: startup and launch event writes are
+  non-fatal, decoder failure falls back to output liveness, reader-generated
+  events are explicitly unsequenced, Unicode messages retain reconstructable
+  chunks, and LaunchAgent installation forwards all documented byte budgets.
+
+Verification:
+
+```text
+python3 -m unittest discover -s tools/tests
+  109 tests passed
+```
+
+Next: add structured Claude and Kimi adapters after Phase 1 operational
+observation, then evaluate ACP as a provider adapter rather than replacing the
+durable supervisor.
+
 ## 2026-08-09 - Phase 7 restart recovery and provider canary gate
 
 Branch: `feat/thin-agent-job-harness`

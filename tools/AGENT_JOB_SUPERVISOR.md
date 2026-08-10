@@ -33,8 +33,11 @@ not the active registration after profile migration.
 3. A machine-wide provider queue atomically claims the job as `launching`, then
    launches it once in a new process group.
 4. Output is appended to a cursor log and to separate raw stdout/stderr files.
-5. `read` reports status, new output, silence duration, and terminal output. A
-   bounded wait is held server-side and wakes without repeated client sockets.
+   Native Codex JSONL is also normalized into a bounded event journal before the
+   human-readable log prefix is added.
+5. `read` reports lifecycle state, semantic activity, new output, normalized
+   events, silence duration, and terminal output. A bounded wait is held
+   server-side and wakes without repeated client sockets.
 6. Cancellation sends `SIGTERM` to the process group, waits ten seconds, then
    sends `SIGKILL` if necessary.
 7. On daemon restart, previously running jobs are marked `interrupted`. A process
@@ -43,10 +46,12 @@ not the active registration after profile migration.
 8. Every terminal transition with a non-empty owner creates one durable inbox
    delivery. Reads redeliver until that exact owner acknowledges it.
 
-Silence does not automatically kill a job. After the configured soft-stall
-threshold, status is reported as `possibly_stalled`; only cancellation or the
-submit-relative hard deadline terminates it. Time spent queued counts against
-that deadline.
+Silence does not automatically kill a job. `lifecycle_status` is the persisted
+authority; `activity` reports `starting`, `streaming`, `reasoning`,
+`tool_running:<name>`, `waiting_on_provider`, `idle_unknown`, or `terminal`.
+For compatibility, `status` can still report `possibly_stalled` while the
+persisted lifecycle remains `running`. Only cancellation or the submit-relative
+hard deadline terminates work. Time spent queued counts against that deadline.
 
 ## Installation
 
@@ -63,7 +68,7 @@ under `~/.local/state/agent-job-supervisor` with user-only permissions.
 
 ```bash
 python3 tools/agent_job_client.py list
-python3 tools/agent_job_client.py read JOB_ID --cursor 0
+python3 tools/agent_job_client.py read JOB_ID --cursor 0 --event-cursor 0
 python3 tools/agent_job_client.py cancel JOB_ID
 python3 tools/install_agent_job_supervisor.py status
 ```
@@ -91,14 +96,25 @@ privilege boundary against other processes running as the same macOS user.
 The daemon scopes provider API credentials at process launch from its environment
 or `AGENT_JOB_PROFILE_ENV`; it never stores credential values in SQLite.
 
+Native Codex jobs produce schema-v1 records in `<job>.log.events.jsonl` and
+assemble assistant message events into `<job>.log.partial.txt`. Reads advance
+the normalized stream with the opaque byte `event_cursor`. On terminal failure,
+cancellation, or interruption, `partial_response` and `partial_result_state`
+make retained work recoverable. Existing callers that omit `event_cursor` keep
+their prior log-only behavior. Claude and Kimi continue using output-byte
+liveness in Phase 1; their structured adapters are a later phase. Partial states
+are `complete`, `partial`, `truncated`, `none`, or `unavailable`; the last value
+means the provider does not yet have a semantic response adapter.
+
 ## Failure Semantics
 
 - `queued`: persisted and waiting for a provider slot.
 - `launching`: atomically claimed by the scheduler; provider identity is being
   recorded before the job becomes `running`.
-- `running`: owned by the daemon and below the soft-stall threshold.
-- `possibly_stalled`: process is alive but has emitted no output past the soft
-  threshold. This is diagnostic, not terminal.
+- `running`: persisted lifecycle state for an active daemon-owned process.
+- `possibly_stalled`: compatibility status alias when semantic progress is quiet
+  past the threshold and no tool is open. This is diagnostic, not terminal;
+  inspect `lifecycle_status`, `activity`, and `seconds_without_progress`.
 - `completed`: provider exited zero.
 - `failed`: launch error, provider non-zero exit, or hard deadline.
 - `cancelled`: caller requested cancellation.
@@ -110,10 +126,19 @@ for operations and idempotency. Its directory and files are mode `0700`/`0600`.
 Never submit secrets, `.env` contents, credentials, or unrelated private data.
 Implementation agents cannot run Bash, tests, or Git; the calling agent remains
 responsible for inspecting the diff and running verification.
-Combined and raw per-job logs share a total 10 MiB budget, and terminal jobs and
-logs are retained for 14 days by default. `AGENT_JOB_MAX_LOG_BYTES` and
-`AGENT_JOB_RETENTION_SECONDS` override those limits. A state-directory lock
-prevents a second daemon from competing for the same queue.
+Combined and raw per-job logs share a total 10 MiB budget. Normalized event
+journals default to 2 MiB and partial responses to 256 KiB. Override these with
+`AGENT_JOB_MAX_LOG_BYTES`, `AGENT_JOB_MAX_EVENT_BYTES`, and
+`AGENT_JOB_MAX_PARTIAL_RESPONSE_BYTES`. Terminal jobs and all associated files
+are retained for 14 days by default; `AGENT_JOB_RETENTION_SECONDS` changes that
+window. A state-directory lock prevents a second daemon from competing for the
+same queue.
+
+Every normalized payload has an aggregate record bound. The reader also skips
+and reports an oversized or corrupt record while advancing its cursor, so damaged
+journal data cannot wedge later reads. `journal_truncated` remains set after the
+journal reaches its byte budget. A normalization/storage failure disables
+semantic decoding for that job but raw stdout drainage and capture continue.
 
 ## Verification
 

@@ -18,16 +18,17 @@ python3 scripts/review.py submit \
 For code review, add `--context-git-diff --context-git-base <base-ref>`.
 
 ```bash
-python3 scripts/review.py read JOB_ID --cursor 0 --wait-seconds 30
+python3 scripts/review.py read JOB_ID --cursor 0 --event-cursor 0 --wait-seconds 30
 python3 scripts/review.py list --status running
 python3 scripts/review.py cancel JOB_ID
 python3 scripts/review.py inbox --owner codex:task-name
 python3 scripts/review.py inbox --owner codex:task-name --ack-delivery-id DELIVERY_ID
 ```
 
-Preserve the returned cursor and pass it to the next read. A job survives the
-calling session, MCP process, or app. Recover unknown IDs with `list` and filter by
-the owner prefix used at submission.
+Preserve both returned cursors and pass them to the next read. `cursor` advances
+the human-readable combined log; `event_cursor` advances normalized semantic
+events. A job survives the calling session, MCP process, or app. Recover unknown
+IDs with `list` and filter by the owner prefix used at submission.
 
 Terminal jobs with a non-empty owner create an at-least-once inbox delivery.
 Inbox reads are non-destructive and exact-owner scoped. Inspect the retained job
@@ -35,12 +36,28 @@ result before acknowledging the returned delivery ID; do not assume it is the
 same identifier as the job. A server-side `read --wait-seconds`
 holds one bounded socket request and wakes on output, liveness, or terminal state.
 
+Treat `job.lifecycle_status` as authoritative and `job.activity` as the current
+semantic observation. `tool_running:<name>` means a quiet provider still has an
+open tool and must not be classified as stalled. `idle_unknown` means the process
+is alive but has produced no semantic progress past the soft threshold. Terminal
+reads include `partial_response` plus `partial_result_state` (`complete`,
+`partial`, `truncated`, `none`, or `unavailable`), so inspect retained output
+before retrying a failed or cancelled run. `unavailable` means that provider does
+not yet expose a semantic response artifact; use the retained raw output instead.
+`journal_truncated=true` means normalized events reached their independent byte
+budget even though raw output capture may have continued.
+
+In Phase 1, detailed semantic activity is available only for native Codex jobs.
+Claude and Kimi still use output-byte liveness, so `waiting_on_provider` means
+"active with no structured adapter" rather than a provider-declared wait state.
+
 Statuses:
 
 - `queued`: waiting for provider capacity.
 - `launching`: atomically claimed; process identity is being recorded.
-- `running`: active and producing output within the soft-stall window.
-- `possibly_stalled`: active but quiet; not terminal.
+- `running`: active persisted lifecycle state.
+- `possibly_stalled`: compatibility alias for active semantic silence; not
+  terminal. Use `activity` and `seconds_without_progress` for diagnosis.
 - `completed`, `failed`, `cancelled`, `interrupted`: terminal.
 
 ## Explicit Implementation CLI

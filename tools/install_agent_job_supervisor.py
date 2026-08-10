@@ -57,6 +57,13 @@ def _service_environment() -> dict[str, str]:
         "AGENT_JOB_CAO_PROVIDERS",
         "AGENT_JOB_CAO_CANARY_PROVIDERS",
         "AGENT_JOB_CAO_CANARY_OWNER_PREFIXES",
+        "AGENT_JOB_CLAUDE_CONCURRENCY",
+        "AGENT_JOB_CODEX_CONCURRENCY",
+        "AGENT_JOB_KIMI_CONCURRENCY",
+        "AGENT_JOB_MAX_LOG_BYTES",
+        "AGENT_JOB_MAX_EVENT_BYTES",
+        "AGENT_JOB_MAX_PARTIAL_RESPONSE_BYTES",
+        "AGENT_JOB_RETENTION_SECONDS",
     ):
         if os.environ.get(name):
             environment[name] = os.environ[name]

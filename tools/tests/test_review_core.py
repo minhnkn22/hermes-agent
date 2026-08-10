@@ -113,7 +113,14 @@ class ReviewCoreTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_cli_dispatch_threads_all_lifecycle_arguments(self) -> None:
         cases = [
-            ("read", {"job_id": "job", "cursor": 7, "max_bytes": 10, "wait_seconds": 3}, "job_read"),
+            (
+                "read",
+                {
+                    "job_id": "job", "cursor": 7, "event_cursor": 9,
+                    "max_bytes": 10, "wait_seconds": 3,
+                },
+                "job_read",
+            ),
             ("list", {"status": "running", "limit": 4, "owner": "codex"}, "job_list"),
             ("cancel", {"job_id": "job"}, "job_cancel"),
             (

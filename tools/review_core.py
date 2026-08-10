@@ -305,9 +305,18 @@ def job_submit(
     )
 
 
-def job_read(job_id: str, cursor: int = 0, max_bytes: int = 64_000, wait_seconds: int = 0) -> dict[str, Any]:
+def job_read(
+    job_id: str,
+    cursor: int = 0,
+    max_bytes: int = 64_000,
+    wait_seconds: int = 0,
+    event_cursor: int | None = None,
+) -> dict[str, Any]:
     wait = max(0, min(int(wait_seconds), MAX_WAIT_SECONDS))
-    return read(job_id, cursor=cursor, max_bytes=max_bytes, wait_seconds=wait)
+    return read(
+        job_id, cursor=cursor, event_cursor=event_cursor,
+        max_bytes=max_bytes, wait_seconds=wait,
+    )
 
 
 def job_list(status: str = "", limit: int = 50, owner: str = "") -> dict[str, Any]:

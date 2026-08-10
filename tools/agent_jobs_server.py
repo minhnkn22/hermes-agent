@@ -44,9 +44,17 @@ async def job_submit(
 
 
 @mcp.tool()
-async def job_read(job_id: str, cursor: int = 0, max_bytes: int = 64_000, wait_seconds: int = 0) -> str:
-    """Read incremental output and status; optionally wait up to 60 seconds."""
-    result = await asyncio.to_thread(review_core.job_read, job_id, cursor, max_bytes, wait_seconds)
+async def job_read(
+    job_id: str,
+    cursor: int = 0,
+    max_bytes: int = 64_000,
+    wait_seconds: int = 0,
+    event_cursor: int | None = None,
+) -> str:
+    """Read incremental output, normalized events, and status; optionally wait 60 seconds."""
+    result = await asyncio.to_thread(
+        review_core.job_read, job_id, cursor, max_bytes, wait_seconds, event_cursor
+    )
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

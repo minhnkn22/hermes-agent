@@ -36,6 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     read = sub.add_parser("read")
     read.add_argument("job_id")
     read.add_argument("--cursor", type=int, default=0)
+    read.add_argument("--event-cursor", type=int)
     read.add_argument("--max-bytes", type=int, default=64_000)
     read.add_argument("--wait-seconds", type=int, default=0)
     listing = sub.add_parser("list")

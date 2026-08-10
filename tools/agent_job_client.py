@@ -91,16 +91,21 @@ def read(
     cursor: int = 0,
     max_bytes: int = 64_000,
     *,
+    event_cursor: int | None = None,
     stream_cursors: bool = False,
     stdout_cursor: int = 0,
     stderr_cursor: int = 0,
     wait_seconds: int = 0,
 ) -> dict[str, Any]:
-    return request({
-        "action": "read", "job_id": job_id, "cursor": cursor, "max_bytes": max_bytes,
+    payload: dict[str, Any] = {
+        "action": "read", "job_id": job_id, "cursor": cursor,
+        "max_bytes": max_bytes,
         "stream_cursors": stream_cursors, "stdout_cursor": stdout_cursor,
         "stderr_cursor": stderr_cursor, "wait_seconds": wait_seconds,
-    })
+    }
+    if event_cursor is not None:
+        payload["event_cursor"] = event_cursor
+    return request(payload)
 
 
 def list_jobs(status: str = "", limit: int = 50, owner: str = "") -> dict[str, Any]:

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import tempfile
@@ -30,6 +31,38 @@ def fake_command(job: dict[str, object]) -> tuple[list[str], str | None, dict[st
         script = "import time; print('first', flush=True); time.sleep(.2); print('rapid second', flush=True); time.sleep(2)"
     elif prompt == "slow":
         script = "import time; print('started', flush=True); time.sleep(30)"
+    elif prompt == "codex-events":
+        script = """import json, time
+events = [
+    {"type": "thread.started", "thread_id": "thread-1"},
+    {"type": "turn.started"},
+    {"type": "item.started", "item": {"id": "tool-1", "type": "command_execution"}},
+    {"type": "item.completed", "item": {"id": "tool-1", "type": "command_execution", "exit_code": 0}},
+    {"type": "item.completed", "item": {"id": "message-1", "type": "agent_message", "text": "partial answer"}},
+    {"type": "turn.completed", "usage": {"input_tokens": 3, "output_tokens": 2}},
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+    time.sleep(.08)
+"""
+    elif prompt == "codex-partial-slow":
+        script = """import json, time
+print(json.dumps({"type": "turn.started"}), flush=True)
+print(json.dumps({"type": "item.completed", "item": {"id": "message-1", "type": "agent_message", "text": "recover me"}}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "codex-tool-slow":
+        script = """import json, time
+print(json.dumps({"type": "turn.started"}), flush=True)
+time.sleep(.5)
+print(json.dumps({"type": "item.started", "item": {"id": "tool-1", "type": "command_execution"}}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "codex-raw-slow":
+        script = """import json, time
+print(json.dumps({"type": "future.event", "value": 1}), flush=True)
+time.sleep(30)
+"""
     else:
         script = "print('unknown', flush=True)"
     return [sys.executable, "-u", "-c", script], None, os.environ.copy()
@@ -224,7 +257,19 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_cancel_running_process_group(self) -> None:
         submitted = await self.call(self.spec("slow"))
         await self.wait_for(str(submitted["job_id"]), {"running"})
+        before_cancel = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+        waiter = asyncio.create_task(self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "cursor": before_cancel["cursor"],
+            "event_cursor": before_cancel["event_cursor"],
+            "wait_seconds": 5,
+        }))
         await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        terminal = await asyncio.wait_for(waiter, timeout=5)
+        self.assertEqual("cancelled", terminal["job"]["lifecycle_status"])
+        self.assertIn("job_terminal", [event["kind"] for event in terminal["events"]])
         result = await self.wait_for(str(submitted["job_id"]), {"cancelled"})
         self.assertEqual("cancelled", result["job"]["failure_kind"])
 
@@ -239,6 +284,258 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(result["job"]["seconds_without_output"], 30)
         await self.call({"action": "cancel", "job_id": submitted["job_id"]})
         await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+    async def test_codex_events_are_cursor_readable_and_reconstruct_result(self) -> None:
+        spec = self.spec("codex-events")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+        legacy = await self.call({
+            "action": "read", "job_id": submitted["job_id"],
+        })
+        self.assertEqual([], legacy["events"])
+        self.assertEqual(legacy["event_size"], legacy["event_cursor"])
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        kinds = [event["kind"] for event in result["events"]]
+        self.assertIn("job_started", kinds)
+        self.assertIn("tool_started", kinds)
+        self.assertIn("tool_finished", kinds)
+        self.assertIn("message_delta", kinds)
+        self.assertIn("job_terminal", kinds)
+        self.assertEqual("partial answer", result["partial_response"])
+        self.assertEqual("complete", result["partial_result_state"])
+        self.assertTrue(result["job"]["has_partial_response"])
+        job = self.supervisor.store.get(str(submitted["job_id"]))
+        self.assertEqual(0o600, stat.S_IMODE(Path(f"{job['log_path']}.events.jsonl").stat().st_mode))
+        self.assertEqual(0o600, stat.S_IMODE(Path(f"{job['log_path']}.partial.txt").stat().st_mode))
+        again = await self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "event_cursor": result["event_cursor"],
+        })
+        self.assertEqual([], again["events"])
+
+    async def test_oversized_journal_record_never_wedges_event_cursor(self) -> None:
+        submitted = await self.call(self.spec("complete"))
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        job = self.supervisor.store.get(str(submitted["job_id"]))
+        event_path = Path(f"{job['log_path']}.events.jsonl")
+        cursor = event_path.stat().st_size
+        with event_path.open("ab") as handle:
+            handle.write(json.dumps({"payload": "x" * 100_000}).encode() + b"\n")
+
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"],
+            "event_cursor": cursor,
+        })
+
+        self.assertGreater(result["event_cursor"], cursor)
+        self.assertEqual(result["event_size"], result["event_cursor"])
+        self.assertEqual("truncated_event", result["events"][0]["kind"])
+
+    async def test_normalization_failure_does_not_stop_stdout_capture(self) -> None:
+        original = self.supervisor._record_event
+
+        def fail_provider_raw(job_id, kind, payload=None, *, force=False):
+            if kind == "provider_raw":
+                raise OSError("injected journal failure")
+            return original(job_id, kind, payload, force=force)
+
+        with patch.object(self.supervisor, "_record_event", side_effect=fail_provider_raw):
+            spec = self.spec("codex-events")
+            spec["provider"] = "codex"
+            submitted = await self.call(spec)
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        self.assertIn('"type": "thread.started"', result["stdout"])
+        self.assertIn('"type": "turn.completed"', result["stdout"])
+        self.assertIn("Semantic event normalization disabled", result["stderr"])
+
+    async def test_normalization_failure_falls_back_to_output_liveness(self) -> None:
+        original = self.supervisor._record_event
+
+        def fail_provider_raw(job_id, kind, payload=None, *, force=False):
+            if kind == "provider_raw":
+                raise OSError("injected journal failure")
+            return original(job_id, kind, payload, force=force)
+
+        with patch.object(self.supervisor, "_record_event", side_effect=fail_provider_raw):
+            spec = self.spec("codex-raw-slow")
+            spec["provider"] = "codex"
+            submitted = await self.call(spec)
+            job_id = str(submitted["job_id"])
+            for _ in range(100):
+                if job_id in self.supervisor.normalization_failed:
+                    break
+                await asyncio.sleep(.02)
+            else:
+                self.fail("Injected normalization failure was not observed")
+            self.supervisor.event_summaries[job_id]["last_progress_at"] = time.time() - 60
+            self.supervisor.store.update(job_id, soft_stall_seconds=30)
+
+            current = await self.call({"action": "read", "job_id": job_id})
+
+            self.assertEqual("running", current["job"]["status"])
+            self.assertLess(current["job"]["seconds_without_progress"], 3)
+            await self.call({"action": "cancel", "job_id": job_id})
+            await self.wait_for(job_id, {"cancelled"})
+
+    async def test_unicode_message_chunks_remain_reconstructable(self) -> None:
+        source = "🙂" * 10_000
+        chunks = self.supervisor._split_event_payloads("message_delta", {"text": source})
+        self.assertEqual(source, "".join(chunk["text"] for chunk in chunks))
+        self.assertTrue(all(
+            len(chunk["text"].encode("utf-8")) <= supervisor_module.MAX_EVENT_TEXT_CHARS
+            for chunk in chunks
+        ))
+
+    async def test_journal_budget_exhaustion_is_reported(self) -> None:
+        with patch.object(supervisor_module, "MAX_EVENT_LOG_BYTES", 300):
+            spec = self.spec("codex-events")
+            spec["provider"] = "codex"
+            submitted = await self.call(spec)
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        self.assertEqual(1, result["job"]["journal_truncated"])
+
+    async def test_terminal_job_without_task_forgets_event_state(self) -> None:
+        submitted = self.supervisor.submit(self.spec("complete"))
+        job_id = str(submitted["job_id"])
+
+        self.supervisor._finish_job(job_id, "cancelled", "cancelled", "test")
+
+        self.assertNotIn(job_id, self.supervisor.event_summaries)
+        self.assertNotIn(job_id, self.supervisor.event_sequences)
+
+    async def test_completed_nonsemantic_provider_reports_partial_unavailable(self) -> None:
+        submitted = await self.call(self.spec("complete"))
+        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+        self.assertEqual("unavailable", result["partial_result_state"])
+
+    async def test_partial_response_cap_is_reported_as_truncated(self) -> None:
+        with patch.object(supervisor_module, "MAX_PARTIAL_RESPONSE_BYTES", 5):
+            spec = self.spec("codex-events")
+            spec["provider"] = "codex"
+            submitted = await self.call(spec)
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        self.assertEqual("parti", result["partial_response"])
+        self.assertEqual("truncated", result["partial_result_state"])
+        self.assertEqual(1, result["job"]["partial_response_truncated"])
+
+    async def test_provider_raw_record_counts_as_codex_progress(self) -> None:
+        spec = self.spec("codex-raw-slow")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            summary = self.supervisor.event_summaries.get(job_id, {})
+            if summary.get("last_event_kind") == "provider_raw":
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Codex fixture did not emit provider_raw")
+        self.supervisor.store.update(
+            job_id, started_at=time.time() - 60, last_output_at=time.time() - 60,
+            soft_stall_seconds=30,
+        )
+
+        current = await self.call({"action": "read", "job_id": job_id})
+
+        self.assertEqual("running", current["job"]["status"])
+        self.assertLess(current["job"]["seconds_without_progress"], 3)
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
+
+    async def test_cancelled_codex_job_retains_partial_response(self) -> None:
+        spec = self.spec("codex-partial-slow")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        for _ in range(100):
+            current = await self.call({
+                "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+            })
+            if current["job"]["has_partial_response"]:
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Codex fixture did not produce its partial response")
+
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        result = await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+        self.assertEqual("recover me", result["partial_response"])
+        self.assertEqual("partial", result["partial_result_state"])
+
+    async def test_open_codex_tool_is_activity_not_stall(self) -> None:
+        spec = self.spec("codex-tool-slow")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        for _ in range(150):
+            current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+            if str(current["job"]["activity"]).startswith("tool_running:"):
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Codex fixture did not expose tool activity")
+        self.supervisor.event_summaries[str(submitted["job_id"])]["open_tool_since"] = time.time() - 600
+        current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+        self.assertEqual("running", current["job"]["status"])
+        self.assertEqual("tool_running:command", current["job"]["activity"])
+        self.assertGreaterEqual(current["job"]["open_tool_seconds"], 600)
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+    async def test_event_long_poll_wakes_with_new_normalized_event(self) -> None:
+        spec = self.spec("codex-tool-slow")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        current = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+        seen = [event["kind"] for event in current["events"]]
+        cursor = current["event_cursor"]
+        output_cursor = current["cursor"]
+        while "tool_started" not in seen:
+            current = await self.call({
+                "action": "read", "job_id": submitted["job_id"],
+                "cursor": output_cursor, "event_cursor": cursor, "wait_seconds": 3,
+            })
+            seen.extend(event["kind"] for event in current["events"])
+            cursor = current["event_cursor"]
+            output_cursor = current["cursor"]
+        self.assertIn("tool_started", seen)
+        await self.call({"action": "cancel", "job_id": submitted["job_id"]})
+        await self.wait_for(str(submitted["job_id"]), {"cancelled"})
+
+    async def test_codex_stderr_bytes_do_not_mask_semantic_silence(self) -> None:
+        spec = self.spec("codex-tool-slow")
+        spec["provider"] = "codex"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"running"})
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            if self.supervisor.event_summaries.get(job_id, {}).get("open_tool"):
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Codex fixture did not open its tool")
+        summary = self.supervisor.event_summaries[job_id]
+        summary["last_progress_at"] = time.time() - 31
+        summary["open_tool"] = ""
+        summary["open_tool_since"] = None
+        await self.supervisor._append_log(job_id, "stderr", b"warning spinner\n")
+
+        current = await self.call({"action": "read", "job_id": job_id})
+
+        self.assertEqual("possibly_stalled", current["job"]["status"])
+        self.assertEqual("idle_unknown", current["job"]["activity"])
+        self.assertLess(current["job"]["seconds_without_output"], 3)
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
 
     async def test_provider_queue_is_machine_wide_within_daemon(self) -> None:
         first = await self.call(self.spec("slow"))
@@ -405,12 +702,18 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         spec["owner"] = "codex:prune-test"
         submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"completed"})
+        job = self.supervisor.store.get(str(submitted["job_id"]))
+        event_path = Path(f"{job['log_path']}.events.jsonl")
+        self.assertTrue(event_path.is_file())
         self.supervisor.store.update(str(submitted["job_id"]), finished_at=1)
 
-        self.supervisor.store.prune(cutoff=2)
+        for base in self.supervisor.store.prune(cutoff=2):
+            for suffix in ("", ".stdout", ".stderr", ".events.jsonl", ".partial.txt"):
+                Path(f"{base}{suffix}").unlink(missing_ok=True)
 
         inbox = await self.call({"action": "inbox", "owner": "codex:prune-test"})
         self.assertEqual([], inbox["deliveries"])
+        self.assertFalse(event_path.exists())
         with self.assertRaisesRegex(RuntimeError, "Unknown job id"):
             await self.call({"action": "read", "job_id": submitted["job_id"]})
 
