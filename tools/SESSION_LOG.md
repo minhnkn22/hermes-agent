@@ -37,12 +37,38 @@ Verification:
 
 ```text
 python3 -m unittest discover -s tools/tests
-  109 tests passed
+  111 tests passed
 ```
 
 Next: add structured Claude and Kimi adapters after Phase 1 operational
 observation, then evaluate ACP as a provider adapter rather than replacing the
 durable supervisor.
+
+Deployment evidence:
+
+```text
+LaunchAgent com.atum.agent-job-supervisor
+  installed and healthy
+
+Live native Codex semantic smoke
+  job=80077b6d-39c7-4a0f-bc9d-d7306388a655
+  model=gpt-5.6-sol
+  job_started observed while running
+  message_delta=PHASE1_STREAM_OK
+  partial_result_state=complete
+  status=completed
+```
+
+The first smoke used unsupported ChatGPT-account model `gpt-5.6-codex` and
+correctly retained its warning/error/terminal events under job
+`82013b3f-b717-404e-98a4-03cbd9284a16`; the retry used the configured model.
+Deployment also exposed and fixed a missing low-level CLI `--event-cursor` and
+`--wait-seconds` surface while preserving omitted-cursor compatibility.
+
+Operational incident: an unrelated Atum Opus job was submitted between the
+final shared-queue check and the supervisor install, and the restart marked job
+`d350df5d-55e4-494c-9cbd-dd13104a1968` interrupted. Its exact-owner durable
+delivery was left unacknowledged so the originating task can inspect and retry.
 
 ## 2026-08-09 - Phase 7 restart recovery and provider canary gate
 
