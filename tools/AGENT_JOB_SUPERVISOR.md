@@ -103,13 +103,23 @@ Native Codex, Claude, and Kimi jobs produce schema-v1 records in
 `<job>.log.events.jsonl` and assemble assistant message events into
 `<job>.log.partial.txt`. Claude runs with `stream-json`, partial messages,
 verbose events, and session persistence disabled. Its partial response is all
-top-level assistant-visible text in order; terminal `result.result` and
-subagent events are not appended. Tool arguments, tool-result content, thinking
+top-level assistant-visible text in order. Assistant snapshots are reconciled
+against streamed prefixes without inferring provider block indices. A successful,
+top-level terminal `result.result` is recovered only when no answer text was
+otherwise emitted, and records a `terminal_result_recovered` progress marker;
+error, nested, non-string, and duplicate terminal results never inject text.
+Subagent events are not appended. Tool arguments, tool-result content, thinking
 signatures, machine inventories, and account utilization stay out of the
-normalized journal. Kimi runs with `stream-json`; its assistant records are
-incremental message chunks, while tool calls and results are reduced to names,
-IDs, and byte counts. Malformed Claude and Kimi records retain only byte count
-and digest.
+normalized journal. Decoder state is process-local and is never replayed into an
+existing partial-response file after restart. If terminal answer size indicates
+possible mixed response loss, the result is marked partial and delegation clients
+print a warning without exposing the omitted terminal text. Claude stream-prefix
+tracking is bounded to 256 blocks and 1 MiB per block; exceeding either bound
+suppresses snapshot recovery for that message to avoid duplicate answer text.
+Kimi runs with
+`stream-json`; its assistant records are incremental message chunks, while tool
+calls and results are reduced to names, IDs, and byte counts. Malformed Claude
+and Kimi records retain only byte count and digest.
 Raw bounded logs remain private operational evidence under the user-only state
 directory and are not returned through normal semantic job reads.
 

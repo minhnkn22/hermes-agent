@@ -13,6 +13,9 @@ MAX_EVENT_TEXT_CHARS = 16_000
 MAX_EVENT_RECORD_BYTES = (MAX_EVENT_TEXT_CHARS * 4) + 4096
 MAX_COLLECTION_ITEMS = 50
 MAX_VALUE_DEPTH = 4
+MAX_CLAUDE_STREAM_BLOCK_CHARS = 1_048_576
+MAX_CLAUDE_STREAM_BLOCKS = 256
+MAX_CLAUDE_SNAPSHOT_MESSAGES = 64
 PRIVATE_STDOUT_PROVIDERS = {"claude", "kimi"}
 
 
@@ -162,18 +165,77 @@ def _remember_tool(state: dict[str, Any], tool_id: str, name: str) -> None:
     tools[tool_id] = name
 
 
-def _claude_assistant_index(
-    state: dict[str, Any], block: dict[str, Any], fallback_index: int
+def _claude_snapshot_key(
+    state: dict[str, Any], message_id: str, block: dict[str, Any]
 ) -> str:
-    block_type = str(block.get("type") or "")
-    block_id = str(block.get("id") or "")
-    seen = state.setdefault("assistant_blocks_seen", set())
-    for index, known in state.setdefault("blocks", {}).items():
-        if index in seen or known.get("type") != block_type:
-            continue
-        if block_type != "tool_use" or not block_id or known.get("id") == block_id:
-            return str(index)
-    return str(fallback_index)
+    ordinals = state.setdefault("snapshot_ordinals", {})
+    if message_id not in ordinals and len(ordinals) >= MAX_CLAUDE_SNAPSHOT_MESSAGES:
+        oldest = next(iter(ordinals))
+        del ordinals[oldest]
+        prefix = f"{oldest}:"
+        state["snapshot_seen"] = {
+            key for key in state.setdefault("snapshot_seen", set())
+            if not key.startswith(prefix)
+        }
+        state.setdefault("snapshot_previous", {}).pop(oldest, None)
+    fingerprint = hashlib.sha256(
+        json.dumps(block, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    previous = state.setdefault("snapshot_previous", {}).get(message_id)
+    if previous and previous[0] == fingerprint:
+        return str(previous[1])
+    ordinal = int(ordinals.get(message_id, 0))
+    ordinals[message_id] = ordinal + 1
+    key = f"{message_id}:{ordinal}"
+    state["snapshot_previous"][message_id] = (fingerprint, key)
+    return key
+
+
+def _claude_stream_suffix(
+    state: dict[str, Any], block_type: str, text: str
+) -> str:
+    if state.get("stream_tracking_overflow"):
+        return ""
+    streamed = state.setdefault("streamed_content", {})
+    consumed = state.setdefault("streamed_consumed", set())
+    matches = [
+        (len(content), index)
+        for index, item in streamed.items()
+        if index not in consumed
+        and item.get("type") == block_type
+        and (content := _text(item.get("text")))
+        and text.startswith(content)
+    ]
+    if not matches:
+        return text
+    length, index = max(matches)
+    consumed.add(index)
+    if index in state.setdefault("streamed_overflow", set()):
+        return ""
+    return text[length:]
+
+
+def _claude_remember_stream_text(
+    state: dict[str, Any], index: str, block_type: str, text: str
+) -> None:
+    streamed = state.setdefault("streamed_content", {})
+    if index not in streamed and len(streamed) >= MAX_CLAUDE_STREAM_BLOCKS:
+        state["stream_tracking_overflow"] = True
+        return
+    item = streamed.setdefault(index, {"type": block_type, "text": ""})
+    if item.get("type") != block_type:
+        return
+    current = _text(item.get("text"))
+    remaining = MAX_CLAUDE_STREAM_BLOCK_CHARS - len(current)
+    if remaining <= 0 or len(text) > remaining:
+        state.setdefault("streamed_overflow", set()).add(index)
+    if remaining > 0:
+        item["text"] = current + text[:remaining]
+
+
+def _claude_message_event(state: dict[str, Any], text: str) -> dict[str, Any]:
+    state["top_level_text_chars"] = int(state.get("top_level_text_chars", 0)) + len(text)
+    return {"kind": "message_delta", "payload": {"text": text}}
 
 
 def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[str, Any]]:
@@ -215,12 +277,13 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
         event_type = str(event.get("type") or "")
         if event_type == "message_start":
             state["blocks"] = {}
-            state["streamed_blocks"] = set()
-            state["assistant_blocks_seen"] = set()
-            state["snapshot_blocks"] = set()
+            state["streamed_content"] = {}
+            state["streamed_consumed"] = set()
+            state["streamed_overflow"] = set()
+            state["stream_tracking_overflow"] = False
             message = event.get("message")
             message = message if isinstance(message, dict) else {}
-            state["current_message_id"] = str(message.get("id") or "")[:200]
+            state["stream_message_id"] = str(message.get("id") or "")[:200]
             return [{
                 "kind": "turn_started",
                 "payload": {"model": str(message.get("model") or "")[:200]},
@@ -252,13 +315,13 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
             if delta_type == "text_delta":
                 text = _text(delta.get("text"))
                 if text:
-                    state.setdefault("streamed_blocks", set()).add(index)
-                    return [{"kind": "message_delta", "payload": {"text": text}}]
+                    _claude_remember_stream_text(state, index, "text", text)
+                    return [_claude_message_event(state, text)]
                 return []
             if delta_type == "thinking_delta":
                 thinking = _text(delta.get("thinking"))
                 if thinking:
-                    state.setdefault("streamed_blocks", set()).add(index)
+                    _claude_remember_stream_text(state, index, "thinking", thinking)
                     return [{"kind": "thinking_delta", "payload": {"text": thinking}}]
                 return []
             if delta_type == "input_json_delta":
@@ -294,25 +357,27 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
     if record_type == "assistant":
         message = value.get("message")
         message = message if isinstance(message, dict) else {}
-        message_id = str(message.get("id") or state.get("current_message_id") or "")[:200]
+        message_id = str(message.get("id") or "")[:200]
         content = message.get("content")
         content = content if isinstance(content, list) else []
-        for fallback_index, block in enumerate(content):
+        for block in content:
             if not isinstance(block, dict):
                 continue
             block_type = str(block.get("type") or "")
-            index = _claude_assistant_index(state, block, fallback_index)
-            key = f"{message_id}:{index}"
-            state["assistant_blocks_seen"].add(index)
-            if index in state.setdefault("streamed_blocks", set()) or key in state.setdefault("snapshot_blocks", set()):
+            key = _claude_snapshot_key(state, message_id, block)
+            if key in state.setdefault("snapshot_seen", set()):
                 continue
-            state["snapshot_blocks"].add(key)
+            state["snapshot_seen"].add(key)
             if block_type == "text":
-                text = _text(block.get("text"))
+                text = _claude_stream_suffix(
+                    state, block_type, _text(block.get("text"))
+                )
                 if text:
-                    events.append({"kind": "message_delta", "payload": {"text": text}})
+                    events.append(_claude_message_event(state, text))
             elif block_type == "thinking":
-                thinking = _text(block.get("thinking"))
+                thinking = _claude_stream_suffix(
+                    state, block_type, _text(block.get("thinking"))
+                )
                 if thinking:
                     events.append({"kind": "thinking_delta", "payload": {"text": thinking}})
             elif block_type == "tool_use":
@@ -348,6 +413,41 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
         return events
 
     if record_type == "result":
+        if value.get("parent_tool_use_id") is not None:
+            return []
+        is_error_result = bool(value.get("is_error")) or subtype not in {"", "success"}
+        result_text = value.get("result")
+        if (
+            not is_error_result
+            and not state.get("result_fallback_emitted")
+            and int(state.get("top_level_text_chars", 0)) == 0
+            and isinstance(result_text, str)
+            and result_text.strip()
+        ):
+            state["result_fallback_emitted"] = True
+            events.append({
+                "kind": "progress",
+                "payload": {
+                    "phase": "terminal_result_recovered",
+                    "chars": len(result_text),
+                },
+            })
+            events.append(_claude_message_event(state, result_text))
+        elif (
+            not is_error_result
+            and isinstance(result_text, str)
+            and int(state.get("top_level_text_chars", 0)) > 0
+            and len(result_text) > (int(state["top_level_text_chars"]) * 2) + 512
+        ):
+            events.append({
+                "kind": "warning",
+                "payload": {
+                    "message": "Claude result text exceeded emitted top-level text",
+                    "subtype": "suspected_response_loss",
+                    "result_chars": len(result_text),
+                    "emitted_chars": int(state["top_level_text_chars"]),
+                },
+            })
         usage = value.get("usage")
         if isinstance(usage, dict):
             events.append({
@@ -362,7 +462,7 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
                     "terminal_reason": subtype[:100],
                 },
             })
-        if value.get("is_error") or subtype not in {"", "success"}:
+        if is_error_result:
             events.append({
                 "kind": "warning",
                 "payload": {

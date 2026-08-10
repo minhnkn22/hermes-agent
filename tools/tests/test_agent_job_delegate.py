@@ -3,6 +3,7 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -29,7 +30,9 @@ class DelegateClientTest(unittest.TestCase):
             "events": [{"kind": "message_delta", "payload": {"text": "part"}}],
             "partial_response": "partial answer",
         }
-        with tempfile.TemporaryDirectory() as root, patch.object(
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ, {"AGENT_JOB_DEPTH": "0"}
+        ), patch.object(
             module, "submit", return_value={"job_id": "kimi-job"}
         ), patch.object(module, "read", return_value=terminal), patch.object(
             sys, "argv", [
@@ -45,6 +48,43 @@ class DelegateClientTest(unittest.TestCase):
         self.assertEqual(0, return_code)
         self.assertEqual("partial answer", stdout.getvalue())
         self.assertIn("AGENT_JOB_ID=kimi-job", stderr.getvalue())
+
+    def test_suspected_response_loss_is_visible_on_stderr(self) -> None:
+        spec = importlib.util.spec_from_file_location("agent_job_delegate_warning_test", SCRIPT)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        terminal = {
+            "job": {
+                "status": "completed", "semantic_stream": 1,
+                "semantic_normalization_failed": 0,
+            },
+            "cursor": 0,
+            "event_cursor": 1,
+            "events": [{
+                "kind": "warning",
+                "payload": {"subtype": "suspected_response_loss"},
+            }],
+            "partial_response": "short",
+        }
+        with tempfile.TemporaryDirectory() as root, patch.dict(
+            os.environ, {"AGENT_JOB_DEPTH": "0"}
+        ), patch.object(
+            module, "submit", return_value={"job_id": "claude-job"}
+        ), patch.object(module, "read", return_value=terminal), patch.object(
+            sys, "argv", [
+                "delegate.py", "--provider", "claude", "--model", "opus",
+                "--mode", "readonly", "--workdir", root, "--prompt", "review",
+            ]
+        ):
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                return_code = module.main()
+
+        self.assertEqual(0, return_code)
+        self.assertEqual("short", stdout.getvalue())
+        self.assertIn("marked partial", stderr.getvalue())
 
 
 if __name__ == "__main__":

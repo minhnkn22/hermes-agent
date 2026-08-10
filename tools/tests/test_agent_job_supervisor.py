@@ -103,6 +103,34 @@ print(json.dumps({"type": "stream_event", "event": {"type": "message_start", "me
 print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "unfinished"}}}), flush=True)
 print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True}), flush=True)
 """
+    elif prompt == "claude-snapshot-collision":
+        script = """import json
+events = [
+    {"type": "stream_event", "event": {"type": "message_start", "message": {"id": "stream-id"}}},
+    {"type": "stream_event", "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking"}}},
+    {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": ""}}},
+    {"type": "assistant", "message": {"id": "snapshot-id", "content": [{"type": "thinking", "thinking": ""}]}},
+    {"type": "assistant", "message": {"id": "snapshot-id", "content": [{"type": "text", "text": "snapshot answer"}]}},
+    {"type": "result", "subtype": "success", "is_error": False, "result": "snapshot answer"},
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+"""
+    elif prompt == "claude-result-only":
+        script = """import json
+print(json.dumps({"type": "assistant", "parent_tool_use_id": "nested", "message": {"content": [{"type": "text", "text": "private nested text"}]}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "terminal answer", "usage": {"output_tokens": 2}}), flush=True)
+"""
+    elif prompt == "claude-result-only-error":
+        script = """import json
+print(json.dumps({"type": "assistant", "parent_tool_use_id": "nested", "message": {"content": [{"type": "text", "text": "private nested text"}]}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True, "result": "private error prose"}), flush=True)
+"""
+    elif prompt == "claude-mixed-loss":
+        script = """import json
+print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "short"}}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "x" * 600}), flush=True)
+"""
     elif prompt == "kimi-events":
         script = """import json, time
 events = [
@@ -636,6 +664,68 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, kinds.count("message_delta"))
         self.assertEqual("partial answer", result["partial_response"])
         self.assertEqual("complete", result["partial_result_state"])
+
+    async def test_claude_snapshot_collision_recovers_without_terminal_fallback(self) -> None:
+        submitted = await self.call(self.spec("claude-snapshot-collision"))
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        self.assertEqual("snapshot answer", result["partial_response"])
+        self.assertEqual("complete", result["partial_result_state"])
+        self.assertEqual("", result["output"])
+        self.assertEqual("", result["stdout"])
+        self.assertFalse(any(
+            event["kind"] == "progress"
+            and event["payload"].get("phase") == "terminal_result_recovered"
+            for event in result["events"]
+        ))
+
+    async def test_claude_result_only_recovers_complete_private_answer(self) -> None:
+        submitted = await self.call(self.spec("claude-result-only"))
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        self.assertEqual("terminal answer", result["partial_response"])
+        self.assertEqual("complete", result["partial_result_state"])
+        self.assertEqual("", result["output"])
+        self.assertEqual("", result["stdout"])
+        self.assertNotIn("private nested text", json.dumps(result["events"]))
+        self.assertTrue(any(
+            event["kind"] == "progress"
+            and event["payload"].get("phase") == "terminal_result_recovered"
+            for event in result["events"]
+        ))
+
+    async def test_claude_error_result_does_not_recover_private_prose(self) -> None:
+        submitted = await self.call(self.spec("claude-result-only-error"))
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        self.assertEqual("", result["partial_response"])
+        self.assertEqual("none", result["partial_result_state"])
+        self.assertEqual(1, result["job"]["provider_result_error"])
+        self.assertNotIn("private error prose", json.dumps(result["events"]))
+        self.assertNotIn("private nested text", json.dumps(result["events"]))
+
+    async def test_claude_suspected_mixed_loss_marks_partial(self) -> None:
+        submitted = await self.call(self.spec("claude-mixed-loss"))
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        self.assertEqual("short", result["partial_response"])
+        self.assertEqual("partial", result["partial_result_state"])
+        self.assertEqual(1, result["job"]["provider_result_error"])
+        warnings = [event for event in result["events"] if event["kind"] == "warning"]
+        self.assertEqual("suspected_response_loss", warnings[0]["payload"]["subtype"])
+        self.assertNotIn("x" * 600, json.dumps(result["events"]))
 
     async def test_cancelled_claude_job_retains_partial_response(self) -> None:
         submitted = await self.call(self.spec("claude-partial-slow"))

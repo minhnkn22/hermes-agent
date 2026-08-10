@@ -69,9 +69,21 @@ def main() -> int:
             )
             if semantic:
                 for event in result.get("events") or []:
+                    payload = event.get("payload") or {}
+                    if (
+                        event.get("kind") == "warning"
+                        and payload.get("subtype") == "suspected_response_loss"
+                    ):
+                        print(
+                            "Warning: Claude may have returned more answer text than was streamed; "
+                            "the retained response is marked partial.",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        continue
                     if event.get("kind") != "message_delta":
                         continue
-                    text = str((event.get("payload") or {}).get("text") or "")
+                    text = str(payload.get("text") or "")
                     if text:
                         print(text, end="", flush=True)
                         emitted += text

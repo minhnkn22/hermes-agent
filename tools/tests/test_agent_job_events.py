@@ -11,6 +11,7 @@ TOOLS_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS_DIR))
 
 from agent_job_events import (  # noqa: E402
+    MAX_CLAUDE_STREAM_BLOCKS,
     MAX_EVENT_RECORD_BYTES,
     MAX_EVENT_TEXT_CHARS,
     ProviderEventDecoder,
@@ -208,14 +209,232 @@ class ProviderEventDecoderTest(unittest.TestCase):
         self.assertEqual(len("secret-result"), events[-1]["payload"]["content_bytes"])
         self.assertEqual("Read", events[-1]["payload"]["name"])
 
-    def test_claude_result_never_duplicates_or_substitutes_stream_text(self) -> None:
+    def test_claude_result_recovers_text_when_none_was_emitted(self) -> None:
         decoder = ProviderEventDecoder("claude")
         events = decoder.feed(self._jsonl({
             "type": "result", "subtype": "success", "is_error": False,
-            "result": "fallback answer",
+            "result": "fallback answer", "usage": {"output_tokens": 2},
         }))
-        self.assertEqual(["progress"], [event["kind"] for event in events])
-        self.assertNotIn("fallback answer", json.dumps(events))
+        self.assertEqual(
+            ["progress", "message_delta", "usage"],
+            [event["kind"] for event in events],
+        )
+        self.assertEqual("terminal_result_recovered", events[0]["payload"]["phase"])
+        self.assertEqual("fallback answer", events[1]["payload"]["text"])
+
+    def test_claude_result_never_duplicates_streamed_text(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "already emitted"},
+                },
+            },
+            {
+                "type": "result", "subtype": "success", "is_error": False,
+                "result": "different fallback answer",
+            },
+        ))
+        text = "".join(
+            event["payload"]["text"] for event in events
+            if event["kind"] == "message_delta"
+        )
+        self.assertEqual("already emitted", text)
+        self.assertNotIn("different fallback answer", json.dumps(events))
+
+    def test_claude_snapshot_collision_production_shape_recovers_answer(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "stream-id"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start", "index": 0,
+                    "content_block": {"type": "thinking"},
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": ""},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "snapshot-id", "content": [
+                    {"type": "thinking", "thinking": ""},
+                ]},
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "snapshot-id", "content": [
+                    {"type": "text", "text": "answer"},
+                ]},
+            },
+            {
+                "type": "result", "subtype": "success", "is_error": False,
+                "result": "answer",
+            },
+        ))
+        self.assertEqual(
+            ["answer"],
+            [event["payload"]["text"] for event in events if event["kind"] == "message_delta"],
+        )
+        self.assertFalse(any(
+            event["kind"] == "progress"
+            and event["payload"].get("phase") == "terminal_result_recovered"
+            for event in events
+        ))
+
+    def test_claude_partially_streamed_block_emits_snapshot_suffix(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "msg"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "hel"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "msg", "content": [{"type": "text", "text": "hello"}]},
+            },
+        ))
+        self.assertEqual(
+            "hello",
+            "".join(event["payload"]["text"] for event in events if event["kind"] == "message_delta"),
+        )
+
+    def test_claude_mismatched_snapshot_id_does_not_duplicate_stream(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "stream-id"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "hello world"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "snapshot-id", "content": [
+                    {"type": "text", "text": "hello world"},
+                ]},
+            },
+        ))
+        self.assertEqual(
+            "hello world",
+            "".join(event["payload"]["text"] for event in events if event["kind"] == "message_delta"),
+        )
+
+    def test_claude_adjacent_duplicate_snapshot_emits_once(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        snapshot = {
+            "type": "assistant",
+            "message": {"id": "msg", "content": [{"type": "text", "text": "answer"}]},
+        }
+        events = decoder.feed(self._jsonl(snapshot, snapshot))
+        self.assertEqual(
+            ["answer"],
+            [event["payload"]["text"] for event in events if event["kind"] == "message_delta"],
+        )
+
+    def test_claude_stream_block_tracking_overflow_prefers_no_duplication(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        records = [{
+            "type": "stream_event",
+            "event": {"type": "message_start", "message": {"id": "msg"}},
+        }]
+        records.extend({
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta", "index": index,
+                "delta": {"type": "text_delta", "text": "x"},
+            },
+        } for index in range(MAX_CLAUDE_STREAM_BLOCKS + 1))
+        records.append({
+            "type": "assistant",
+            "message": {"id": "msg", "content": [{"type": "text", "text": "x"}]},
+        })
+        events = decoder.feed(self._jsonl(*records))
+        self.assertEqual(
+            MAX_CLAUDE_STREAM_BLOCKS + 1,
+            sum(len(event["payload"]["text"]) for event in events if event["kind"] == "message_delta"),
+        )
+
+    def test_claude_error_nested_and_non_string_results_do_not_recover(self) -> None:
+        values = (
+            {"type": "result", "subtype": "error_max_turns", "result": "private"},
+            {"type": "result", "subtype": "success", "is_error": True, "result": "private"},
+            {"type": "result", "subtype": "future_success", "result": "private"},
+            {
+                "type": "result", "subtype": "success", "is_error": False,
+                "parent_tool_use_id": "nested", "result": "private",
+            },
+            {"type": "result", "subtype": "success", "result": ["not", "text"]},
+            {"type": "result", "subtype": "success", "result": "   "},
+        )
+        for value in values:
+            with self.subTest(value=value):
+                events = ProviderEventDecoder("claude").feed(self._jsonl(value))
+                self.assertFalse(any(event["kind"] == "message_delta" for event in events))
+                self.assertNotIn("private", json.dumps(events))
+
+    def test_claude_duplicate_result_records_recover_once(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        record = {
+            "type": "result", "subtype": "", "is_error": False,
+            "result": "answer",
+        }
+        events = decoder.feed(self._jsonl(record, record))
+        self.assertEqual(1, sum(event["kind"] == "message_delta" for event in events))
+        self.assertEqual(1, sum(
+            event["kind"] == "progress"
+            and event["payload"].get("phase") == "terminal_result_recovered"
+            for event in events
+        ))
+
+    def test_claude_suspected_mixed_loss_is_marked_partial(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "short"},
+                },
+            },
+            {
+                "type": "result", "subtype": "success", "is_error": False,
+                "result": "x" * 600,
+            },
+        ))
+        warnings = [event for event in events if event["kind"] == "warning"]
+        self.assertEqual("suspected_response_loss", warnings[0]["payload"]["subtype"])
+        self.assertNotIn("x" * 600, json.dumps(events))
+
+    def test_claude_nested_error_result_is_ignored_entirely(self) -> None:
+        events = ProviderEventDecoder("claude").feed(self._jsonl({
+            "type": "result", "parent_tool_use_id": "nested",
+            "subtype": "error_max_turns", "is_error": True,
+            "result": "private", "usage": {"output_tokens": 2},
+        }))
+        self.assertEqual([], events)
 
     def test_claude_waiting_uses_stream_thinking_not_token_estimates(self) -> None:
         decoder = ProviderEventDecoder("claude")

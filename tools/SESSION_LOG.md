@@ -1,5 +1,75 @@
 # Session Log
 
+## 2026-08-10 - Phase 2C Claude answer-loss recovery
+
+Branch: `feat/thin-agent-job-harness`
+
+- Reproduced the Phase 2B follow-up loss from retained job
+  `bc83c5fe-06cf-4dde-b1a0-f03cf7ee1c55`: Claude produced 4,752 characters
+  of top-level answer text in an assistant snapshot, but the normalizer emitted
+  none because two one-block snapshot records collided on an inferred block
+  index. The terminal result contained the same complete answer.
+- Opus architecture consultation `04e0f787-0463-48ca-997d-7f1017cc2cd1`
+  challenged the initial result-only diagnosis and returned `REVISE`. The fix
+  now treats snapshots as ordered records per message and reconciles them with
+  accumulated stream prefixes, rather than guessing provider block indices.
+- Added a second-layer terminal safety net. A non-error, top-level, string
+  `result.result` is emitted once only when the job has emitted zero top-level
+  answer characters. Recovery is visible through a counts-only
+  `terminal_result_recovered` marker; nested results, error subtypes, unknown
+  subtypes, non-string values, and duplicate result records fail closed.
+- Preserved private Claude stdout and subagent isolation. Error result prose,
+  nested answer text, tool inputs/results, and thinking signatures do not enter
+  semantic events. A count-only warning identifies suspicious mixed cases where
+  a terminal result is much larger than already emitted answer text without
+  appending or exposing the result.
+- Added pure decoder regressions for the exact production collision, partial
+  stream-prefix completion, no-duplication, one-shot recovery, error/nested
+  suppression, and schema drift. Added supervisor fixtures proving complete
+  retained partials, private stdout, dormant fallback after snapshot recovery,
+  and no partial on error results.
+- Replayed all nine retained successful native Claude jobs with terminal
+  results. Every result appears exactly once in reconstructed answer text; the
+  4,752-character incident is recovered by snapshot logic and no retained job
+  needed terminal fallback.
+- Verification before review: all 159 repository tests passed in 53.695 seconds;
+  `py_compile` and `git diff --check` passed. Pre-existing follow-up: a late
+  assistant snapshot can re-emit a completed tool start after its tool result
+  has removed the active tool ID; this phase does not redesign tool lifecycle.
+- Primary Opus code review `ec39605b-9fdc-4cd7-8d0a-90a76ab37e96`
+  returned `DO NOT SHIP` after reproducing two introduced duplication risks:
+  stream/snapshot message-ID divergence bypassed prefix reconciliation, and the
+  first ordinal key could never recognize an identical repeated snapshot. Prefix
+  reconciliation is now message-ID independent within the current stream turn,
+  and adjacent identical snapshot records reuse a stable content identity.
+- Review remediation also caps tracked stream blocks, ignores nested result
+  records before any state mutation, and promotes suspected mixed answer loss to
+  an explicit partial result. The generic delegation client prints that warning
+  on stderr while keeping omitted terminal text private. Focused decoder,
+  supervisor, and delegate tests cover each path.
+- Post-remediation replay across ten retained successful Claude jobs reconstructs
+  each terminal result exactly once. The production incident still recovers all
+  4,752 characters through snapshot logic, with no terminal fallback marker.
+- Post-remediation verification: all 166 repository tests passed in 54.856
+  seconds; `py_compile` and `git diff --check` passed.
+- Targeted Opus follow-up `91b6289d-cd1b-4a14-b378-a605a0926b74`
+  returned `SHIP`, confirming findings 1-4 and 6-7 resolved with no new blocker.
+  It replayed eleven retained native Claude jobs and found each successful
+  terminal result exactly once. Its non-blocking test-isolation and bounds-doc
+  notes were also applied.
+- Final verification passed all 166 tests in 55.473 seconds with inherited
+  `AGENT_JOB_DEPTH=1`; `py_compile` and `git diff --check` passed. This confirms
+  delegate tests now isolate their recursion-depth environment.
+- Deployed `com.atum.agent-job-supervisor` only after the machine-wide running
+  and queued lists were empty. The service is healthy at PID 42438 and all
+  shared Claude/Kimi client bindings are current. Live Opus smoke
+  `a15aa012-8336-4b05-9d96-e16dd12dfb23` returned exactly
+  `PHASE2C_SMOKE_OK`, kept stdout private, and completed with
+  `partial_result_state=complete`.
+
+Next: observe terminal recovery markers and suspected mixed-loss warnings during
+normal use; investigate only if either becomes recurrent.
+
 ## 2026-08-10 - Phase 2B native Kimi semantic streaming
 
 Branch: `feat/thin-agent-job-harness`
