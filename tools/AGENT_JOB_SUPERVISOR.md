@@ -33,8 +33,8 @@ not the active registration after profile migration.
 3. A machine-wide provider queue atomically claims the job as `launching`, then
    launches it once in a new process group.
 4. Output is appended to a cursor log and to separate raw stdout/stderr files.
-   Native Codex JSONL is also normalized into a bounded event journal before the
-   human-readable log prefix is added.
+   Native Codex and Claude JSONL is also normalized into a bounded event journal
+   before the human-readable log prefix is added.
 5. `read` reports lifecycle state, semantic activity, new output, normalized
    events, silence duration, and terminal output. A bounded wait is held
    server-side and wakes without repeated client sockets.
@@ -49,6 +49,9 @@ not the active registration after profile migration.
 Silence does not automatically kill a job. `lifecycle_status` is the persisted
 authority; `activity` reports `starting`, `streaming`, `reasoning`,
 `tool_running:<name>`, `waiting_on_provider`, `idle_unknown`, or `terminal`.
+`open_tool_count` reports concurrent top-level tools while `open_tool` remains
+the oldest tool name. Provider-declared waiting is bounded by the same soft
+silence threshold and becomes `idle_unknown` if no further progress arrives.
 For compatibility, `status` can still report `possibly_stalled` while the
 persisted lifecycle remains `running`. Only cancellation or the submit-relative
 hard deadline terminates work. Time spent queued counts against that deadline.
@@ -96,15 +99,26 @@ privilege boundary against other processes running as the same macOS user.
 The daemon scopes provider API credentials at process launch from its environment
 or `AGENT_JOB_PROFILE_ENV`; it never stores credential values in SQLite.
 
-Native Codex jobs produce schema-v1 records in `<job>.log.events.jsonl` and
-assemble assistant message events into `<job>.log.partial.txt`. Reads advance
-the normalized stream with the opaque byte `event_cursor`. On terminal failure,
-cancellation, or interruption, `partial_response` and `partial_result_state`
-make retained work recoverable. Existing callers that omit `event_cursor` keep
-their prior log-only behavior. Claude and Kimi continue using output-byte
-liveness in Phase 1; their structured adapters are a later phase. Partial states
-are `complete`, `partial`, `truncated`, `none`, or `unavailable`; the last value
-means the provider does not yet have a semantic response adapter.
+Native Codex and Claude jobs produce schema-v1 records in
+`<job>.log.events.jsonl` and assemble assistant message events into
+`<job>.log.partial.txt`. Claude runs with `stream-json`, partial messages,
+verbose events, and session persistence disabled. Its partial response is all
+top-level assistant-visible text in order; terminal `result.result` and
+subagent events are not appended. Tool arguments, tool-result content, thinking
+signatures, machine inventories, and account utilization stay out of the
+normalized journal. Malformed Claude records retain only byte count and digest.
+Raw bounded logs remain private operational evidence under the user-only state
+directory and are not returned through normal semantic job reads.
+
+Reads advance the normalized stream with the opaque byte `event_cursor`. On
+terminal failure, cancellation, or interruption, `partial_response` and
+`partial_result_state` make retained work recoverable. Existing callers that
+omit `event_cursor` keep their prior log-only behavior for non-semantic
+providers; native Claude callers consume events and `partial_response` rather
+than raw stream JSON. Kimi continues using
+output-byte liveness until it gains a structured adapter. Partial states are
+`complete`, `partial`, `truncated`, `none`, or `unavailable`; the last value
+means the selected provider/backend does not have a semantic response adapter.
 
 ## Failure Semantics
 
@@ -139,6 +153,8 @@ and reports an oversized or corrupt record while advancing its cursor, so damage
 journal data cannot wedge later reads. `journal_truncated` remains set after the
 journal reaches its byte budget. A normalization/storage failure disables
 semantic decoding for that job but raw stdout drainage and capture continue.
+Native Claude stdout is retained only in the mode-`0600` raw file for local
+diagnostics; ordinary reads do not expose it or mirror it into the combined log.
 
 ## Verification
 

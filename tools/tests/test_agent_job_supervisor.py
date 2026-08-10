@@ -63,6 +63,46 @@ time.sleep(30)
 print(json.dumps({"type": "future.event", "value": 1}), flush=True)
 time.sleep(30)
 """
+    elif prompt == "claude-events":
+        script = """import json, time
+events = [
+    {"type": "system", "subtype": "init", "model": "claude-opus-5", "claude_code_version": "test"},
+    {"type": "system", "subtype": "status", "status": "requesting"},
+    {"type": "stream_event", "event": {"type": "message_start", "message": {"model": "claude-opus-5"}}},
+    {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "partial "}}},
+    {"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "answer"}}},
+    {"type": "assistant", "message": {"content": [{"type": "text", "text": "partial answer"}]}},
+    {"type": "stream_event", "event": {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}}},
+    {"type": "result", "subtype": "success", "is_error": False, "result": "partial answer", "usage": {"output_tokens": 2}},
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+    time.sleep(.05)
+"""
+    elif prompt == "claude-partial-slow":
+        script = """import json, time
+print(json.dumps({"type": "stream_event", "event": {"type": "message_start", "message": {"model": "claude-opus-5"}}}), flush=True)
+print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "recover opus"}}}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "claude-tool-slow":
+        script = """import json, time
+print(json.dumps({"type": "stream_event", "event": {"type": "message_start", "message": {"model": "claude-opus-5"}}}), flush=True)
+print(json.dumps({"type": "stream_event", "event": {"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "tool-1", "name": "Read", "input": {}}}}), flush=True)
+print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "secret-input"}}}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "claude-waiting-slow":
+        script = """import json, time
+print(json.dumps({"type": "system", "subtype": "status", "status": "requesting"}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "claude-error-zero":
+        script = """import json
+print(json.dumps({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m"}}}), flush=True)
+print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "unfinished"}}}), flush=True)
+print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True}), flush=True)
+"""
     else:
         script = "print('unknown', flush=True)"
     return [sys.executable, "-u", "-c", script], None, os.environ.copy()
@@ -148,7 +188,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.fail(f"Job {job_id} did not reach {statuses}")
 
     async def test_completion_and_cursor_reads(self) -> None:
-        submitted = await self.call(self.spec("complete"))
+        spec = self.spec("complete")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         result = await self.wait_for(str(submitted["job_id"]), {"completed"})
         self.assertIn("first", result["output"])
         self.assertEqual("first\nsecond\n", result["stdout"])
@@ -184,7 +226,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([], acknowledged["deliveries"])
 
     async def test_server_side_wait_wakes_on_terminal_transition(self) -> None:
-        submitted = await self.call(self.spec("slow"))
+        spec = self.spec("slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         current = await self.call({
             "action": "read", "job_id": submitted["job_id"], "max_bytes": 64_000,
@@ -199,7 +243,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("cancelled", result["job"]["status"])
 
     async def test_server_side_wait_wakes_on_new_output(self) -> None:
-        submitted = await self.call(self.spec("delayed"))
+        spec = self.spec("delayed")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         current = await self.call({"action": "read", "job_id": submitted["job_id"]})
         result = await self.call({
@@ -210,7 +256,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(str(submitted["job_id"]), {"completed"})
 
     async def test_server_side_wait_wakes_on_output_inside_timestamp_throttle(self) -> None:
-        submitted = await self.call(self.spec("rapid-output"))
+        spec = self.spec("rapid-output")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         for _ in range(100):
             current = await self.call({"action": "read", "job_id": submitted["job_id"]})
@@ -228,7 +276,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(str(submitted["job_id"]), {"cancelled"})
 
     async def test_concurrent_waiters_share_transition_notification(self) -> None:
-        submitted = await self.call(self.spec("slow"))
+        spec = self.spec("slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         for _ in range(100):
             current = await self.call({"action": "read", "job_id": submitted["job_id"]})
@@ -274,8 +324,17 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("cancelled", result["job"]["failure_kind"])
 
     async def test_quiet_running_job_is_classified_as_possibly_stalled(self) -> None:
-        submitted = await self.call(self.spec("slow"))
+        spec = self.spec("slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
+        for _ in range(100):
+            current = await self.call({"action": "read", "job_id": submitted["job_id"]})
+            if "started" in current["output"]:
+                break
+            await asyncio.sleep(.01)
+        else:
+            self.fail("quiet fixture did not emit its initial output")
         self.supervisor.store.update(
             str(submitted["job_id"]), last_output_at=time.time() - 31, soft_stall_seconds=30
         )
@@ -410,9 +469,156 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(job_id, self.supervisor.event_sequences)
 
     async def test_completed_nonsemantic_provider_reports_partial_unavailable(self) -> None:
-        submitted = await self.call(self.spec("complete"))
+        spec = self.spec("complete")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         result = await self.wait_for(str(submitted["job_id"]), {"completed"})
         self.assertEqual("unavailable", result["partial_result_state"])
+
+    async def test_claude_events_stream_once_and_reconstruct_result(self) -> None:
+        submitted = await self.call(self.spec("claude-events"))
+        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        kinds = [event["kind"] for event in result["events"]]
+        self.assertIn("waiting", kinds)
+        self.assertIn("turn_started", kinds)
+        self.assertIn("message_delta", kinds)
+        self.assertIn("usage", kinds)
+        self.assertEqual(2, kinds.count("message_delta"))
+        self.assertEqual("partial answer", result["partial_response"])
+        self.assertEqual("complete", result["partial_result_state"])
+
+    async def test_cancelled_claude_job_retains_partial_response(self) -> None:
+        submitted = await self.call(self.spec("claude-partial-slow"))
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            current = await self.call({
+                "action": "read", "job_id": job_id, "event_cursor": 0,
+            })
+            if current["job"]["has_partial_response"]:
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Claude fixture did not produce its partial response")
+
+        await self.call({"action": "cancel", "job_id": job_id})
+        result = await self.wait_for(job_id, {"cancelled"})
+
+        self.assertEqual("recover opus", result["partial_response"])
+        self.assertEqual("partial", result["partial_result_state"])
+
+    async def test_claude_tool_activity_omits_input_content(self) -> None:
+        submitted = await self.call(self.spec("claude-tool-slow"))
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            current = await self.call({
+                "action": "read", "job_id": job_id, "event_cursor": 0,
+            })
+            if current["job"]["activity"] == "tool_running:Read":
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Claude fixture did not expose tool activity")
+
+        self.assertEqual("running", current["job"]["status"])
+        self.assertNotIn("secret-input", json.dumps(current["events"]))
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
+
+    async def test_claude_declared_wait_escalates_after_soft_stall_threshold(self) -> None:
+        submitted = await self.call(self.spec("claude-waiting-slow"))
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            current = await self.call({"action": "read", "job_id": job_id})
+            if current["job"].get("last_event_kind") == "waiting":
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Claude fixture did not declare a wait")
+        self.supervisor.event_summaries[job_id]["last_progress_at"] = time.time() - 600
+
+        current = await self.call({"action": "read", "job_id": job_id})
+
+        self.assertEqual("possibly_stalled", current["job"]["status"])
+        self.assertEqual("idle_unknown", current["job"]["activity"])
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
+
+    async def test_unmatched_tool_finish_clears_sticky_activity(self) -> None:
+        submitted = await self.call(self.spec("slow"))
+        job_id = str(submitted["job_id"])
+        await self.wait_for(job_id, {"running"})
+        self.supervisor._record_event(job_id, "tool_started", {"id": "a", "name": "Read"})
+
+        self.supervisor._record_event(job_id, "tool_finished", {"id": "missing", "name": "Read"})
+        current = await self.call({"action": "read", "job_id": job_id})
+
+        self.assertEqual("", current["job"]["open_tool"])
+        self.assertEqual(0, current["job"]["open_tool_count"])
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
+
+    async def test_claude_error_result_marks_retained_text_partial(self) -> None:
+        submitted = await self.call(self.spec("claude-error-zero"))
+        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        self.assertEqual("unfinished", result["partial_response"])
+        self.assertEqual("partial", result["partial_result_state"])
+        self.assertEqual(1, result["job"]["provider_result_error"])
+
+    async def test_claude_raw_structured_stdout_is_not_returned_to_callers(self) -> None:
+        submitted = await self.call(self.spec("claude-events"))
+        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+        job = self.supervisor.store.get(str(submitted["job_id"]))
+
+        self.assertEqual("", result["output"])
+        self.assertEqual("", result["stdout"])
+        self.assertIn('"type": "result"', Path(f"{job['log_path']}.stdout").read_text())
+
+    async def test_claude_normalization_failure_restores_raw_output_recovery(self) -> None:
+        original = self.supervisor._record_event
+
+        def fail_progress(job_id, kind, payload=None, *, force=False):
+            if kind == "progress":
+                raise OSError("injected Claude normalization failure")
+            return original(job_id, kind, payload, force=force)
+
+        with patch.object(self.supervisor, "_record_event", side_effect=fail_progress):
+            submitted = await self.call(self.spec("claude-events"))
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        self.assertEqual(1, result["job"]["semantic_normalization_failed"])
+        self.assertIn('"type": "result"', result["stdout"])
+        self.assertEqual("unavailable", result["partial_result_state"])
+        self.assertIn("Semantic event normalization disabled", result["stderr"])
+
+    async def test_concurrent_claude_tools_keep_oldest_open_until_it_finishes(self) -> None:
+        submitted = await self.call(self.spec("slow"))
+        job_id = str(submitted["job_id"])
+        await self.wait_for(job_id, {"running"})
+
+        self.supervisor._record_event(job_id, "tool_started", {"id": "a", "name": "Glob"})
+        first_since = self.supervisor.event_summaries[job_id]["open_tool_since"]
+        await asyncio.sleep(.01)
+        self.supervisor._record_event(job_id, "tool_started", {"id": "b", "name": "Read"})
+        current = await self.call({"action": "read", "job_id": job_id})
+        self.assertEqual("tool_running:Glob", current["job"]["activity"])
+        self.assertEqual(2, current["job"]["open_tool_count"])
+        self.assertEqual(first_since, current["job"]["open_tool_since"])
+
+        self.supervisor._record_event(job_id, "tool_finished", {"id": "b", "name": "Read"})
+        current = await self.call({"action": "read", "job_id": job_id})
+        self.assertEqual("tool_running:Glob", current["job"]["activity"])
+        self.assertEqual(first_since, current["job"]["open_tool_since"])
+
+        self.supervisor._record_event(job_id, "tool_finished", {"id": "a", "name": "Glob"})
+        current = await self.call({"action": "read", "job_id": job_id})
+        self.assertEqual("", current["job"]["open_tool"])
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
 
     async def test_partial_response_cap_is_reported_as_truncated(self) -> None:
         with patch.object(supervisor_module, "MAX_PARTIAL_RESPONSE_BYTES", 5):
@@ -571,6 +777,7 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.supervisor.store.update(
             str(stalled["job_id"]), last_output_at=time.time() - 31, soft_stall_seconds=30
         )
+        self.supervisor.event_summaries[str(stalled["job_id"])]["last_progress_at"] = time.time() - 31
         active = await self.call(self.spec("slow"))
         await self.wait_for(str(active["job_id"]), {"running"})
         result = await self.call({"action": "list", "status": "possibly_stalled", "limit": 1})
@@ -801,6 +1008,10 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("MOONSHOT_API_KEY", env)
             self.assertEqual("review", stdin_text)
             self.assertIn("--safe-mode", argv)
+            self.assertIn("stream-json", argv)
+            self.assertIn("--include-partial-messages", argv)
+            self.assertIn("--verbose", argv)
+            self.assertIn("--no-session-persistence", argv)
             self.assertIn("--max-turns", argv)
             base["max_turns"] = 0
             argv, _, _ = self.supervisor._build_command(base)

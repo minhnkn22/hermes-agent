@@ -19,6 +19,10 @@ from agent_job_events import (  # noqa: E402
 
 
 class ProviderEventDecoderTest(unittest.TestCase):
+    @staticmethod
+    def _jsonl(*values: dict[str, object]) -> bytes:
+        return "".join(json.dumps(value) + "\n" for value in values).encode()
+
     def test_codex_json_split_across_chunks_yields_one_event(self) -> None:
         decoder = ProviderEventDecoder("codex")
         line = json.dumps({
@@ -113,6 +117,371 @@ class ProviderEventDecoderTest(unittest.TestCase):
         decoder.feed(b'{"type":"turn.started"')
         events = decoder.feed(b"}", final=True)
         self.assertEqual("turn_started", events[0]["kind"])
+
+    def test_claude_stream_deltas_are_not_duplicated_by_snapshots_or_result(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"model": "claude-opus-5"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "hello "},
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "world"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"content": [{"type": "text", "text": "hello world"}]},
+            },
+            {
+                "type": "result", "subtype": "success", "is_error": False,
+                "result": "hello world", "usage": {"output_tokens": 2},
+            },
+        ))
+
+        text = "".join(
+            event["payload"]["text"] for event in events if event["kind"] == "message_delta"
+        )
+        self.assertEqual("hello world", text)
+        self.assertEqual(1, sum(event["kind"] == "usage" for event in events))
+
+    def test_claude_tool_events_omit_inputs_results_and_signatures(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start", "index": 1,
+                    "content_block": {
+                        "type": "tool_use", "id": "tool-1", "name": "Read", "input": {},
+                    },
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 1,
+                    "delta": {"type": "input_json_delta", "partial_json": "secret-input"},
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "signature_delta", "signature": "secret-signature"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"content": [{
+                    "type": "tool_use", "id": "tool-1", "name": "Read",
+                    "input": {"file_path": "secret-path"},
+                }]},
+            },
+            {
+                "type": "user",
+                "message": {"content": [{
+                    "type": "tool_result", "tool_use_id": "tool-1",
+                    "content": "secret-result",
+                }]},
+                "tool_use_result": {"content": "secret-outer-result"},
+            },
+        ))
+
+        self.assertEqual(
+            ["tool_started", "progress", "tool_finished"],
+            [event["kind"] for event in events],
+        )
+        serialized = json.dumps(events)
+        self.assertNotIn("secret", serialized)
+        self.assertEqual(len("secret-input"), events[1]["payload"]["input_bytes"])
+        self.assertEqual(len("secret-result"), events[-1]["payload"]["content_bytes"])
+        self.assertEqual("Read", events[-1]["payload"]["name"])
+
+    def test_claude_result_never_duplicates_or_substitutes_stream_text(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl({
+            "type": "result", "subtype": "success", "is_error": False,
+            "result": "fallback answer",
+        }))
+        self.assertEqual(["progress"], [event["kind"] for event in events])
+        self.assertNotIn("fallback answer", json.dumps(events))
+
+    def test_claude_waiting_uses_stream_thinking_not_token_estimates(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {"type": "system", "subtype": "status", "status": "requesting"},
+            {
+                "type": "system", "subtype": "thinking_tokens",
+                "estimated_tokens": 100, "estimated_tokens_delta": 50,
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": None,
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "working"},
+                },
+            },
+        ))
+        self.assertEqual(["waiting", "thinking_delta"], [event["kind"] for event in events])
+        self.assertNotIn("estimated_tokens", json.dumps(events))
+
+    def test_claude_assistant_snapshot_fills_only_unstreamed_block(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "msg-1"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start", "index": 0,
+                    "content_block": {"type": "thinking"},
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start", "index": 1,
+                    "content_block": {"type": "text"},
+                },
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": "already streamed"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "msg-1", "content": [{
+                    "type": "thinking", "thinking": "already streamed",
+                }]},
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "msg-1", "content": [{"type": "text", "text": "recovered"}]},
+            },
+        ))
+        self.assertEqual("recovered", events[-1]["payload"]["text"])
+        self.assertEqual(1, sum(event["kind"] == "thinking_delta" for event in events))
+
+    def test_claude_same_type_snapshot_recovers_later_unstreamed_block(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "msg-2"}},
+            },
+            *(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_start", "index": index,
+                        "content_block": {"type": "text"},
+                    },
+                }
+                for index in (0, 1)
+            ),
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "first"},
+                },
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "msg-2", "content": [{"type": "text", "text": "first"}]},
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "msg-2", "content": [{"type": "text", "text": "second"}]},
+            },
+        ))
+        text = "".join(
+            event["payload"]["text"] for event in events if event["kind"] == "message_delta"
+        )
+        self.assertEqual("firstsecond", text)
+
+    def test_claude_concurrent_tools_finish_out_of_order_with_names(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            *(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_start", "index": index,
+                        "content_block": {"type": "tool_use", "id": tool_id, "name": name},
+                    },
+                }
+                for index, tool_id, name in ((0, "a", "Glob"), (1, "b", "Read"))
+            ),
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "b", "content": "x"}]},
+            },
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "a", "content": "yy"}]},
+            },
+        ))
+        finished = [event["payload"] for event in events if event["kind"] == "tool_finished"]
+        self.assertEqual(["Read", "Glob"], [event["name"] for event in finished])
+        self.assertEqual([1, 2], [event["content_bytes"] for event in finished])
+
+    def test_claude_subagent_records_do_not_change_parent_state_or_emit(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {"type": "message_start", "message": {"id": "parent"}},
+            },
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "parent"},
+                },
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": "parent-tool",
+                "event": {"type": "message_start", "message": {"id": "child"}},
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": "parent-tool",
+                "event": {
+                    "type": "content_block_start", "index": 0,
+                    "content_block": {"type": "tool_use", "id": "sub-tool", "name": "PrivateTool"},
+                },
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": "parent-tool",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "text_delta", "text": "private subagent text"},
+                },
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": "parent-tool",
+                "event": {
+                    "type": "content_block_delta", "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": "private-input"},
+                },
+            },
+            {
+                "type": "stream_event", "parent_tool_use_id": "parent-tool",
+                "event": {
+                    "type": "message_delta", "usage": {"output_tokens": 99},
+                    "delta": {"stop_reason": "tool_use"},
+                },
+            },
+            {
+                "type": "assistant", "parent_tool_use_id": "parent-tool",
+                "message": {"content": [{"type": "text", "text": "private snapshot"}]},
+            },
+            {
+                "type": "user", "parent_tool_use_id": "parent-tool",
+                "message": {"content": [{
+                    "type": "tool_result", "tool_use_id": "sub-tool", "content": "private-result",
+                }]},
+            },
+            {
+                "type": "assistant",
+                "message": {"id": "parent", "content": [{"type": "text", "text": "parent"}]},
+            },
+        ))
+        self.assertEqual(["turn_started", "message_delta"], [event["kind"] for event in events])
+        self.assertEqual("parent", events[-1]["payload"]["text"])
+        self.assertNotIn("private", json.dumps(events))
+
+    def test_claude_parse_error_hashes_raw_content(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(b'{"tool_result":"secret-content"\n')
+        self.assertEqual("parse_error", events[0]["kind"])
+        self.assertNotIn("secret", json.dumps(events))
+        self.assertGreater(events[0]["payload"]["raw_bytes"], 0)
+        self.assertEqual(64, len(events[0]["payload"]["raw_sha256"]))
+
+    def test_claude_input_deltas_coalesce_without_content(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start", "index": 2,
+                    "content_block": {"type": "tool_use", "id": "tool-2", "name": "Write"},
+                },
+            },
+            *(
+                {
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_delta", "index": 2,
+                        "delta": {"type": "input_json_delta", "partial_json": "secret"},
+                    },
+                }
+                for _ in range(20)
+            ),
+        ))
+        progress = [event for event in events if event["kind"] == "progress"]
+        self.assertEqual(1, len(progress))
+        self.assertEqual(120, progress[0]["payload"]["input_bytes"])
+        self.assertNotIn("secret", json.dumps(events))
+
+    def test_claude_error_result_preserves_reason_without_text(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl({
+            "type": "result", "subtype": "error_max_turns", "is_error": True,
+            "usage": {"output_tokens": 10},
+        }))
+        self.assertEqual(["usage", "warning"], [event["kind"] for event in events])
+        self.assertEqual("error_max_turns", events[-1]["payload"]["subtype"])
+        self.assertTrue(all(event["kind"] != "message_delta" for event in events))
+
+    def test_claude_permission_denials_keep_names_not_inputs(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl({
+            "type": "result", "subtype": "success", "is_error": False,
+            "permission_denials": [{
+                "tool_name": "Bash", "tool_input": {"command": "secret-command"},
+            }],
+        }))
+        self.assertEqual("warning", events[0]["kind"])
+        self.assertEqual(["Bash"], events[0]["payload"]["tools"])
+        self.assertNotIn("secret", json.dumps(events))
+
+    def test_claude_init_whitelists_counts_not_machine_inventory(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl({
+            "type": "system", "subtype": "init", "model": "opus",
+            "tools": [{"name": "secret-tool"}], "skills": ["secret-skill"],
+            "agents": ["secret-agent"], "mcp_servers": [{"name": "private"}],
+        }))
+        self.assertEqual(1, events[0]["payload"]["tool_count"])
+        self.assertEqual(1, events[0]["payload"]["mcp_server_count"])
+        self.assertNotIn("secret", json.dumps(events))
+
+    def test_unknown_claude_record_retains_only_bounded_metadata(self) -> None:
+        decoder = ProviderEventDecoder("claude")
+        events = decoder.feed(self._jsonl({
+            "type": "future_private_event", "subtype": "new",
+            "content": "secret-content", "session_id": "secret-session",
+        }))
+        self.assertEqual("progress", events[0]["kind"])
+        self.assertNotIn("secret", json.dumps(events))
 
 
 if __name__ == "__main__":

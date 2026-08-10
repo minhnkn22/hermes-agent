@@ -58,6 +58,18 @@ The caller must inspect the retained result before acknowledgement. MCP cannot
 proactively inject a result into a suspended model turn, so clients check their
 owner inbox on resume or use a host/app notification layer as an external wakeup.
 
+Native Codex and Claude jobs expose provider-neutral semantic events through
+`event_cursor`. Native Claude uses its structured stream, so clients can show
+reasoning, provider waits, concurrent tool activity, incremental answer text,
+usage, and terminal warnings without parsing the raw log. A failed, cancelled,
+or interrupted Claude run retains all top-level assistant-visible text emitted
+before termination in `partial_response`. Treat that field as an ordered work
+artifact, not necessarily a polished final answer. Native Claude raw stream JSON
+is deliberately not returned as `output`/`stdout`; preserve and advance the
+event cursor. Kimi and CAO compatibility
+jobs retain output-byte observation until their transports expose equivalent
+structured events.
+
 ## CAO Compatibility Backend
 
 The supervisor preserves its existing lifecycle contract while delegating

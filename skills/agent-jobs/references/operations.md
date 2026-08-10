@@ -38,18 +38,26 @@ holds one bounded socket request and wakes on output, liveness, or terminal stat
 
 Treat `job.lifecycle_status` as authoritative and `job.activity` as the current
 semantic observation. `tool_running:<name>` means a quiet provider still has an
-open tool and must not be classified as stalled. `idle_unknown` means the process
+open top-level tool; `open_tool_count` reports concurrent tools without changing
+the name contract. `idle_unknown` means the process
 is alive but has produced no semantic progress past the soft threshold. Terminal
 reads include `partial_response` plus `partial_result_state` (`complete`,
 `partial`, `truncated`, `none`, or `unavailable`), so inspect retained output
-before retrying a failed or cancelled run. `unavailable` means that provider does
-not yet expose a semantic response artifact; use the retained raw output instead.
+before retrying a failed or cancelled run. For native Claude, the partial
+response is all top-level assistant-visible text emitted in order and may stop
+mid-answer; it deliberately excludes subagent text and the duplicate terminal
+result. Its raw stream JSON is not returned to ordinary callers, so retain and
+advance `event_cursor`. `unavailable` means that provider/backend does not expose a semantic
+response artifact; use the retained raw output instead.
 `journal_truncated=true` means normalized events reached their independent byte
 budget even though raw output capture may have continued.
 
-In Phase 1, detailed semantic activity is available only for native Codex jobs.
-Claude and Kimi still use output-byte liveness, so `waiting_on_provider` means
-"active with no structured adapter" rather than a provider-declared wait state.
+Detailed semantic activity is available for native Codex and Claude jobs.
+Claude provider waits and concurrent open tools are explicit. A provider wait
+that exceeds the soft threshold becomes `idle_unknown`; it never hides a hung
+request until the hard deadline. Kimi and CAO
+compatibility jobs still use output-byte liveness, so their
+`waiting_on_provider` state does not carry the same structured evidence.
 
 Statuses:
 

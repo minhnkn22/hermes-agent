@@ -1,5 +1,72 @@
 # Session Log
 
+## 2026-08-10 - Phase 2A native Claude semantic streaming
+
+Branch: `feat/thin-agent-job-harness`
+
+- Switched native Claude jobs to `stream-json` with partial messages, verbose
+  events, and `--no-session-persistence`. This makes Codex-to-Claude work
+  incrementally observable without leaving full delegated prompts in Claude's
+  project-session history.
+- Added provider-neutral normalization for top-level thinking and answer deltas,
+  provider waits, usage, terminal errors, and concurrent tool boundaries.
+  Assistant snapshots only recover unstreamed blocks, and terminal result text
+  never duplicates the partial response.
+- Kept tool arguments, result contents, thinking signatures, machine
+  inventories, account utilization, and subagent text out of the semantic
+  journal. Long tool-input streams produce content-free byte-count heartbeats.
+- Replaced the scalar open-tool clock with a bounded per-job tool map. The public
+  activity reports the oldest open tool and count until that exact tool closes,
+  including out-of-order concurrent completion.
+- Defined native Claude `partial_response` as all top-level assistant-visible
+  text in order. Failed, cancelled, and interrupted jobs retain emitted work;
+  Kimi and CAO compatibility execution remain on output-byte observation.
+- Architecture consultation job `1874f688-f2e8-4710-9471-1d210977ff5b`
+  returned `REVISE -> PROCEED`; its concurrency, deduplication, privacy,
+  coalescing, and recovery requirements were incorporated.
+- Primary Opus code review job `ab601681-c508-4eb3-9c17-11fea69383b7`
+  returned `DO NOT SHIP`. It reproduced subagent state corruption/journal
+  leakage, unmatched tool completion leaving sticky activity, unbounded provider
+  waits, malformed-line content exposure, and incorrect error completeness.
+- Remediation now drops every nested subagent stream/user/snapshot record before
+  state mutation, clears uncertain tool state instead of suppressing stalls,
+  escalates stale waits, hashes malformed Claude lines, and persists both
+  provider-result and normalization-failure state. Native Claude raw JSON stays
+  in the private file and becomes caller-readable only if semantic decoding
+  fails; normal reads use events and partial responses.
+- Concurrent tool count is now separate from the oldest tool name, capacity
+  bounds preserve the oldest activity clock, and same-type snapshot fallback is
+  covered explicitly.
+- Final pre-follow-up verification: all 134 repository tests passed in 48.032
+  seconds; 22 pure decoder tests and the focused Claude supervisor tests passed.
+  `py_compile` and `git diff --check` passed. One earlier full run exposed the
+  pre-existing cancellation/output timing race; its focused test passed five
+  consecutive runs and the final full suite passed.
+- Targeted Opus follow-up job `5d9228e2-cfa9-4e50-8458-65e681e75655`
+  verified findings 1-12 as resolved or acceptably conservative, then returned
+  `DO NOT SHIP` for one new integration blocker: legacy synchronous sidecar and
+  delegation consumers still assembled Claude answers from raw stdout.
+- Updated the retained rollback sidecar to preserve an event cursor and prefer
+  terminal `partial_response`, updated async reads to expose semantic events,
+  and changed the delegation CLI to stream normalized `message_delta` events
+  with terminal partial recovery. A real temporary supervisor test now proves
+  the synchronous Claude adapter returns semantic text rather than raw JSON or
+  a false truncation marker.
+- Final verification after consumer integration: all 136 repository tests passed
+  in 49.413 seconds. The legacy quiet-job fixture now waits for its initial byte
+  before backdating liveness, removing a race that caused intermittent false
+  failures. `py_compile` and `git diff --check` passed.
+- Deployed `com.atum.agent-job-supervisor` only after all active jobs drained;
+  client configuration checks remained current. Live native Opus smoke job
+  `7c3baee8-cf1f-47c1-8db2-810091aad856` resolved to `claude-opus-5` and exposed
+  initialization, waiting, incremental answer deltas, `Read` activity,
+  content-free tool-input byte counts, tool completion, and usage before exit.
+  It completed zero with raw stdout hidden and `partial_result_state=complete`;
+  the retained text contained `STREAMING_SMOKE_OK` exactly once.
+
+Next: observe journal growth and provider behavior during normal use, then scope
+the Kimi structured adapter as the next provider phase after its quota returns.
+
 ## 2026-08-10 - Phase 1 semantic agent-job observability
 
 Branch: `feat/thin-agent-job-harness`

@@ -56,7 +56,7 @@ TERMINAL_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
 SEMANTIC_PROGRESS_KINDS = {
     "turn_started", "thinking_delta", "message_delta", "tool_started",
     "tool_finished", "progress", "usage", "provider_raw", "parse_error",
-    "warning", "job_started",
+    "warning", "waiting", "job_started",
 }
 SAFE_ENV_KEYS = {
     "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "__CF_USER_TEXT_ENCODING",
@@ -244,8 +244,11 @@ class JobStore:
             "last_progress_at": "REAL",
             "open_tool": "TEXT NOT NULL DEFAULT ''",
             "open_tool_since": "REAL",
+            "open_tool_count": "INTEGER NOT NULL DEFAULT 0",
             "partial_response_bytes": "INTEGER NOT NULL DEFAULT 0",
             "partial_response_truncated": "INTEGER NOT NULL DEFAULT 0",
+            "provider_result_error": "INTEGER NOT NULL DEFAULT 0",
+            "semantic_normalization_failed": "INTEGER NOT NULL DEFAULT 0",
             "journal_truncated": "INTEGER NOT NULL DEFAULT 0",
         }
         for name, definition in migrations.items():
@@ -463,6 +466,7 @@ class Supervisor:
         self.event_summaries: dict[str, dict[str, Any]] = {}
         self.event_truncated: set[str] = set()
         self.normalization_failed: set[str] = set()
+        self.open_tools: dict[str, dict[str, tuple[str, float]]] = {}
         self.provider_limits = {
             "claude": int(os.environ.get("AGENT_JOB_CLAUDE_CONCURRENCY", "2")),
             "kimi": int(os.environ.get("AGENT_JOB_KIMI_CONCURRENCY", "1")),
@@ -512,6 +516,8 @@ class Supervisor:
             argv = [
                 binary, "-p", "--model", model, "--permission-mode", permission,
                 "--allowed-tools", *tools,
+                "--output-format", "stream-json", "--include-partial-messages", "--verbose",
+                "--no-session-persistence",
             ]
             if max_turns > 0:
                 argv.extend(["--max-turns", str(max_turns)])
@@ -552,8 +558,7 @@ class Supervisor:
             output_silence = max(0, int(now - float(output_anchor)))
             result["seconds_without_output"] = output_silence
             semantic_stream = (
-                self._has_semantic_adapter(result)
-                and str(result["job_id"]) not in self.normalization_failed
+                self._semantic_adapter_active(result)
             )
             progress_anchor = result.get("last_progress_at") if semantic_stream else output_anchor
             if progress_anchor is None:
@@ -567,6 +572,12 @@ class Supervisor:
                     result["open_tool_seconds"] = max(
                         0, int(now - float(result["open_tool_since"]))
                     )
+            elif result.get("last_event_kind") == "waiting":
+                if progress_silence < int(result["soft_stall_seconds"]):
+                    result["activity"] = "waiting_on_provider"
+                else:
+                    result["activity"] = "idle_unknown"
+                    result["status"] = "possibly_stalled"
             elif progress_silence >= int(result["soft_stall_seconds"]):
                 result["activity"] = "idle_unknown"
                 # Compatibility alias for existing callers during the transition.
@@ -589,9 +600,19 @@ class Supervisor:
     @staticmethod
     def _has_semantic_adapter(job: dict[str, Any]) -> bool:
         return (
-            job.get("provider") == "codex"
+            job.get("provider") in {"claude", "codex"}
             and job.get("execution_backend", "native") == "native"
         )
+
+    def _semantic_adapter_active(self, job: dict[str, Any]) -> bool:
+        return (
+            self._has_semantic_adapter(job)
+            and not job.get("semantic_normalization_failed")
+            and str(job["job_id"]) not in self.normalization_failed
+        )
+
+    def _private_semantic_stdout(self, job: dict[str, Any]) -> bool:
+        return job.get("provider") == "claude" and self._semantic_adapter_active(job)
 
     def _event_path(self, job: dict[str, Any]) -> Path:
         return Path(f"{job['log_path']}.events.jsonl")
@@ -674,8 +695,10 @@ class Supervisor:
             "last_progress_at": job.get("last_progress_at"),
             "open_tool": str(job.get("open_tool") or ""),
             "open_tool_since": job.get("open_tool_since"),
+            "open_tool_count": int(job.get("open_tool_count") or 0),
             "partial_response_bytes": int(job.get("partial_response_bytes") or 0),
             "partial_response_truncated": int(job.get("partial_response_truncated") or 0),
+            "provider_result_error": int(job.get("provider_result_error") or 0),
             "journal_truncated": int(job.get("journal_truncated") or 0),
         })
         for raw_event_payload in self._split_event_payloads(kind, payload or {}):
@@ -719,12 +742,35 @@ class Supervisor:
             summary["last_event_kind"] = kind
             if kind in SEMANTIC_PROGRESS_KINDS:
                 summary["last_progress_at"] = now
+            if kind == "warning" and event_payload.get("subtype"):
+                summary["provider_result_error"] = 1
             if kind == "tool_started":
-                summary["open_tool"] = str(event_payload.get("name") or "tool")[:200]
-                summary["open_tool_since"] = now
+                tool_id = str(event_payload.get("id") or event_payload.get("name") or "tool")[:200]
+                tools = self.open_tools.setdefault(job_id, {})
+                if tool_id in tools or len(tools) < 256:
+                    tools[tool_id] = (str(event_payload.get("name") or "tool")[:200], now)
+                oldest_name = next(iter(tools.values()))[0]
+                summary["open_tool"] = oldest_name
+                summary["open_tool_count"] = len(tools)
+                summary["open_tool_since"] = min(item[1] for item in tools.values())
             elif kind == "tool_finished":
-                summary["open_tool"] = ""
-                summary["open_tool_since"] = None
+                tools = self.open_tools.get(job_id, {})
+                tool_id = str(
+                    event_payload.get("id") or event_payload.get("name") or "tool"
+                )[:200]
+                if tools and tool_id in tools:
+                    tools.pop(tool_id)
+                elif tools:
+                    tools.clear()
+                if tools:
+                    oldest_name = next(iter(tools.values()))[0]
+                    summary["open_tool"] = oldest_name
+                    summary["open_tool_count"] = len(tools)
+                    summary["open_tool_since"] = min(item[1] for item in tools.values())
+                else:
+                    summary["open_tool"] = ""
+                    summary["open_tool_count"] = 0
+                    summary["open_tool_since"] = None
         self._persist_event_summary(job_id, force=force or kind in {
             "job_started", "tool_started", "tool_finished", "job_terminal",
         })
@@ -758,6 +804,7 @@ class Supervisor:
         self.event_summaries.pop(job_id, None)
         self.event_truncated.discard(job_id)
         self.normalization_failed.discard(job_id)
+        self.open_tools.pop(job_id, None)
 
     async def _append_log(self, job_id: str, stream: str, data: bytes) -> None:
         if not data:
@@ -766,19 +813,22 @@ class Supervisor:
         prefix = f"[{time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} {stream}] ".encode()
         async with lock:
             log_path = self.job_log_paths[job_id]
+            semantic_stdout = (
+                stream == "stdout" and self._private_semantic_stdout(self.store.get(job_id))
+            )
             combined_budget = MAX_JOB_LOG_BYTES // 2
             raw_budget = MAX_JOB_LOG_BYTES - combined_budget
             combined_size = log_path.stat().st_size if log_path.exists() else 0
             combined_remaining = max(0, combined_budget - combined_size)
             truncation_marker = b"\n[output truncated at configured log budget]\n"
-            if combined_remaining:
+            if combined_remaining and not semantic_stdout:
                 combined = prefix + data + (b"" if data.endswith(b"\n") else b"\n")
                 with log_path.open("ab") as handle:
                     if len(combined) > combined_remaining and combined_remaining > len(truncation_marker):
                         handle.write(combined[:combined_remaining - len(truncation_marker)] + truncation_marker)
                     else:
                         handle.write(combined[:combined_remaining])
-            elif combined_size >= combined_budget and log_path.is_file():
+            elif not semantic_stdout and combined_size >= combined_budget and log_path.is_file():
                 with log_path.open("r+b") as handle:
                     handle.seek(max(0, combined_budget - len(truncation_marker)))
                     handle.write(truncation_marker)
@@ -809,6 +859,7 @@ class Supervisor:
             if job_id in self.normalization_failed:
                 return
             self.normalization_failed.add(job_id)
+            self.store.update(job_id, semantic_normalization_failed=1)
             message = f"Semantic event normalization disabled: {type(exc).__name__}: {exc}"
             try:
                 self._record_event(job_id, "warning", {"message": message[:2_000]}, force=True)
@@ -911,8 +962,8 @@ class Supervisor:
                 pid=proc.pid, pgid=proc.pid, binary_path=str(Path(live_first_arg).resolve()),
                 process_start=process_start, prompt="", message="",
             )
-            if job["provider"] == "codex" and job.get("execution_backend", "native") == "native":
-                self.event_decoders[job_id] = ProviderEventDecoder("codex")
+            if self._has_semantic_adapter(job):
+                self.event_decoders[job_id] = ProviderEventDecoder(str(job["provider"]))
             try:
                 self._record_event(job_id, "job_started", {"pid": proc.pid}, force=True)
             except Exception:
@@ -1205,18 +1256,26 @@ class Supervisor:
                 size = stream_path.stat().st_size if stream_path.is_file() else 0
                 stream_cursor = min(stream_cursor, size)
                 data = b""
-                if stream_path.is_file():
+                expose_stream = not (
+                    stream == "stdout" and self._private_semantic_stdout(job)
+                )
+                if stream_path.is_file() and expose_stream:
                     with stream_path.open("rb") as handle:
                         handle.seek(stream_cursor)
                         data = handle.read(max_bytes)
                 result[f"{stream}_output"] = data.decode("utf-8", errors="replace")
-                result[f"{stream}_cursor"] = stream_cursor + len(data)
+                result[f"{stream}_cursor"] = (
+                    stream_cursor + len(data) if expose_stream else size
+                )
                 result[f"{stream}_size"] = size
         if terminal:
             stream_budget = max(1, max_bytes // 4)
             for stream in ("stdout", "stderr"):
                 stream_path = Path(f"{job['log_path']}.{stream}")
-                if stream_path.is_file():
+                expose_stream = not (
+                    stream == "stdout" and self._private_semantic_stdout(job)
+                )
+                if stream_path.is_file() and expose_stream:
                     size = stream_path.stat().st_size
                     with stream_path.open("rb") as handle:
                         handle.seek(max(0, size - stream_budget))
@@ -1231,11 +1290,15 @@ class Supervisor:
                 )
             else:
                 result["partial_response"] = ""
-            if not self._has_semantic_adapter(job):
+            if not self._semantic_adapter_active(job):
                 result["partial_result_state"] = "unavailable"
             elif result["partial_response"] and job.get("partial_response_truncated"):
                 result["partial_result_state"] = "truncated"
-            elif job["status"] == "completed" and result["partial_response"]:
+            elif (
+                job["status"] == "completed"
+                and result["partial_response"]
+                and not job.get("provider_result_error")
+            ):
                 result["partial_result_state"] = "complete"
             elif result["partial_response"]:
                 result["partial_result_state"] = "partial"

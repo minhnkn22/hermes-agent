@@ -1,13 +1,15 @@
 # Agent Job Async Events Plan
 
-Status: Phase 1 partially implemented on the native supervisor. The CAO adoption
-spike in `tools/CAO_ADOPTION_SPIKE.md` remains a provider-backend experiment,
-not a prerequisite for semantic observability.
+Status: Phase 1 and native Claude Phase 2A are implemented on the native
+supervisor. The CAO adoption spike in `tools/CAO_ADOPTION_SPIKE.md` remains a
+provider-backend experiment, not a prerequisite for semantic observability.
 
 Phase 1 normalizes native Codex JSONL, persists a bounded event journal and
 partial response, splits lifecycle from activity, and exposes additive event
 cursors. Long-poll and durable inbox behavior remain in the native supervisor.
-Claude and Kimi structured adapters remain future phases. ACP remains deferred
+Native Claude now adds structured deltas, provider waits, concurrent tool
+tracking, privacy-safe tool-input heartbeats, usage, and recoverable partial
+responses. Kimi structured events remain a future phase. ACP remains deferred
 until the event contract has operational evidence.
 
 Outside architecture consultation: Claude Opus job
@@ -15,6 +17,9 @@ Outside architecture consultation: Claude Opus job
 
 Phase 1 architecture consultation: Claude Opus job
 `2e943a8a-0745-4038-bc44-13304314d696`.
+
+Phase 2A architecture consultation: Claude Opus job
+`1874f688-f2e8-4710-9471-1d210977ff5b`.
 
 ## Goal
 
@@ -135,8 +140,8 @@ Each event uses schema version 1:
 }
 ```
 
-Required event kinds are `job_started`, `message_delta`, `thinking_delta`,
-`tool_started`, `tool_finished`, `progress`, `usage`, `warning`, `parse_error`,
+Required event kinds are `job_started`, `turn_started`, `message_delta`, `thinking_delta`,
+`tool_started`, `tool_finished`, `progress`, `waiting`, `usage`, `warning`, `parse_error`,
 `provider_raw`, `truncated_event`, and `job_terminal`. Unknown provider event types are retained under
 `payload.provider_event` rather than rejected.
 
@@ -148,15 +153,23 @@ The journal is capped separately from raw logs. When capped, append one
 ### Provider Adapters
 
 - **Claude:** invoke with `--output-format stream-json
-  --include-partial-messages`; normalize complete JSON lines.
+  --include-partial-messages --verbose --no-session-persistence`; normalize
+  complete JSON lines, coalesce adjacent deltas, and never copy tool contents,
+  signatures, inventories, or subagent text into the semantic journal.
 - **Codex:** retain `exec --json`; normalize complete JSON lines.
 - **Kimi:** accept structured output when available; otherwise emit bounded
   line-based `message_delta` or `progress` fallback events.
 - **All providers:** preserve raw bytes before decoding. Use an incremental
   UTF-8 decoder and retain partial lines across 16 KiB reads.
 
+For native Claude, raw stdout remains a mode-`0600` local diagnostic
+artifact and is not mirrored into the combined caller log or returned by normal
+reads. Clients consume normalized events and retained partial responses instead.
+
 Adapters are pure functions in a new `tools/agent_job_events.py` module. They do
 not own process lifecycle, storage, deadlines, or routing.
+Adjacent same-kind text deltas may coalesce for both Codex and Claude; event
+counts are therefore transport-dependent while reconstructed text is stable.
 
 ### Read Contract
 

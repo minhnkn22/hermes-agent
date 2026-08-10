@@ -390,6 +390,7 @@ async def _run_provider(
     )
     job_id = str(submitted["job_id"])
     cursor = 0
+    event_cursor = 0
     stdout_cursor = 0
     stderr_cursor = 0
     stdout_bytes = bytearray()
@@ -401,13 +402,15 @@ async def _run_provider(
             target.extend(value.encode("utf-8")[:remaining])
 
     async def poll() -> dict[str, Any]:
-        nonlocal cursor, stdout_cursor, stderr_cursor
+        nonlocal cursor, event_cursor, stdout_cursor, stderr_cursor
         while True:
             result = await asyncio.to_thread(
                 supervisor_read, job_id, cursor, 128_000, stream_cursors=True,
-                stdout_cursor=stdout_cursor, stderr_cursor=stderr_cursor,
+                event_cursor=event_cursor, stdout_cursor=stdout_cursor,
+                stderr_cursor=stderr_cursor,
             )
             cursor = int(result.get("cursor") or cursor)
+            event_cursor = int(result.get("event_cursor") or event_cursor)
             stdout_cursor = int(result.get("stdout_cursor") or stdout_cursor)
             stderr_cursor = int(result.get("stderr_cursor") or stderr_cursor)
             append_bounded(stdout_bytes, str(result.get("stdout_output") or ""))
@@ -416,9 +419,19 @@ async def _run_provider(
             if job["status"] in {"completed", "failed", "cancelled", "interrupted"}:
                 started = float(job.get("started_at") or job["created_at"])
                 finished = float(job.get("finished_at") or job["updated_at"])
-                stdout_dropped = max(0, int(result.get("stdout_size") or 0) - len(stdout_bytes))
+                semantic_output = (
+                    provider == "claude"
+                    and result.get("partial_result_state") != "unavailable"
+                )
+                stdout_dropped = 0 if semantic_output else max(
+                    0, int(result.get("stdout_size") or 0) - len(stdout_bytes)
+                )
                 stderr_dropped = max(0, int(result.get("stderr_size") or 0) - len(stderr_bytes))
-                output = stdout_bytes.decode("utf-8", errors="replace")
+                output = (
+                    str(result.get("partial_response") or "")
+                    if semantic_output
+                    else stdout_bytes.decode("utf-8", errors="replace")
+                )
                 error = stderr_bytes.decode("utf-8", errors="replace")
                 if stdout_dropped:
                     output += f"\n[truncated {stdout_dropped} stdout byte(s)]"
@@ -655,9 +668,13 @@ async def kimi_start(
 
 
 @mcp.tool()
-async def review_read(job_id: str, cursor: int = 0, max_bytes: int = 64_000) -> str:
+async def review_read(
+    job_id: str, cursor: int = 0, event_cursor: int = 0, max_bytes: int = 64_000
+) -> str:
     """Read a job started by either review provider."""
-    result = await asyncio.to_thread(supervisor_read, job_id, cursor, max_bytes)
+    result = await asyncio.to_thread(
+        supervisor_read, job_id, cursor, max_bytes, event_cursor=event_cursor
+    )
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 

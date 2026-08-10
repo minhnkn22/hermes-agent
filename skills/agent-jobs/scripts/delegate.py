@@ -56,13 +56,34 @@ def main() -> int:
         job_id = str(job["job_id"])
         print(f"AGENT_JOB_ID={job_id}", file=sys.stderr, flush=True)
         cursor = 0
+        event_cursor = 0
+        emitted = ""
         while True:
-            result = read(job_id, cursor=cursor)
+            result = read(
+                job_id, cursor=cursor, event_cursor=event_cursor, wait_seconds=30
+            )
             cursor = int(result["cursor"])
-            if result.get("output"):
+            event_cursor = int(result["event_cursor"])
+            semantic = args.provider in {"claude", "codex"} and not result["job"].get(
+                "semantic_normalization_failed"
+            )
+            if semantic:
+                for event in result.get("events") or []:
+                    if event.get("kind") != "message_delta":
+                        continue
+                    text = str((event.get("payload") or {}).get("text") or "")
+                    if text:
+                        print(text, end="", flush=True)
+                        emitted += text
+            elif result.get("output"):
                 print(str(result["output"]), end="", flush=True)
             current = result["job"]
             if current["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+                partial = str(result.get("partial_response") or "")
+                if semantic and partial:
+                    remainder = partial[len(emitted):] if partial.startswith(emitted) else partial
+                    if remainder:
+                        print(remainder, end="", flush=True)
                 if current["status"] == "completed":
                     return 0
                 print(
