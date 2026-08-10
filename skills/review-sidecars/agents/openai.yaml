@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review Sidecars"
+  short_description: "Route reviews between Kimi K3 and Claude Opus"
+  default_prompt: "Use $review-sidecars to run the appropriate independent review for this task."
