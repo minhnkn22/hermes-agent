@@ -67,6 +67,8 @@ CAO_ENV_KEYS = {"AGENT_JOB_CAO_URL", "AGENT_JOB_CAO_TOKEN", "AGENT_JOB_CAO_LAUNC
 CLAUDE_AUTH_KEYS = {"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"}
 KIMI_AUTH_KEYS = {"KIMI_API_KEY", "KIMI_CN_API_KEY", "MOONSHOT_API_KEY", "MOONSHOT_API_BASE"}
 PROVIDER_AUTH_KEYS = {"claude": CLAUDE_AUTH_KEYS, "kimi": KIMI_AUTH_KEYS, "codex": set()}
+SEMANTIC_PROVIDERS = {"claude", "codex", "kimi"}
+SEMANTIC_LIVENESS_PROVIDERS = {"claude", "codex"}
 
 
 class AlreadyRunning(RuntimeError):
@@ -79,6 +81,12 @@ def _now() -> float:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _kimi_semantic_enabled() -> bool:
+    return os.environ.get("AGENT_JOB_KIMI_SEMANTIC", "1").strip().lower() not in {
+        "0", "false", "no", "off",
+    }
 
 
 def _allowed_roots() -> list[Path]:
@@ -238,6 +246,14 @@ class JobStore:
             self.db.execute(
                 "ALTER TABLE jobs ADD COLUMN execution_backend TEXT NOT NULL DEFAULT 'native'"
             )
+        if "semantic_stream" not in columns:
+            self.db.execute(
+                "ALTER TABLE jobs ADD COLUMN semantic_stream INTEGER NOT NULL DEFAULT 0"
+            )
+            self.db.execute(
+                """UPDATE jobs SET semantic_stream = 1
+                   WHERE provider IN ('claude', 'codex') AND execution_backend = 'native'"""
+            )
         migrations = {
             "last_event_at": "REAL",
             "last_event_kind": "TEXT NOT NULL DEFAULT ''",
@@ -281,13 +297,15 @@ class JobStore:
             """INSERT INTO jobs (
                 job_id, provider, model, mode, workdir, prompt, owner, status,
                 created_at, updated_at, timeout_seconds, soft_stall_seconds,
-                max_turns, log_path, idempotency_key, request_hash, execution_backend
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                max_turns, log_path, idempotency_key, request_hash, execution_backend,
+                semantic_stream
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 job_id, spec["provider"], spec["model"], spec["mode"], spec["workdir"],
                 spec["prompt"], spec.get("owner", ""), now, now, spec["timeout_seconds"],
                 spec["soft_stall_seconds"], spec["max_turns"], str(log_path), key,
                 spec["request_hash"], spec.get("execution_backend", "native"),
+                int(spec.get("semantic_stream") or 0),
             ),
         )
         self.db.commit()
@@ -530,7 +548,11 @@ class Supervisor:
             agent_path = SERVER_DIR / agent_name
             if not agent_path.is_file():
                 raise RuntimeError(f"Kimi agent definition is missing: {agent_path}")
-            return [binary, "--model", model, "--agent-file", str(agent_path), "--prompt", prompt], None, _provider_env(provider)
+            argv = [binary, "--model", model, "--agent-file", str(agent_path)]
+            if job.get("semantic_stream"):
+                argv.extend(["--output-format", "stream-json"])
+            argv.extend(["--prompt", prompt])
+            return argv, None, _provider_env(provider)
         sandbox = "read-only" if mode == "readonly" else "workspace-write"
         argv = [
             binary, "exec", "--ignore-user-config", "-C", job["workdir"],
@@ -557,9 +579,7 @@ class Supervisor:
             output_anchor = result.get("last_output_at") or result.get("started_at") or result["created_at"]
             output_silence = max(0, int(now - float(output_anchor)))
             result["seconds_without_output"] = output_silence
-            semantic_stream = (
-                self._semantic_adapter_active(result)
-            )
+            semantic_stream = self._semantic_liveness_active(result)
             progress_anchor = result.get("last_progress_at") if semantic_stream else output_anchor
             if progress_anchor is None:
                 progress_anchor = result.get("started_at") if semantic_stream else output_anchor
@@ -600,7 +620,8 @@ class Supervisor:
     @staticmethod
     def _has_semantic_adapter(job: dict[str, Any]) -> bool:
         return (
-            job.get("provider") in {"claude", "codex"}
+            bool(job.get("semantic_stream"))
+            and job.get("provider") in SEMANTIC_PROVIDERS
             and job.get("execution_backend", "native") == "native"
         )
 
@@ -611,8 +632,17 @@ class Supervisor:
             and str(job["job_id"]) not in self.normalization_failed
         )
 
+    def _semantic_liveness_active(self, job: dict[str, Any]) -> bool:
+        return (
+            job.get("provider") in SEMANTIC_LIVENESS_PROVIDERS
+            and self._semantic_adapter_active(job)
+        )
+
     def _private_semantic_stdout(self, job: dict[str, Any]) -> bool:
-        return job.get("provider") == "claude" and self._semantic_adapter_active(job)
+        return (
+            job.get("provider") in {"claude", "kimi"}
+            and self._semantic_adapter_active(job)
+        )
 
     def _event_path(self, job: dict[str, Any]) -> Path:
         return Path(f"{job['log_path']}.events.jsonl")
@@ -838,8 +868,7 @@ class Supervisor:
             raw_size = sum(path.stat().st_size for path in (stdout_path, stderr_path) if path.exists())
             raw_remaining = max(0, raw_budget - raw_size)
             if raw_remaining:
-                with stream_path.open("ab") as handle:
-                    handle.write(data[:raw_remaining])
+                self._append_private(stream_path, data[:raw_remaining])
         # Wake readers for every written chunk. The database timestamp remains
         # throttled, but transport liveness must not add up to 60 seconds latency.
         self._signal_change(job_id)
@@ -1148,11 +1177,17 @@ class Supervisor:
             "prompt": prompt, "owner": owner,
             "timeout_seconds": timeout, "soft_stall_seconds": soft_stall, "max_turns": max_turns,
             "execution_backend": execution_backend,
+            "semantic_stream": int(
+                execution_backend == "native"
+                and provider in SEMANTIC_PROVIDERS
+                and (provider != "kimi" or _kimi_semantic_enabled())
+            ),
             "idempotency_key": str(payload.get("idempotency_key") or "")[:200],
         }
         hash_fields = {key: spec[key] for key in (
             "provider", "model", "mode", "workdir", "prompt", "timeout_seconds", "max_turns",
             "execution_backend",
+            "semantic_stream",
         )}
         spec["request_hash"] = hashlib.sha256(_json(hash_fields).encode("utf-8")).hexdigest()
         job_id = str(uuid.uuid4())

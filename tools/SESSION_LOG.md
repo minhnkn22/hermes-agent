@@ -1,5 +1,64 @@
 # Session Log
 
+## 2026-08-10 - Phase 2B native Kimi semantic streaming
+
+Branch: `feat/thin-agent-job-harness`
+
+- Verified installed Kimi Code `0.34.0` supports `--output-format stream-json`.
+  Opus architecture consultation `40b81b46-2e70-4245-80fb-e096456f42e4`
+  inspected the embedded `PromptJsonWriter` implementation and returned
+  `PROCEED` with privacy, liveness, consumer, and rollback conditions.
+- Added a native Kimi adapter for incremental assistant records, provider
+  metadata, retries, goal usage, and privacy-safe tool request/result metadata.
+  Tool arguments, tool output, resume commands, unknown payload bodies, and
+  malformed lines do not enter caller-visible event journals.
+- Kimi raw structured stdout is now private mode-`0600` evidence. Synchronous
+  compatibility consumers select semantic partial responses provider-neutrally,
+  preventing blank Kimi results after raw stdout became private.
+- Kimi intentionally retains output-byte liveness: its JSON writer emits tool
+  calls only when a tool result flushes, so stderr tool progress remains the only
+  reliable signal during a long tool call. Kimi never emits a retrospective
+  `tool_started` that could leave sticky open-tool state.
+- Added `AGENT_JOB_KIMI_SEMANTIC=0` as an atomic rollback to the previous Kimi
+  argv, public stdout, and adapter-unavailable behavior for new submissions.
+  Each job persists its semantic contract, so later flag changes cannot expose
+  retained structured stdout or hide retained plain-text output.
+- Added fixture coverage for incremental transcript reconstruction, UTF-8 chunk
+  boundaries, tool privacy, metadata whitelisting, partial recovery,
+  quota/auth-style failure, byte-based liveness, raw-file permissions, consumer
+  integration, and rollback behavior. A live Kimi smoke is deferred because the
+  account is currently quota-exhausted.
+- Primary Opus code review `1285e4ce-8872-4de1-8e5a-cbcfe4d581d6` returned
+  `DO NOT SHIP` for three integration blockers: the active delegation client
+  excluded Kimi, the kill switch was evaluated against retained jobs, and the
+  rollback sync consumer treated `partial_result_state=none` as a semantic
+  answer. The active client now keys off persisted `semantic_stream`, job
+  creation stores that contract and command/read paths consume it, and the sync
+  consumer uses a positive partial-state predicate. Retained-job flag flips in
+  both directions and an end-to-end Kimi delegation client are covered.
+- Targeted Opus follow-up `bc83c5fe-06cf-4dde-b1a0-f03cf7ee1c55` returned
+  `SHIP`, verifying all three blockers resolved, migration placeholders and old
+  provider defaults correct, argv/read privacy tied to the persisted bit, and
+  idempotency changes fail closed. Claude emitted this verdict only in its
+  terminal result field, so it was recovered from the private diagnostic after
+  the normalized partial remained empty; no extra reviewer was submitted.
+- Final pre-deploy verification: all 151 repository tests passed in 53.900
+  seconds. `py_compile` and `git diff --check` passed.
+- Deployed `com.atum.agent-job-supervisor` only after the machine-wide running
+  and queued job lists were empty, then refreshed shared Claude/Kimi client
+  bindings. The service is healthy at PID 6966 and client checks are current.
+  Live migration inspection showed 141 retained native Claude jobs and 3 Codex
+  jobs marked semantic, while all 28 pre-deploy Kimi jobs remained plain.
+- Quota-aware native Kimi smoke `055dacdf-d8b2-4705-9d17-db48dcd98e8b`
+  persisted `semantic_stream=1`, normalized provider version `0.34.0`, kept its
+  59-byte structured stdout file at mode `0600`, exposed the provider's 403
+  usage-limit reason through stderr, and failed cleanly with
+  `partial_result_state=none`. A successful-answer smoke remains deferred until
+  quota returns.
+
+Next: complete the full suite and Opus assembly review, deploy after active jobs
+drain, then run a live Kimi smoke when quota returns.
+
 ## 2026-08-10 - Phase 2A native Claude semantic streaming
 
 Branch: `feat/thin-agent-job-harness`

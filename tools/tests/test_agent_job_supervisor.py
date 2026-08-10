@@ -103,6 +103,37 @@ print(json.dumps({"type": "stream_event", "event": {"type": "message_start", "me
 print(json.dumps({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "unfinished"}}}), flush=True)
 print(json.dumps({"type": "result", "subtype": "error_max_turns", "is_error": True}), flush=True)
 """
+    elif prompt == "kimi-events":
+        script = """import json, time
+events = [
+    {"role": "meta", "type": "system.version", "version": "0.34.0"},
+    {"role": "assistant", "content": "partial ", "tool_calls": [{"type": "function", "id": "tc-1", "function": {"name": "ReadFile", "arguments": "secret-input"}}]},
+    {"role": "tool", "tool_call_id": "tc-1", "content": "secret-result"},
+    {"role": "assistant", "content": "answer"},
+]
+for event in events:
+    print(json.dumps(event), flush=True)
+    time.sleep(.05)
+"""
+    elif prompt == "kimi-partial-slow":
+        script = """import json, time
+print(json.dumps({"role": "meta", "type": "system.version", "version": "0.34.0"}), flush=True)
+print(json.dumps({"role": "assistant", "content": "recover kimi"}), flush=True)
+time.sleep(30)
+"""
+    elif prompt == "kimi-stderr-slow":
+        script = """import json, sys, time
+print(json.dumps({"role": "meta", "type": "system.version", "version": "0.34.0"}), flush=True)
+time.sleep(.2)
+print("tool progress", file=sys.stderr, flush=True)
+time.sleep(30)
+"""
+    elif prompt == "kimi-quota-fail":
+        script = """import json, sys
+print(json.dumps({"role": "meta", "type": "system.version", "version": "0.34.0"}), flush=True)
+print("usage limit reached", file=sys.stderr, flush=True)
+raise SystemExit(1)
+"""
     else:
         script = "print('unknown', flush=True)"
     return [sys.executable, "-u", "-c", script], None, os.environ.copy()
@@ -116,11 +147,13 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.workdir.mkdir()
         self.old_roots = os.environ.get("AGENT_JOB_ALLOWED_ROOTS")
         self.old_allow_implement = os.environ.get("AGENT_JOB_ALLOW_IMPLEMENT")
+        self.old_kimi_semantic = os.environ.get("AGENT_JOB_KIMI_SEMANTIC")
         self.old_token_path = supervisor_module.IMPLEMENT_TOKEN_PATH
         os.environ["AGENT_JOB_ALLOWED_ROOTS"] = str(root)
         self.implement_token = root / "implement.token"
         self.implement_token.write_text("test-capability\n", encoding="utf-8")
         os.environ["AGENT_JOB_ALLOW_IMPLEMENT"] = "1"
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "0"
         supervisor_module.IMPLEMENT_TOKEN_PATH = self.implement_token
         self.launch_counts: dict[str, int] = {}
 
@@ -157,6 +190,10 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             os.environ.pop("AGENT_JOB_ALLOW_IMPLEMENT", None)
         else:
             os.environ["AGENT_JOB_ALLOW_IMPLEMENT"] = self.old_allow_implement
+        if self.old_kimi_semantic is None:
+            os.environ.pop("AGENT_JOB_KIMI_SEMANTIC", None)
+        else:
+            os.environ["AGENT_JOB_KIMI_SEMANTIC"] = self.old_kimi_semantic
         supervisor_module.IMPLEMENT_TOKEN_PATH = self.old_token_path
         self.temp.cleanup()
 
@@ -188,17 +225,18 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.fail(f"Job {job_id} did not reach {statuses}")
 
     async def test_completion_and_cursor_reads(self) -> None:
-        spec = self.spec("complete")
-        spec["provider"] = "kimi"
-        submitted = await self.call(spec)
-        result = await self.wait_for(str(submitted["job_id"]), {"completed"})
-        self.assertIn("first", result["output"])
-        self.assertEqual("first\nsecond\n", result["stdout"])
-        self.assertEqual("", result["stderr"])
-        cursor = int(result["cursor"])
-        again = await self.call({"action": "read", "job_id": submitted["job_id"], "cursor": cursor})
-        self.assertEqual("", again["output"])
-        self.assertNotIn("prompt", result["job"])
+        with patch.dict(os.environ, {"AGENT_JOB_KIMI_SEMANTIC": "0"}):
+            spec = self.spec("complete")
+            spec["provider"] = "kimi"
+            submitted = await self.call(spec)
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+            self.assertIn("first", result["output"])
+            self.assertEqual("first\nsecond\n", result["stdout"])
+            self.assertEqual("", result["stderr"])
+            cursor = int(result["cursor"])
+            again = await self.call({"action": "read", "job_id": submitted["job_id"], "cursor": cursor})
+            self.assertEqual("", again["output"])
+            self.assertNotIn("prompt", result["job"])
 
     async def test_owner_inbox_redelivers_until_exact_owner_acknowledges(self) -> None:
         spec = self.spec("complete")
@@ -230,9 +268,15 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         spec["provider"] = "kimi"
         submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
-        current = await self.call({
-            "action": "read", "job_id": submitted["job_id"], "max_bytes": 64_000,
-        })
+        for _ in range(100):
+            current = await self.call({
+                "action": "read", "job_id": submitted["job_id"], "max_bytes": 64_000,
+            })
+            if "started" in current["output"]:
+                break
+            await asyncio.sleep(.01)
+        else:
+            self.fail("slow fixture did not emit its initial output")
         waiter = asyncio.create_task(self.call({
             "action": "read", "job_id": submitted["job_id"],
             "cursor": current["cursor"], "max_bytes": 64_000, "wait_seconds": 5,
@@ -305,7 +349,9 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         await self.wait_for(str(submitted["job_id"]), {"completed"})
 
     async def test_cancel_running_process_group(self) -> None:
-        submitted = await self.call(self.spec("slow"))
+        spec = self.spec("slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
         await self.wait_for(str(submitted["job_id"]), {"running"})
         before_cancel = await self.call({
             "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
@@ -469,11 +515,111 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(job_id, self.supervisor.event_sequences)
 
     async def test_completed_nonsemantic_provider_reports_partial_unavailable(self) -> None:
-        spec = self.spec("complete")
+        with patch.dict(os.environ, {"AGENT_JOB_KIMI_SEMANTIC": "0"}):
+            spec = self.spec("complete")
+            spec["provider"] = "kimi"
+            submitted = await self.call(spec)
+            result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+            self.assertEqual("unavailable", result["partial_result_state"])
+
+    async def test_kimi_events_are_private_and_reconstruct_result(self) -> None:
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        spec = self.spec("kimi-events")
         spec["provider"] = "kimi"
         submitted = await self.call(spec)
         result = await self.wait_for(str(submitted["job_id"]), {"completed"})
+        result = await self.call({
+            "action": "read", "job_id": submitted["job_id"], "event_cursor": 0,
+        })
+
+        self.assertEqual("partial answer", result["partial_response"])
+        self.assertEqual("complete", result["partial_result_state"])
+        self.assertEqual("", result["output"])
+        self.assertEqual("", result["stdout"])
+        self.assertNotIn("secret", json.dumps(result["events"]))
+        kinds = [event["kind"] for event in result["events"]]
+        self.assertIn("message_delta", kinds)
+        self.assertIn("tool_finished", kinds)
+        self.assertNotIn("tool_started", kinds)
+        raw = Path(f"{result['job']['log_path']}.stdout")
+        self.assertTrue(raw.is_file())
+        self.assertEqual(0o600, stat.S_IMODE(raw.stat().st_mode))
+
+    async def test_cancelled_kimi_job_retains_partial_response(self) -> None:
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        spec = self.spec("kimi-partial-slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
+        job_id = str(submitted["job_id"])
+        for _ in range(100):
+            current = await self.call({"action": "read", "job_id": job_id})
+            if current["job"]["has_partial_response"]:
+                break
+            await asyncio.sleep(.02)
+        else:
+            self.fail("Kimi fixture did not emit a partial response")
+        await self.call({"action": "cancel", "job_id": job_id})
+        result = await self.wait_for(job_id, {"cancelled"})
+        self.assertEqual("recover kimi", result["partial_response"])
+        self.assertEqual("partial", result["partial_result_state"])
+
+    async def test_kimi_quota_failure_has_no_partial_and_public_stderr(self) -> None:
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        spec = self.spec("kimi-quota-fail")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
+        result = await self.wait_for(str(submitted["job_id"]), {"failed"})
+        self.assertEqual("none", result["partial_result_state"])
+        self.assertEqual("", result["stdout"])
+        self.assertIn("usage limit reached", result["stderr"])
+
+    async def test_kimi_stderr_keeps_byte_based_liveness_active(self) -> None:
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        spec = self.spec("kimi-stderr-slow")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
+        job_id = str(submitted["job_id"])
+        await self.wait_for(job_id, {"running"})
+        await asyncio.sleep(.3)
+        self.supervisor.store.update(
+            job_id, last_progress_at=time.time() - 31, soft_stall_seconds=30
+        )
+        result = await self.call({"action": "read", "job_id": job_id})
+        self.assertEqual("running", result["job"]["status"])
+        self.assertNotEqual("possibly_stalled", result["job"]["status"])
+        self.assertEqual("", result["job"]["open_tool"])
+        await self.call({"action": "cancel", "job_id": job_id})
+        await self.wait_for(job_id, {"cancelled"})
+
+    async def test_kimi_semantic_contract_survives_kill_switch_disable(self) -> None:
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        spec = self.spec("kimi-events")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "0"
+        result = await self.call({"action": "read", "job_id": submitted["job_id"]})
+
+        self.assertEqual(1, result["job"]["semantic_stream"])
+        self.assertEqual("complete", result["partial_result_state"])
+        self.assertEqual("partial answer", result["partial_response"])
+        self.assertEqual("", result["output"])
+        self.assertEqual("", result["stdout"])
+
+    async def test_kimi_plain_contract_survives_kill_switch_enable(self) -> None:
+        spec = self.spec("complete")
+        spec["provider"] = "kimi"
+        submitted = await self.call(spec)
+        await self.wait_for(str(submitted["job_id"]), {"completed"})
+
+        os.environ["AGENT_JOB_KIMI_SEMANTIC"] = "1"
+        result = await self.call({"action": "read", "job_id": submitted["job_id"]})
+
+        self.assertEqual(0, result["job"]["semantic_stream"])
         self.assertEqual("unavailable", result["partial_result_state"])
+        self.assertIn("first", result["output"])
+        self.assertEqual("first\nsecond\n", result["stdout"])
 
     async def test_claude_events_stream_once_and_reconstruct_result(self) -> None:
         submitted = await self.call(self.spec("claude-events"))
@@ -996,12 +1142,19 @@ class SupervisorIntegrationTest(unittest.IsolatedAsyncioTestCase):
             base = {
                 "provider": "kimi", "model": "kimi-code/k3", "mode": "readonly",
                 "prompt": "review", "max_turns": 2, "workdir": str(self.workdir),
+                "semantic_stream": 0,
             }
             argv, stdin_text, env = self.supervisor._build_command(base)
             self.assertIn("--agent-file", argv)
+            self.assertNotIn("--output-format", argv)
             self.assertEqual("kimi-secret", env["MOONSHOT_API_KEY"])
             self.assertNotIn("ANTHROPIC_API_KEY", env)
             self.assertIsNone(stdin_text)
+            with patch.dict(os.environ, {"AGENT_JOB_KIMI_SEMANTIC": "1"}):
+                base["semantic_stream"] = 1
+                argv, _, _ = self.supervisor._build_command(base)
+            self.assertIn("--output-format", argv)
+            self.assertIn("stream-json", argv)
             base.update(provider="claude", model="opus")
             argv, stdin_text, env = self.supervisor._build_command(base)
             self.assertEqual("claude-secret", env["ANTHROPIC_API_KEY"])

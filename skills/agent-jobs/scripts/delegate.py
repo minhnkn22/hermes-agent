@@ -64,7 +64,7 @@ def main() -> int:
             )
             cursor = int(result["cursor"])
             event_cursor = int(result["event_cursor"])
-            semantic = args.provider in {"claude", "codex"} and not result["job"].get(
+            semantic = bool(result["job"].get("semantic_stream")) and not result["job"].get(
                 "semantic_normalization_failed"
             )
             if semantic:

@@ -1,6 +1,6 @@
 # Agent Job Async Events Plan
 
-Status: Phase 1 and native Claude Phase 2A are implemented on the native
+Status: Phase 1, native Claude Phase 2A, and native Kimi Phase 2B are implemented on the native
 supervisor. The CAO adoption spike in `tools/CAO_ADOPTION_SPIKE.md` remains a
 provider-backend experiment, not a prerequisite for semantic observability.
 
@@ -9,8 +9,10 @@ partial response, splits lifecycle from activity, and exposes additive event
 cursors. Long-poll and durable inbox behavior remain in the native supervisor.
 Native Claude now adds structured deltas, provider waits, concurrent tool
 tracking, privacy-safe tool-input heartbeats, usage, and recoverable partial
-responses. Kimi structured events remain a future phase. ACP remains deferred
-until the event contract has operational evidence.
+responses. Native Kimi now normalizes incremental assistant messages and
+privacy-safe tool/result metadata while retaining byte-based liveness because
+its stream has no tool-start boundary. ACP remains deferred until the event
+contract has operational evidence.
 
 Outside architecture consultation: Claude Opus job
 `3bdfee63-d1b9-4e9b-a1dc-1978da1a5941`.
@@ -20,6 +22,16 @@ Phase 1 architecture consultation: Claude Opus job
 
 Phase 2A architecture consultation: Claude Opus job
 `1874f688-f2e8-4710-9471-1d210977ff5b`.
+
+Phase 2B architecture consultation: Claude Opus job
+`40b81b46-2e70-4245-80fb-e096456f42e4`.
+
+Phase 2B is fixture-verified against the `PromptJsonWriter` schema embedded in
+installed Kimi Code `0.34.0`. A live provider smoke is deferred until quota
+returns; this is an operational follow-up, not an ACP dependency.
+The per-job `semantic_stream` bit is persisted with backend selection so a
+kill-switch change affects only new submissions and cannot reinterpret retained
+raw output.
 
 ## Goal
 

@@ -419,10 +419,9 @@ async def _run_provider(
             if job["status"] in {"completed", "failed", "cancelled", "interrupted"}:
                 started = float(job.get("started_at") or job["created_at"])
                 finished = float(job.get("finished_at") or job["updated_at"])
-                semantic_output = (
-                    provider == "claude"
-                    and result.get("partial_result_state") != "unavailable"
-                )
+                semantic_output = result.get("partial_result_state") in {
+                    "complete", "partial", "truncated",
+                }
                 stdout_dropped = 0 if semantic_output else max(
                     0, int(result.get("stdout_size") or 0) - len(stdout_bytes)
                 )

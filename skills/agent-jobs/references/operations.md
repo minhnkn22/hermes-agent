@@ -43,20 +43,24 @@ the name contract. `idle_unknown` means the process
 is alive but has produced no semantic progress past the soft threshold. Terminal
 reads include `partial_response` plus `partial_result_state` (`complete`,
 `partial`, `truncated`, `none`, or `unavailable`), so inspect retained output
-before retrying a failed or cancelled run. For native Claude, the partial
-response is all top-level assistant-visible text emitted in order and may stop
+before retrying a failed or cancelled run. For native Claude and Kimi, the partial
+response is top-level assistant-visible text emitted in order and may stop
 mid-answer; it deliberately excludes subagent text and the duplicate terminal
-result. Its raw stream JSON is not returned to ordinary callers, so retain and
+result. Kimi emits complete message chunks rather than token deltas, so text
+buffered inside an interrupted provider step may not have reached the stream.
+Their raw stream JSON is not returned to ordinary callers, so retain and
 advance `event_cursor`. `unavailable` means that provider/backend does not expose a semantic
 response artifact; use the retained raw output instead.
 `journal_truncated=true` means normalized events reached their independent byte
 budget even though raw output capture may have continued.
 
-Detailed semantic activity is available for native Codex and Claude jobs.
+Detailed semantic activity is available for native Codex, Claude, and Kimi jobs.
 Claude provider waits and concurrent open tools are explicit. A provider wait
 that exceeds the soft threshold becomes `idle_unknown`; it never hides a hung
-request until the hard deadline. Kimi and CAO
-compatibility jobs still use output-byte liveness, so their
+request until the hard deadline. Kimi still uses output-byte liveness because
+its JSON stream has no tool-start boundary; public stderr tool progress provides
+that transport signal but is not promoted into semantic event content. CAO
+compatibility jobs also use output-byte liveness, so their
 `waiting_on_provider` state does not carry the same structured evidence.
 
 Statuses:

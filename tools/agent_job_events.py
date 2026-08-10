@@ -13,6 +13,7 @@ MAX_EVENT_TEXT_CHARS = 16_000
 MAX_EVENT_RECORD_BYTES = (MAX_EVENT_TEXT_CHARS * 4) + 4096
 MAX_COLLECTION_ITEMS = 50
 MAX_VALUE_DEPTH = 4
+PRIVATE_STDOUT_PROVIDERS = {"claude", "kimi"}
 
 
 def _bounded(value: Any, depth: int = 0) -> Any:
@@ -154,7 +155,7 @@ def _collection_count(value: Any) -> int:
     return len(value) if isinstance(value, (dict, list)) else 0
 
 
-def _remember_claude_tool(state: dict[str, Any], tool_id: str, name: str) -> None:
+def _remember_tool(state: dict[str, Any], tool_id: str, name: str) -> None:
     tools = state.setdefault("tools", {})
     if tool_id not in tools and len(tools) >= 256:
         return
@@ -237,7 +238,7 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
             if block_type == "tool_use":
                 tool_id = str(block.get("id") or "")[:200]
                 tool_name = str(block.get("name") or "tool")[:200]
-                _remember_claude_tool(state, tool_id, tool_name)
+                _remember_tool(state, tool_id, tool_name)
                 return [{
                     "kind": "tool_started",
                     "payload": {"id": tool_id, "name": tool_name},
@@ -318,7 +319,7 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
                 tool_id = str(block.get("id") or "")[:200]
                 if tool_id not in state.setdefault("tools", {}):
                     tool_name = str(block.get("name") or "tool")[:200]
-                    _remember_claude_tool(state, tool_id, tool_name)
+                    _remember_tool(state, tool_id, tool_name)
                     events.append({
                         "kind": "tool_started",
                         "payload": {"id": tool_id, "name": tool_name},
@@ -405,6 +406,101 @@ def _claude_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[st
     return [{"kind": "progress", "payload": _claude_metadata(value)}]
 
 
+def _kimi_metadata(value: dict[str, Any]) -> dict[str, Any]:
+    payload = {
+        "role": str(value.get("role") or "")[:100],
+        "type": str(value.get("type") or "")[:100],
+    }
+    return {key: item for key, item in payload.items() if item}
+
+
+def _kimi_events(value: dict[str, Any], state: dict[str, Any]) -> list[dict[str, Any]]:
+    role = str(value.get("role") or "")
+    record_type = str(value.get("type") or "")
+    events: list[dict[str, Any]] = []
+
+    if role == "assistant":
+        content = _text(value.get("content"))
+        if content:
+            events.append({"kind": "message_delta", "payload": {"text": content}})
+        tool_calls = value.get("tool_calls")
+        if isinstance(tool_calls, list):
+            for call in tool_calls[:MAX_COLLECTION_ITEMS]:
+                if not isinstance(call, dict):
+                    continue
+                function = call.get("function")
+                function = function if isinstance(function, dict) else {}
+                name = str(function.get("name") or "tool")[:200]
+                tool_id = str(call.get("id") or name)[:200]
+                _remember_tool(state, tool_id, name)
+                events.append({
+                    "kind": "progress",
+                    "payload": {
+                        "phase": "tool_requested",
+                        "id": tool_id,
+                        "name": name,
+                        "argument_bytes": _content_bytes(function.get("arguments")),
+                    },
+                })
+        return events or [{"kind": "progress", "payload": {"phase": "assistant"}}]
+
+    if role == "tool":
+        tool_id = str(value.get("tool_call_id") or "tool")[:200]
+        name = state.setdefault("tools", {}).pop(tool_id, "tool")
+        return [{
+            "kind": "tool_finished",
+            "payload": {
+                "id": tool_id,
+                "name": name,
+                "status": "unknown",
+                "content_bytes": _content_bytes(value.get("content")),
+            },
+        }]
+
+    if role == "meta" and record_type == "system.version":
+        return [{
+            "kind": "progress",
+            "payload": {
+                "phase": "provider_version",
+                "version": str(value.get("version") or "")[:100],
+            },
+        }]
+    if role == "meta" and record_type == "session.resume_hint":
+        return [{
+            "kind": "progress",
+            "payload": {
+                "phase": "session_ready",
+                "session_id": str(value.get("session_id") or "")[:200],
+            },
+        }]
+    if role == "meta" and record_type == "turn.step.retrying":
+        return [{
+            "kind": "warning",
+            "payload": {
+                "message": _text(value.get("error_message"))[:500]
+                or "Kimi is retrying a provider step",
+                "subtype": record_type,
+                "error_name": str(value.get("error_name") or "")[:100],
+                "status_code": value.get("status_code"),
+                "failed_attempt": value.get("failed_attempt"),
+                "max_attempts": value.get("max_attempts"),
+                "delay_ms": value.get("delay_ms"),
+            },
+        }]
+    if record_type == "goal.summary":
+        return [{
+            "kind": "usage",
+            "payload": {
+                "scope": "goal",
+                "status": str(value.get("status") or "")[:100],
+                "turns": value.get("turnsUsed"),
+                "tokens": value.get("tokensUsed"),
+                "wall_clock_ms": value.get("wallClockMs"),
+            },
+        }]
+    return [{"kind": "progress", "payload": _kimi_metadata(value)}]
+
+
 def _coalesce_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     coalesced: list[dict[str, Any]] = []
     input_progress: dict[str, dict[str, Any]] = {}
@@ -455,7 +551,7 @@ class ProviderEventDecoder:
             try:
                 value = json.loads(line)
             except json.JSONDecodeError as exc:
-                if self.provider == "claude":
+                if self.provider in PRIVATE_STDOUT_PROVIDERS:
                     raw = line.encode("utf-8")
                     payload = {
                         "message": str(exc)[:500],
@@ -473,15 +569,23 @@ class ProviderEventDecoder:
                 })
                 continue
             if not isinstance(value, dict):
-                events.append({
-                    "kind": "provider_raw",
-                    "payload": _raw_payload(value),
-                })
+                if self.provider in PRIVATE_STDOUT_PROVIDERS:
+                    events.append({
+                        "kind": "progress",
+                        "payload": {"value_type": type(value).__name__},
+                    })
+                else:
+                    events.append({
+                        "kind": "provider_raw",
+                        "payload": _raw_payload(value),
+                    })
                 continue
             if self.provider == "codex":
                 events.extend(_codex_events(value))
             elif self.provider == "claude":
                 events.extend(_claude_events(value, self._provider_state))
+            elif self.provider == "kimi":
+                events.extend(_kimi_events(value, self._provider_state))
             else:
                 events.append({
                     "kind": "provider_raw",

@@ -141,6 +141,53 @@ for event in events:
         self.assertEqual("semantic answer", result["output"])
         self.assertNotIn("truncated", result["output"])
 
+    async def test_sync_kimi_adapter_uses_provider_neutral_partial_response(self) -> None:
+        workdir = self.root / "kimi-semantic-project"
+        workdir.mkdir()
+        terminal = {
+            "job": {
+                "status": "completed", "created_at": 1, "started_at": 1,
+                "updated_at": 2, "finished_at": 2, "exit_code": 0,
+            },
+            "cursor": 0, "event_cursor": 1,
+            "stdout_cursor": 100, "stdout_size": 100, "stdout_output": "",
+            "stderr_cursor": 0, "stderr_size": 0, "stderr_output": "",
+            "partial_response": "semantic kimi answer",
+            "partial_result_state": "complete",
+        }
+        with patch.object(
+            sidecars, "supervisor_submit", return_value={"job_id": "kimi-job"}
+        ), patch.object(sidecars, "supervisor_read", return_value=terminal):
+            result = await sidecars._run_provider(
+                "kimi", "review", workdir=str(workdir), preset=None,
+                model="kimi-code/k3", timeout_seconds=60,
+            )
+
+        self.assertEqual("semantic kimi answer", result["output"])
+
+    async def test_sync_adapter_does_not_treat_empty_partial_as_semantic_output(self) -> None:
+        workdir = self.root / "empty-semantic-project"
+        workdir.mkdir()
+        terminal = {
+            "job": {
+                "status": "completed", "created_at": 1, "started_at": 1,
+                "updated_at": 2, "finished_at": 2, "exit_code": 0,
+            },
+            "cursor": 0, "event_cursor": 1,
+            "stdout_cursor": 3, "stdout_size": 3, "stdout_output": "raw",
+            "stderr_cursor": 0, "stderr_size": 0, "stderr_output": "",
+            "partial_response": "", "partial_result_state": "none",
+        }
+        with patch.object(
+            sidecars, "supervisor_submit", return_value={"job_id": "empty-job"}
+        ), patch.object(sidecars, "supervisor_read", return_value=terminal):
+            result = await sidecars._run_provider(
+                "kimi", "review", workdir=str(workdir), preset=None,
+                model="kimi-code/k3", timeout_seconds=60,
+            )
+
+        self.assertEqual("raw", result["output"])
+
     async def test_async_read_forwards_semantic_event_cursor(self) -> None:
         response = {
             "job": {"status": "running"}, "cursor": 3, "event_cursor": 9,

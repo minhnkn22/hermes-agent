@@ -99,14 +99,17 @@ privilege boundary against other processes running as the same macOS user.
 The daemon scopes provider API credentials at process launch from its environment
 or `AGENT_JOB_PROFILE_ENV`; it never stores credential values in SQLite.
 
-Native Codex and Claude jobs produce schema-v1 records in
+Native Codex, Claude, and Kimi jobs produce schema-v1 records in
 `<job>.log.events.jsonl` and assemble assistant message events into
 `<job>.log.partial.txt`. Claude runs with `stream-json`, partial messages,
 verbose events, and session persistence disabled. Its partial response is all
 top-level assistant-visible text in order; terminal `result.result` and
 subagent events are not appended. Tool arguments, tool-result content, thinking
 signatures, machine inventories, and account utilization stay out of the
-normalized journal. Malformed Claude records retain only byte count and digest.
+normalized journal. Kimi runs with `stream-json`; its assistant records are
+incremental message chunks, while tool calls and results are reduced to names,
+IDs, and byte counts. Malformed Claude and Kimi records retain only byte count
+and digest.
 Raw bounded logs remain private operational evidence under the user-only state
 directory and are not returned through normal semantic job reads.
 
@@ -114,9 +117,10 @@ Reads advance the normalized stream with the opaque byte `event_cursor`. On
 terminal failure, cancellation, or interruption, `partial_response` and
 `partial_result_state` make retained work recoverable. Existing callers that
 omit `event_cursor` keep their prior log-only behavior for non-semantic
-providers; native Claude callers consume events and `partial_response` rather
-than raw stream JSON. Kimi continues using
-output-byte liveness until it gains a structured adapter. Partial states are
+providers; native Claude and Kimi callers consume events and `partial_response`
+rather than raw stream JSON. Kimi deliberately keeps output-byte liveness even
+with its structured adapter because its JSON stream has no tool-start boundary;
+stderr tool progress therefore prevents false stalls during long tools. Partial states are
 `complete`, `partial`, `truncated`, `none`, or `unavailable`; the last value
 means the selected provider/backend does not have a semantic response adapter.
 
@@ -153,8 +157,14 @@ and reports an oversized or corrupt record while advancing its cursor, so damage
 journal data cannot wedge later reads. `journal_truncated` remains set after the
 journal reaches its byte budget. A normalization/storage failure disables
 semantic decoding for that job but raw stdout drainage and capture continue.
-Native Claude stdout is retained only in the mode-`0600` raw file for local
-diagnostics; ordinary reads do not expose it or mirror it into the combined log.
+Native Claude and Kimi stdout is retained only in the mode-`0600` raw file for
+local diagnostics; ordinary reads do not expose it or mirror it into the
+combined log. Set `AGENT_JOB_KIMI_SEMANTIC=0` in the LaunchAgent environment and
+restart to restore Kimi's prior text argv, public stdout, and adapter-unavailable
+contract for newly submitted jobs as an emergency rollback. Each job persists
+its `semantic_stream` selection at submission, so toggling the kill switch never
+reinterprets retained or already queued jobs and cannot expose their structured
+stdout.
 
 ## Verification
 
