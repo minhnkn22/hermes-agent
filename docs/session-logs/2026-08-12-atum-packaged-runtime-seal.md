@@ -8,6 +8,8 @@ The exact-head Atum dogfood package launched and successfully used the bundled H
 
 `stage-bundled-runtime.mjs` now removes `__pycache__`, `.pyc`, and `.pyo` artifacts from the staged Python payload before its executable probe and before electron-builder signs the bundle. Desktop-managed Python processes already receive `PYTHONDONTWRITEBYTECODE=1`; shipping the source modules without staging-prefix bytecode prevents relocation-triggered cache refreshes and keeps the installed application bundle immutable during dogfood use.
 
+The staging probe also explicitly sets `PYTHONDONTWRITEBYTECODE=1`; otherwise the probe itself would recreate a small cache after cleanup.
+
 The package remains ad-hoc signed for local dogfood. Developer ID signing and notarization are distribution work, not part of this local seal correction.
 
 ## Verification

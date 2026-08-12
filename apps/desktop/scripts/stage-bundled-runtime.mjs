@@ -256,6 +256,7 @@ function probeStagedRuntime({ pythonRoot, sourceRoot, expectedArch }) {
     capture: true,
     env: {
       ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1',
       PYTHONPATH: sourceRoot
     }
   })
