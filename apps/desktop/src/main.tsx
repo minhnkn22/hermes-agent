@@ -32,7 +32,7 @@ if (new URLSearchParams(window.location.search).get('win') === 'overlay') {
     <StrictMode>
       <ErrorBoundary label="root">
         <QueryClientProvider client={queryClient}>
-          <I18nProvider>
+          <I18nProvider initialLocale="vi">
             <ThemeProvider>
               <HapticsProvider>
                 {/* useTransitions={false}: react-router v7's HashRouter wraps every

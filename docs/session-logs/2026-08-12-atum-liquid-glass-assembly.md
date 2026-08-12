@@ -33,6 +33,11 @@ after the code identity changed. It was moved—not deleted—to
 `~/Library/Application Support/Atum/atum-messaging/session.pre-liquid-glass-20260812.json`.
 The replacement app will create a fresh encrypted session after login.
 
+The first clean account surface painted English during the asynchronous engine
+config load. Atum now passes `initialLocale="vi"` into the root provider, so
+the first visible paint is Vietnamese; an explicit saved language preference
+can still replace it after config loads.
+
 ## Verification checkpoint
 
 - `npm run typecheck`: passed.
