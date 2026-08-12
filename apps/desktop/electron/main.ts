@@ -41,7 +41,7 @@ import {
 import { stopBackendChild as stopBackendChildImpl } from './backend-child'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
-import { buildDesktopBackendEnv, normalizeHermesHomeRoot } from './backend-env'
+import { buildDesktopBackendEnv } from './backend-env'
 import { canImportHermesCli, shouldTrustHermesOverride, verifyHermesCli } from './backend-probes'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
 import { shouldLatchBackendStartFailure } from './backend-start-failure'
@@ -77,8 +77,10 @@ import {
 import { adoptServedDashboardToken } from './dashboard-token'
 import { loadOrCreateInstallationId, sshOwnershipId } from './desktop-installation'
 import {
+  allowedUninstallModes,
   buildPosixCleanupScript,
   buildWindowsCleanupScript,
+  isUninstallModeAllowed,
   modeRemovesAgent,
   modeRemovesUserData,
   resolveRemovableAppPath,
@@ -86,6 +88,7 @@ import {
   uninstallArgsForMode
 } from './desktop-uninstall'
 import { installEmbedReferer } from './embed-referer'
+import { planEngineUpdate } from './engine-update-scope'
 import { createEventDeduper } from './event-dedupe'
 import { findGitBash as _findGitBash } from './find-git-bash'
 import { readDirForIpc } from './fs-read-dir'
@@ -124,6 +127,8 @@ import {
   resolveTimeoutMs,
   TEXT_PREVIEW_SOURCE_MAX_BYTES
 } from './hardening'
+import { resolveCliHomeForSeed, resolveDesktopHermesHome, resolveSharedAuthDirEnv } from './hermes-home'
+import { seedHermesHomeOnce, shouldSeedPackagedHome } from './hermes-home-seed'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
 import { ensureMainWindow } from './main-window-lifecycle'
 import { oauthSessionIsLive, resolveJsonBody, resolveOauthRestAuth } from './native-auth-decisions'
@@ -458,61 +463,80 @@ if (INSTALL_STAMP) {
   )
 }
 
-// HERMES_HOME — the user-facing root for everything Hermes-related. Mirrors
-// scripts/install.ps1's $HermesHome and scripts/install.sh's $HERMES_HOME.
-//
-// Defaults:
-//   Windows: %LOCALAPPDATA%\hermes (matches install.ps1)
-//   macOS / Linux: ~/.hermes (matches install.sh)
-//
-// Special case for Windows: if the user has a legacy ~/.hermes directory
-// (e.g., from a prior pip install or a manual setup) AND no
-// %LOCALAPPDATA%\hermes yet, prefer the legacy path so we don't orphan their
-// existing config / sessions / .env. New installs go to %LOCALAPPDATA%.
-//
-// HERMES_DESKTOP_USER_DATA_DIR (used by test:desktop:fresh) puts the sandbox
-// HERMES_HOME beneath the throwaway userData dir so a fresh-install run never
-// touches the user's real ~/.hermes / %LOCALAPPDATA%\hermes.
-function resolveHermesHome() {
-  if (process.env.HERMES_HOME) {
-    return normalizeHermesHomeRoot(process.env.HERMES_HOME)
-  }
+// HERMES_HOME — the root for everything Hermes-related the desktop touches.
+// The full precedence ladder (packaged product isolation vs. historical dev
+// behavior) lives in electron/hermes-home.ts and is unit-tested there.
+// Packaged builds NEVER land on the CLI product home: they default to
+// app.getPath('userData')/hermes-home, ignore inherited HERMES_HOME and the
+// Windows registry value, and honor only the product-scoped
+// HERMES_DESKTOP_HERMES_HOME support override or a managed test sandbox.
+const HERMES_HOME = resolveDesktopHermesHome({
+  isPackaged: IS_PACKAGED,
+  platform: process.platform,
+  env: process.env,
+  userDataPath: app.getPath('userData'),
+  homeDir: app.getPath('home'),
+  readWindowsUserEnvVar,
+  directoryExists
+})
 
-  if (USER_DATA_OVERRIDE) {
-    return path.join(path.resolve(USER_DATA_OVERRIDE), 'hermes-home')
-  }
+// Seed-once migration for existing CLI users (packaged only): copy the
+// minimum static provider/setup files from the platform-native CLI home into
+// the fresh Atum home. One-way, one-time, allowlisted — never sessions,
+// profiles, memory, plugins, cron, caches, logs, checkouts, or the shared
+// credential store. See electron/hermes-home-seed.ts for the boundaries.
+if (shouldSeedPackagedHome({ isPackaged: IS_PACKAGED, env: process.env })) {
+  try {
+    const seedResult = seedHermesHomeOnce({
+      sourceHome: resolveCliHomeForSeed({
+        platform: process.platform,
+        env: process.env,
+        homeDir: app.getPath('home'),
+        directoryExists
+      }),
+      targetHome: HERMES_HOME,
+      deps: {
+        exists: fileExists,
+        isDirectory: directoryExists,
+        isSymbolicLink: candidate => {
+          try {
+            return fs.lstatSync(candidate).isSymbolicLink()
+          } catch {
+            return false
+          }
+        },
+        copyEntry: (source, target) => fs.cpSync(source, target, { recursive: true }),
+        mkdirp: target => fs.mkdirSync(target, { recursive: true }),
+        rename: (source, target) => fs.renameSync(source, target),
+        remove: target => fs.rmSync(target, { recursive: true, force: true }),
+        writeFile: (target, contents) => fs.writeFileSync(target, contents),
+        now: () => new Date().toISOString()
+      }
+    })
 
-  if (IS_WINDOWS) {
-    // A GUI app launched from Explorer inherits the environment block captured
-    // at login, so a HERMES_HOME set via `setx` AFTER login is invisible in
-    // process.env even though the CLI (a fresh shell) sees it. Without this the
-    // backend silently falls back to %LOCALAPPDATA%\hermes and reports "No
-    // inference provider configured" despite a valid configured home (#45471).
-    // Consult the live User-scoped registry value before the default below.
-    const fromRegistry = readWindowsUserEnvVar('HERMES_HOME')
-
-    if (fromRegistry) {
-      return normalizeHermesHomeRoot(fromRegistry)
+    if (seedResult.status === 'seeded') {
+      console.log(`[hermes] seeded Atum home from CLI home: ${(seedResult.entries || []).join(', ')}`)
     }
+  } catch (error) {
+    // A failed seed must never block a boot — the engine regenerates what it
+    // needs; the user just re-picks a provider.
+    console.warn(`[hermes] home seed failed (continuing without it): ${error?.message || error}`)
   }
-
-  if (IS_WINDOWS && process.env.LOCALAPPDATA) {
-    const localappdata = path.join(process.env.LOCALAPPDATA, 'hermes')
-    const legacy = path.join(app.getPath('home'), '.hermes')
-
-    // Migrate transparently to LOCALAPPDATA, but honour an existing legacy
-    // ~/.hermes setup (no LOCALAPPDATA install yet) so users don't lose state.
-    if (!directoryExists(localappdata) && directoryExists(legacy)) {
-      return legacy
-    }
-
-    return localappdata
-  }
-
-  return path.join(app.getPath('home'), '.hermes')
 }
 
-const HERMES_HOME = resolveHermesHome()
+// The ONE intentional cross-product share: the subscription credential plane
+// (Codex / Nous OAuth single-use refresh tokens + cross-process refresh lock
+// in <CLI home>/shared). Re-homing HERMES_HOME would silently fork that
+// store, so packaged builds pin HERMES_SHARED_AUTH_DIR to the CLI's native
+// shared dir for every backend child — both products serialize refresh of the
+// SAME credential. Empty in dev, in sandboxes, and under explicit overrides.
+const SHARED_AUTH_DIR_ENV = resolveSharedAuthDirEnv({
+  isPackaged: IS_PACKAGED,
+  platform: process.platform,
+  env: process.env,
+  homeDir: app.getPath('home'),
+  directoryExists
+})
 
 function hermesManagedNodePathEntries() {
   // NOTE: keep this ordering in sync with iter_hermes_node_dirs() in
@@ -2625,6 +2649,14 @@ async function applyUpdates(opts = {}) {
       // the GUI button's contract: append --branch <current> for non-main
       // checkouts, keep it bare for main so the card stays clean.
       const updateRoot = resolveUpdateRoot()
+
+      // Packaged Atum with no engine checkout of its own: the CLI-shaped
+      // manual command below would update the wrong product. Say "update the
+      // app" instead (see engine-update-scope.ts).
+      if (planLocalEngineUpdate(updateRoot).kind === 'app-managed') {
+        return engineUpdateAppManagedResult(updateRoot)
+      }
+
       let command = 'hermes update'
 
       try {
@@ -2799,16 +2831,23 @@ async function handOffWindowsBootstrapRecovery(reason) {
   return true
 }
 
-// Resolve the hermes CLI to drive an in-app update: prefer the venv shim in
-// the install we're updating, fall back to `hermes` on PATH.
-function resolveHermesCliBinary(updateRoot) {
-  const venvHermes = path.join(updateRoot, 'venv', 'bin', 'hermes')
+// Resolve the plan for an in-app engine update. Packaged Atum with no engine
+// checkout of its own is app-managed; see engine-update-scope.ts.
+function planLocalEngineUpdate(updateRoot) {
+  return planEngineUpdate({ fileExists, findOnPath, isPackaged: IS_PACKAGED, platform: process.platform, updateRoot })
+}
 
-  if (fileExists(venvHermes)) {
-    return venvHermes
-  }
+// Packaged builds without their own engine checkout have no in-app engine
+// update to perform: the bundled runtime is immutable inside the signed app
+// and engine updates arrive with the app itself. Answer with the renderer's
+// closeable guiSkew terminal state ("update the app"), never with a command
+// that would update the CLI product instead.
+function engineUpdateAppManagedResult(updateRoot) {
+  const message = 'Atum ships its engine inside the app — install the latest Atum release to pick up engine updates.'
 
-  return findOnPath('hermes') || null
+  emitUpdateProgress({ message, percent: null, stage: 'guiSkew' })
+
+  return { guiSkew: true, hermesRoot: updateRoot, message, ok: true }
 }
 
 // Spawn a command and stream each output line to the update progress channel.
@@ -2875,7 +2914,13 @@ function shellQuote(value) {
 // restart to load the new GUI" if the swap can't be performed.
 async function applyUpdatesPosixInApp(opts: any) {
   const updateRoot = resolveUpdateRoot()
-  const hermes = resolveHermesCliBinary(updateRoot)
+  const updatePlan = planLocalEngineUpdate(updateRoot)
+
+  if (updatePlan.kind === 'app-managed') {
+    return engineUpdateAppManagedResult(updateRoot)
+  }
+
+  const hermes = updatePlan.command
 
   if (!hermes) {
     emitUpdateProgress({ stage: 'manual', message: 'hermes update', percent: null })
@@ -7617,6 +7662,9 @@ async function spawnPoolBackend(profile, entry) {
       env: {
         ...process.env,
         HERMES_HOME,
+        // Shared subscription credential plane — same pin as the primary
+        // backend spawn in startHermes(); {} outside packaged builds.
+        ...SHARED_AUTH_DIR_ENV,
         ...backend.env,
         // Pin the gateway's tool/terminal cwd to the same directory we chose for
         // the child process. Inherited TERMINAL_CWD (or a stale config bridge)
@@ -7883,6 +7931,9 @@ async function startHermes() {
           // directories. install.ps1 sets HERMES_HOME via setx; the desktop
           // can't reliably do that, so we set it inline for every spawn.
           HERMES_HOME,
+          // Shared subscription credential plane (Codex/Nous OAuth) — see the
+          // SHARED_AUTH_DIR_ENV declaration. Packaged-only pin; {} otherwise.
+          ...SHARED_AUTH_DIR_ENV,
           ...backend.env,
           TERMINAL_CWD: hermesCwd,
           HERMES_DASHBOARD_SESSION_TOKEN: token,
@@ -10329,7 +10380,8 @@ async function getUninstallSummary() {
     userdata_dir: app.getPath('userData'),
     userdata_exists: true,
     platform: process.platform,
-    probe: 'fallback'
+    probe: 'fallback',
+    allowed_modes: allowedUninstallModes({ isPackaged: IS_PACKAGED })
   })
 
   if (!fileExists(py)) {
@@ -10376,6 +10428,9 @@ async function getUninstallSummary() {
           // resolved from the running exe (the Python probe only knows the
           // standard locations, not where THIS build actually runs from).
           parsed.running_app_path = resolveRemovableAppPath(process.execPath, process.platform, process.env)
+          // Packaged builds restrict which modes may run (product isolation);
+          // the Python probe doesn't know the desktop's packaging state.
+          parsed.allowed_modes = allowedUninstallModes({ isPackaged: IS_PACKAGED })
           done(parsed)
         } catch {
           done(fallback())
@@ -10395,6 +10450,19 @@ async function runDesktopUninstall(mode) {
     uninstallArgs = uninstallArgsForMode(mode)
   } catch (error) {
     return { ok: false, error: 'invalid-mode', message: error.message }
+  }
+
+  // Product isolation: packaged Atum must never run the CLI uninstaller's
+  // lite/full cross-product cleanup (shell-rc edits, registry env vars,
+  // node symlinks, gateway services). See desktop-uninstall.ts.
+  if (!isUninstallModeAllowed(mode, { isPackaged: IS_PACKAGED })) {
+    return {
+      ok: false,
+      error: 'mode-disabled',
+      message:
+        `Uninstall mode '${mode}' is disabled in packaged Atum because it performs ` +
+        `CLI-product cleanup that is not scoped to the Atum home. Mode 'gui' removes only the app.`
+    }
   }
 
   const venvPy = uninstallVenvPython()
