@@ -4,7 +4,12 @@ import path from 'node:path'
 
 import { test } from 'vitest'
 
-import { assertSafeRuntimeTarget, BUNDLED_PYTHON_VERSION, targetConfig } from './stage-bundled-runtime.mjs'
+import {
+  assertCleanPackageSource,
+  assertSafeRuntimeTarget,
+  BUNDLED_PYTHON_VERSION,
+  targetConfig
+} from './stage-bundled-runtime.mjs'
 
 test('runtime target matrix pins CPython 3.11 for both supported Mac architectures', () => {
   assert.deepEqual(targetConfig('darwin', 'arm64'), {
@@ -27,4 +32,10 @@ test('staging cleanup is constrained to an explicitly named runtime build direct
   assert.equal(assertSafeRuntimeTarget(target), path.resolve(target))
   assert.throws(() => assertSafeRuntimeTarget('/'), /refusing unsafe/)
   assert.throws(() => assertSafeRuntimeTarget(os.tmpdir()), /refusing unsafe/)
+})
+
+test('packaging refuses tracked dirty state unless the development override is explicit', () => {
+  assert.equal(assertCleanPackageSource('', false), false)
+  assert.throws(() => assertCleanPackageSource(' M apps/desktop/electron/main.ts', false), /split renderer\/backend tree/)
+  assert.equal(assertCleanPackageSource(' M apps/desktop/electron/main.ts', true), true)
 })

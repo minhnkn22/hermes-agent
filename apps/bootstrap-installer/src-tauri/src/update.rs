@@ -547,16 +547,35 @@ fn install_lock_probe_paths(install_root: &Path) -> Vec<PathBuf> {
 
 fn desktop_app_payload_paths(install_root: &Path) -> Vec<PathBuf> {
     let release = install_root.join("apps").join("desktop").join("release");
+    let (product_name, _) = crate::bootstrap::desktop_product_layout(install_root);
     if cfg!(target_os = "windows") {
         vec![
             release.join("win-unpacked").join("resources").join("app.asar"),
             release.join("win-arm64-unpacked").join("resources").join("app.asar"),
         ]
     } else if cfg!(target_os = "macos") {
-        vec![
-            release.join("mac").join("Hermes.app").join("Contents").join("Resources").join("app.asar"),
-            release.join("mac-arm64").join("Hermes.app").join("Contents").join("Resources").join("app.asar"),
-        ]
+        let mut paths = Vec::new();
+        for directory in ["mac", "mac-arm64"] {
+            paths.push(
+                release
+                    .join(directory)
+                    .join(format!("{product_name}.app"))
+                    .join("Contents")
+                    .join("Resources")
+                    .join("app.asar"),
+            );
+            if product_name != "Hermes" {
+                paths.push(
+                    release
+                        .join(directory)
+                        .join("Hermes.app")
+                        .join("Contents")
+                        .join("Resources")
+                        .join("app.asar"),
+                );
+            }
+        }
+        paths
     } else {
         vec![release.join("linux-unpacked").join("resources").join("app.asar")]
     }
@@ -821,7 +840,7 @@ async fn install_macos_app_update(
 
     let rebuilt_app = crate::bootstrap::resolve_hermes_desktop_app(install_root).ok_or_else(|| {
         anyhow!(
-            "desktop rebuild succeeded but no Hermes.app was found under {}",
+            "desktop rebuild succeeded but no packaged app was found under {}",
             install_root.join("apps").join("desktop").join("release").display()
         )
     })?;

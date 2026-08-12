@@ -94,6 +94,7 @@ export function I18nProvider({ children, configClient = defaultConfigClient, ini
   useEffect(() => {
     localeRef.current = locale
     setRuntimeI18nLocale(locale)
+    document.documentElement.lang = locale
   }, [locale])
 
   useEffect(() => {

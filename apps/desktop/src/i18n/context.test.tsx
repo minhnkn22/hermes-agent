@@ -39,6 +39,7 @@ describe('I18nProvider', () => {
 
     expect(screen.getByTestId('locale').textContent).toBe('vi')
     expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(document.documentElement.lang).toBe('vi')
   })
 
   it('normalizes an initial locale alias and switches translations', async () => {
@@ -55,6 +56,7 @@ describe('I18nProvider', () => {
 
     await waitFor(() => expect(screen.getByTestId('locale').textContent).toBe('en'))
     expect(screen.getByTestId('label').textContent).toBe('Language')
+    expect(document.documentElement.lang).toBe('en')
   })
 
   it('loads the initial locale from display.language config', async () => {

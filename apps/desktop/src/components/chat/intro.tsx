@@ -156,11 +156,11 @@ function resolveCopy(personality?: string, seed?: number): IntroCopy {
 }
 
 export function Intro({ personality, seed }: IntroProps) {
-  const { locale, t } = useI18n()
+  const { t } = useI18n()
   const [mountSeed] = useState(() => Math.floor(Math.random() * 100000))
   const copy = resolveCopy(personality, mountSeed + (seed ?? 0))
-  const wordmark = locale === 'vi' ? t.intro.heading : 'ATUM'
-  const body = locale === 'vi' ? t.intro.body : copy.body
+  const wordmark = t.intro.heading || 'ATUM'
+  const body = t.intro.body || copy.body
 
   return (
     <div

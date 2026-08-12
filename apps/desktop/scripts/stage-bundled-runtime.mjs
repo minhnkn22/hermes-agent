@@ -79,6 +79,18 @@ function assertSafeRuntimeTarget(targetRoot) {
   return resolvedTarget
 }
 
+function assertCleanPackageSource(status, allowDirty = process.env.ATUM_ALLOW_DIRTY_BUNDLED_RUNTIME === '1') {
+  const dirty = String(status || '').trim().length > 0
+
+  if (dirty && !allowDirty) {
+    throw new Error(
+      'refusing to package a split renderer/backend tree: commit tracked changes first, or set ATUM_ALLOW_DIRTY_BUNDLED_RUNTIME=1 for an explicitly non-reproducible development artifact'
+    )
+  }
+
+  return dirty
+}
+
 function archiveHermesSource({ repoRoot, commit, destination, scratchRoot }) {
   const archivePath = join(scratchRoot, 'hermes-agent.tar')
   mkdirSync(destination, { recursive: true })
@@ -200,7 +212,9 @@ export function stageBundledRuntime({
   const sourceRoot = join(scratchRoot, 'hermes-agent')
   const commit = gitValue(repoRoot, 'HEAD')
   const tree = gitValue(repoRoot, `${commit}^{tree}`)
-  const dirty = run('git', ['-C', repoRoot, 'status', '--porcelain'], { capture: true }).length > 0
+  const dirty = assertCleanPackageSource(
+    run('git', ['-C', repoRoot, 'status', '--porcelain', '--untracked-files=no'], { capture: true })
+  )
 
   rmSync(scratchRoot, { recursive: true, force: true })
   mkdirSync(scratchRoot, { recursive: true })
@@ -258,7 +272,7 @@ export function stageBundledRuntime({
   }
 }
 
-export { assertSafeRuntimeTarget, targetConfig }
+export { assertCleanPackageSource, assertSafeRuntimeTarget, targetConfig }
 
 if (isMain(import.meta.url)) {
   const targetRoot = process.argv[2]

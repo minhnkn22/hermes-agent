@@ -27,6 +27,7 @@
     "build": "node scripts/assert-root-install.mjs && node scripts/write-build-stamp.mjs && vite build && node scripts/bundle-electron-main.mjs && node scripts/stage-native-deps.mjs",
     "postbuild": "node scripts/assert-dist-built.mjs",
     "runtime:stage": "node scripts/stage-bundled-runtime.mjs build/runtime-test",
+    "verify:bundled-app": "node scripts/verify-packaged-bundled-runtime.mjs",
     "prebuilder": "node scripts/patch-electron-builder-mac-binary.mjs",
     "builder": "cross-env NODE_OPTIONS=--max-old-space-size=16384 node scripts/run-electron-builder.mjs",
     "pack": "npm run build && npm run builder -- --dir",
@@ -53,7 +54,7 @@
     "fix": "npm run lint:fix && npm run fmt",
     "test:ui": "vitest run --project ui",
     "test:desktop:platforms": "vitest run --project electron",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/atum-branding.test.mjs",
     "preview": "node scripts/assert-root-install.mjs && vite preview --host 127.0.0.1 --port 4174",
     "check:test:desktop:platforms": "npm run test:desktop:platforms",
     "check:test:ui": "npm run test:ui",
@@ -254,7 +255,7 @@
       ]
     },
     "win": {
-      "legalTrademarks": "Hermes",
+      "legalTrademarks": "Atum",
       "target": [
         "nsis",
         "msi"
@@ -264,7 +265,7 @@
     "linux": {
       "category": "Development",
       "maintainer": "Nous Research <support@nousresearch.com>",
-      "synopsis": "Native desktop shell for Hermes Agent.",
+      "synopsis": "Atum — AI Superapp cho người Việt.",
       "target": [
         "AppImage",
         "deb",
@@ -275,8 +276,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "shortcutName": "Hermes",
-      "uninstallDisplayName": "Hermes",
+      "shortcutName": "Atum",
+      "uninstallDisplayName": "Atum",
       "warningsAsErrors": false
     }
   }

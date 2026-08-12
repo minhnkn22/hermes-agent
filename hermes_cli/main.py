@@ -5488,21 +5488,37 @@ def _write_desktop_build_stamp(project_root: Path, *, source_mode: bool) -> None
 def _desktop_packaged_executable(desktop_dir: Path) -> Optional[Path]:
     """Return the current platform's unpacked Electron app executable."""
     release_dir = desktop_dir / "release"
+    product_name = "Hermes"
+    executable_name = "Hermes"
+    try:
+        package = json.loads((desktop_dir / "package.json").read_text(encoding="utf-8"))
+        build = package.get("build") if isinstance(package.get("build"), dict) else {}
+        product_name = str(build.get("productName") or package.get("productName") or product_name)
+        executable_name = str(build.get("executableName") or product_name or executable_name)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        # Older source trees did not expose branded layout metadata. Retain the
+        # legacy Hermes names below so update/rollback paths remain compatible.
+        pass
+
     if sys.platform == "darwin":
-        candidates = list(release_dir.glob("mac*/Hermes.app/Contents/MacOS/Hermes"))
+        candidates = list(
+            release_dir.glob(
+                f"mac*/{product_name}.app/Contents/MacOS/{executable_name}"
+            )
+        )
+        if (product_name, executable_name) != ("Hermes", "Hermes"):
+            candidates.extend(release_dir.glob("mac*/Hermes.app/Contents/MacOS/Hermes"))
     elif sys.platform == "win32":
-        candidates = [
-            release_dir / "win-unpacked" / "Hermes.exe",
-            release_dir / "win-ia32-unpacked" / "Hermes.exe",
-            release_dir / "win-arm64-unpacked" / "Hermes.exe",
-        ]
+        candidates = []
+        for directory in ("win-unpacked", "win-ia32-unpacked", "win-arm64-unpacked"):
+            candidates.append(release_dir / directory / f"{executable_name}.exe")
+            if executable_name != "Hermes":
+                candidates.append(release_dir / directory / "Hermes.exe")
     else:
-        candidates = [
-            release_dir / "linux-unpacked" / "hermes",
-            release_dir / "linux-unpacked" / "Hermes",
-            release_dir / "linux-arm64-unpacked" / "hermes",
-            release_dir / "linux-arm64-unpacked" / "Hermes",
-        ]
+        candidates = []
+        for directory in ("linux-unpacked", "linux-arm64-unpacked"):
+            for name in dict.fromkeys((executable_name, executable_name.lower(), "hermes", "Hermes")):
+                candidates.append(release_dir / directory / name)
 
     existing = [p for p in candidates if p.exists()]
     if not existing:

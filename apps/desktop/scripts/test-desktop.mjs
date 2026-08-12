@@ -15,10 +15,8 @@ const PLATFORM = process.platform
 const PRODUCT_NAME = PACKAGE_JSON.build?.productName || PACKAGE_JSON.productName
 const EXECUTABLE_NAME = PACKAGE_JSON.build?.executableName || PRODUCT_NAME
 
-// Platform-specific packaged-app layout. The thin installer ships an Electron
-// app shell plus extraResources (install-stamp.json + native-deps/) -- it
-// no longer bundles the Hermes Agent Python payload (that's fetched at first
-// launch via install.ps1 / install.sh, per the Phase 1 thin-installer flow).
+// Platform-specific packaged-app layout. Atum keeps Electron's normal shell
+// layout and adds a pinned relocatable Python/Hermes runtime under Resources.
 const APP = (() => {
   if (PLATFORM === 'darwin') {
     const appPath = path.join(RELEASE_ROOT, `mac-${ARCH}`, `${PRODUCT_NAME}.app`)
@@ -281,9 +279,9 @@ function launchFresh() {
   return { runtimeRoot: path.join(hermesHome, 'hermes-agent', 'venv') }
 }
 
-// Validate the packaged bundle matches the thin-installer architecture:
-//   - The Hermes Agent Python payload is NOT shipped (it's fetched at first
-//     launch via install.ps1's stage protocol).
+// Validate the packaged bundle matches the Atum full-power architecture:
+//   - The old mutable factory-payload location remains absent.
+//   - A pinned relocatable Python/Hermes runtime is present and executable.
 //   - install-stamp.json IS shipped in resources/ with a valid commit + branch.
 //   - node-pty IS shipped inside app.asar.unpacked/dist/node_modules/node-pty
 //     with package.json + lib/ + at least one .node binary (the renderer's
@@ -320,6 +318,37 @@ function validateBundle() {
   if (!stamp.branch || typeof stamp.branch !== 'string') {
     die(`install-stamp.json is missing the branch field: ${JSON.stringify(stamp)}`)
   }
+
+  const runtimeRoot = path.join(APP.resourcesPath, 'runtime')
+  const runtimeManifestPath = path.join(runtimeRoot, 'runtime-manifest.json')
+  const runtimePython = path.join(runtimeRoot, 'python', 'bin', 'python3.11')
+  const runtimeSource = path.join(runtimeRoot, 'hermes-agent')
+  const runtimeMain = path.join(runtimeSource, 'hermes_cli', 'main.py')
+  for (const required of [runtimeManifestPath, runtimePython, runtimeMain]) {
+    if (!exists(required)) {
+      die(`Missing bundled runtime artifact: ${required}`)
+    }
+  }
+  let runtimeManifest
+  try {
+    runtimeManifest = JSON.parse(fs.readFileSync(runtimeManifestPath, 'utf8'))
+  } catch (err) {
+    die(`runtime-manifest.json is not valid JSON: ${err.message}`)
+  }
+  if (runtimeManifest?.hermes?.commit !== stamp.commit) {
+    die(
+      `Renderer/backend source mismatch: install stamp ${stamp.commit} != runtime ${runtimeManifest?.hermes?.commit || 'missing'}`
+    )
+  }
+  if (runtimeManifest?.hermes?.dirtyCheckoutIgnored !== false) {
+    die('Bundled runtime manifest must attest a clean tracked checkout')
+  }
+  run(runtimePython, ['-m', 'hermes_cli.main', '--version'], {
+    env: {
+      ...process.env,
+      PYTHONPATH: [runtimeSource, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
+    }
+  })
 
   // Positive assertion: node-pty native deps shipped
   const native = expectedNativeDepPaths()

@@ -47,7 +47,7 @@ interpreter successfully imported Hermes and exposed both `--version` and
 `serve --help`. This exercises relocation, native wheels, locked dependencies,
 and the actual CLI entry seam together.
 
-The packaged audit also passed:
+The initial packaged audit passed before Atum branding:
 
 ```bash
 cd apps/desktop && npm run pack
@@ -55,7 +55,12 @@ release/mac-arm64/Hermes.app/Contents/Resources/runtime/python/bin/python3.11 \
   -c 'import yaml, dotenv, hermes_cli.config; print("runtime ok")'
 ```
 
-The generated app is 789 MB unpacked, including a 483 MB full-power runtime.
+That historical rehearsal used the legacy `Hermes.app` product name. The Atum
+assembly review later required the audit to validate `Atum.app`, the runtime
+manifest, exact source alignment, and one real isolated bundled-backend boot;
+those stronger results live in the Atum first-slice log.
+
+The generated app was 789 MB unpacked, including a 483 MB full-power runtime.
 Its manifest pinned CPython 3.11.13, Hermes `6c5a1009fd8e` / tree
 `f5c971b7bb54`, and `uv.lock` SHA-256
 `93099ac9ab0837d908877299c9cbe1f380dc2d4865171fefd44dacdcc83d4ce7`.

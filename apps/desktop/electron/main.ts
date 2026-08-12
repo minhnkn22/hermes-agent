@@ -892,12 +892,12 @@ app.setName(APP_NAME)
 // Windows toast notifications silently no-op unless an AppUserModelID is set:
 // `new Notification().show()` returns without error and nothing appears. The
 // AUMID must match the installed Start Menu shortcut's AUMID, which
-// electron-builder derives from the build `appId` (com.nousresearch.hermes) —
+// electron-builder derives from the build `appId` (com.atum.desktop) —
 // keep this string in sync with package.json `build.appId`. macOS/Linux don't
 // need this, so gate it on Windows. (Fixes: desktop approval/turn notifications
 // never firing on Windows.)
 if (IS_WINDOWS) {
-  app.setAppUserModelId('com.nousresearch.hermes')
+  app.setAppUserModelId('com.atum.desktop')
 }
 
 // Seed the native About panel with the live Hermes version. This is refreshed
@@ -3085,6 +3085,8 @@ async function applyUpdatesPosixInApp(opts: any) {
   }
 
   const rebuiltApp = [
+    path.join(updateRoot, 'apps', 'desktop', 'release', 'mac-arm64', `${APP_NAME}.app`),
+    path.join(updateRoot, 'apps', 'desktop', 'release', 'mac', `${APP_NAME}.app`),
     path.join(updateRoot, 'apps', 'desktop', 'release', 'mac-arm64', 'Hermes.app'),
     path.join(updateRoot, 'apps', 'desktop', 'release', 'mac', 'Hermes.app')
   ].find(directoryExists)
@@ -8103,7 +8105,7 @@ function spawnSecondaryWindow({ sessionId, watch }: { sessionId?: string; watch?
     height: SESSION_WINDOW_MIN_HEIGHT,
     minWidth: SESSION_WINDOW_MIN_WIDTH,
     minHeight: SESSION_WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     titleBarStyle: 'hidden',
     titleBarOverlay: getTitleBarOverlayOptions(),
     trafficLightPosition: IS_MAC ? WINDOW_BUTTON_POSITION : undefined,
@@ -8186,7 +8188,7 @@ function createInstanceWindow() {
     ...nextInstanceBounds(),
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     titleBarStyle: 'hidden',
     titleBarOverlay: getTitleBarOverlayOptions(),
     trafficLightPosition: IS_MAC ? WINDOW_BUTTON_POSITION : undefined,
@@ -8378,7 +8380,7 @@ function createWindow() {
     ...computeWindowOptions(savedWindowState, screen.getAllDisplays()),
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     // Frameless title bar on every platform so the renderer can paint the
     // "hide sidebar" button (and other left-side titlebar tools) flush with
     // the top edge — matching the macOS layout where the traffic lights sit
@@ -9409,7 +9411,7 @@ ipcMain.handle('hermes:notify', (_event, payload) => {
   const actions = Array.isArray(payload?.actions) ? payload.actions : []
 
   const notification = new Notification({
-    title: payload?.title || 'Hermes',
+    title: payload?.title || APP_NAME,
     body: payload?.body || '',
     silent: Boolean(payload?.silent),
     actions: actions.map(action => ({ type: 'button', text: String(action?.text || '') }))

@@ -39,8 +39,27 @@ ALLOW_NO_DOCS_LOG=1 npx vitest run \
   src/themes/user-themes.test.ts src/components/onboarding/index.test.tsx
 ```
 
-The final packaged-app build, launch, visual inspection, full suite, and
-bundled-runtime tool proof are recorded after those commands complete.
+The source checkpoint was independently reviewed by Kimi job
+`7cd092b6-2abe-44aa-b3e6-a1f457f3b4ad`, which returned `DO NOT SHIP` for a
+real lifecycle regression: the renamed `Atum.app` was invisible to several
+Hermes launcher/install/update resolvers. The follow-up corrects those paths
+while retaining legacy Hermes fallbacks, adds an Atum-shaped CLI regression,
+and makes the bootstrap installer derive product/executable names from the
+desktop package manifest.
+
+The same follow-up:
+
+- rejects tracked-dirty runtime packages unless an explicit development-only
+  override is set, preventing a worktree renderer from being paired with an
+  older archived backend;
+- audits the bundled runtime and exact source commit as part of the desktop
+  package validation;
+- adds a real non-faked packaged-app boot verifier using an isolated
+  `HERMES_HOME` and user-data directory;
+- completes native Atum names for window, notification, Windows shortcut,
+  uninstall, and AppUserModelID fallbacks;
+- synchronizes the document language with the selected locale and makes the
+  localized Atum introduction catalog authoritative for every locale.
 
 Checkpoint results before the source commit:
 
@@ -52,6 +71,11 @@ Checkpoint results before the source commit:
 - initial packaging rehearsal produced `Atum.app` with Python 3.11.13 and the
   bundled Hermes tree. Because that rehearsal preceded this source commit, its
   install stamp correctly said `DIRTY`; it is not the final packaged evidence.
+
+Final clean-commit packaging, the package audit, isolated bundled-backend boot,
+and targeted reviewer follow-up are recorded in the next checkpoint after the
+review fixes are committed, because the clean-source packaging guard is
+deliberately impossible to satisfy from an uncommitted worktree.
 
 ## Distribution boundary
 
