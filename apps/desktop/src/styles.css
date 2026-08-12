@@ -1991,3 +1991,13 @@ body:has(.atum-shell),
 .atum-auth-heading:focus-visible {
   outline: none;
 }
+
+/* Hermes' global focus rule deliberately normalizes border-radius via inherit;
+   inside the Atum gate that produced a square outline around an otherwise
+   rounded input. Keep keyboard focus visible, but use the product radius and a
+   quiet material halo rather than a second hard rectangle. */
+.atum-auth-plate input:focus-visible {
+  border-radius: var(--atum-r-control);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--atum-focus);
+}

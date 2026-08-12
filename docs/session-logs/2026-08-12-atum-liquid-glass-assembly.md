@@ -122,3 +122,10 @@ the icon is a normal rounded tile with transparent corners and optical size
 matching neighboring apps; it is neither the original nested white tile nor the
 intermediate hard black square. The installed auth window also confirmed that
 only the macOS traffic lights remain in the top rim.
+
+The first packaged keystroke (`x`) landed directly in the identifier field,
+proving the focus-order correction on the real app. That same capture exposed a
+square legacy global focus outline around the rounded field. A final scoped CSS
+rule retains keyboard visibility while replacing the double rectangle with the
+Atum control radius and quiet material halo; no global Hermes focus behavior is
+changed.
