@@ -66,3 +66,19 @@ Its manifest pinned CPython 3.11.13, Hermes `6c5a1009fd8e` / tree
 `93099ac9ab0837d908877299c9cbe1f380dc2d4865171fefd44dacdcc83d4ce7`.
 Packaging skipped Developer ID signing and notarization because this host has no
 valid Apple signing identity; the local app is ad-hoc/linker signed only.
+
+## Installation relocation correction
+
+The first final-copy rehearsal exposed that `uv python install` emits several
+absolute convenience symlinks back into its temporary install directory. The
+desktop boot uses the concrete `python3.11` executable, so the isolated backend
+test passed, but aliases such as `python3`, `pip`, and pkg-config entries became
+broken after the staging directory was removed. macOS deep signature
+verification surfaced the defect during installation.
+
+The stager now walks the copied Python payload before removing the source and
+rewrites only absolute symlinks whose targets are inside that exact temporary
+Python root. Their replacements are relative bundle-local links; unrelated
+absolute links remain untouched. A focused relocation test removes the source
+tree and proves the rewritten alias still resolves. Bundled-runtime tests pass
+10/10 and desktop typecheck plus `git diff --check` remain green.

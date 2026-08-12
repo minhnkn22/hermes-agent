@@ -2,8 +2,20 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { isMain } from './utils.mjs'
@@ -99,6 +111,37 @@ function archiveHermesSource({ repoRoot, commit, destination, scratchRoot }) {
   rmSync(archivePath, { force: true })
 }
 
+function rewriteInternalAbsoluteSymlinks(root, copiedFrom) {
+  let rewritten = 0
+
+  const visit = directory => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name)
+
+      if (entry.isDirectory()) {
+        visit(entryPath)
+        continue
+      }
+
+      if (!entry.isSymbolicLink()) continue
+      const linkTarget = readlinkSync(entryPath)
+      if (!isAbsolute(linkTarget)) continue
+
+      const sourcePrefix = `${copiedFrom}${sep}`
+      if (linkTarget !== copiedFrom && !linkTarget.startsWith(sourcePrefix)) continue
+
+      const bundledTarget = join(root, relative(copiedFrom, linkTarget))
+      const relativeTarget = relative(dirname(entryPath), bundledTarget) || '.'
+      unlinkSync(entryPath)
+      symlinkSync(relativeTarget, entryPath)
+      rewritten += 1
+    }
+  }
+
+  visit(root)
+  return rewritten
+}
+
 function installPython({ uv, scratchRoot, destination, pythonInstallKey }) {
   const installRoot = join(scratchRoot, 'python-install')
   run(uv, [
@@ -119,6 +162,7 @@ function installPython({ uv, scratchRoot, destination, pythonInstallKey }) {
   }
 
   cpSync(installedRoot, destination, { recursive: true })
+  rewriteInternalAbsoluteSymlinks(destination, installedRoot)
   rmSync(installRoot, { recursive: true, force: true })
 }
 
@@ -272,7 +316,7 @@ export function stageBundledRuntime({
   }
 }
 
-export { assertCleanPackageSource, assertSafeRuntimeTarget, targetConfig }
+export { assertCleanPackageSource, assertSafeRuntimeTarget, rewriteInternalAbsoluteSymlinks, targetConfig }
 
 if (isMain(import.meta.url)) {
   const targetRoot = process.argv[2]
