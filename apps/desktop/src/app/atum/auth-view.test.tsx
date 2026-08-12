@@ -53,11 +53,11 @@ describe('AtumAuthView', () => {
     expect(globalThis.document.activeElement).toBe(screen.getByRole('textbox', { name: /Username/ }))
   })
 
-  it('focuses the heading only when there is no editable credential field', () => {
+  it('does not move focus during a provider-only or unresolved state', () => {
     $atumAccountStatus.set({ ...signedOut, providers: { google: true, password: false } })
     render(<AtumAuthView />)
 
-    expect(globalThis.document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
+    expect(globalThis.document.activeElement).not.toBe(screen.getByRole('heading', { level: 1 }))
   })
 
   it('offers Google first, then the identifier/password fallback', () => {

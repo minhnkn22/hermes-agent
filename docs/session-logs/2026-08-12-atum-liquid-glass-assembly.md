@@ -129,3 +129,75 @@ square legacy global focus outline around the rounded field. A final scoped CSS
 rule retains keyboard visibility while replacing the double rectangle with the
 Atum control radius and quiet material halo; no global Hermes focus behavior is
 changed.
+
+## Final Finder-launched package
+
+Commit `d8179ddb6dabb540c7cad63f55986e131ffc8420` was packaged with the
+relocatable Python 3.11.13/Hermes runtime and installed atomically at
+`/Applications/Atum.app`. The immediately preceding installed package remains
+recoverable at `/Applications/Atum.app.pre-final-focus-d8179ddb6`; no app data
+was deleted. The installed package reports the same commit in both its runtime
+manifest and install stamp, contains the Electron framework, `app.asar`, public
+endpoint configuration, and bundled Python executable, and its ICNS SHA-256 is
+still `e12b12b4674599b76fec245f34b5961c6ebf31520621982f55aa9b91784f82ac`.
+
+The actual Finder-launched app was activated and sent a literal `x`. A direct
+screen capture showed the character in the identifier field, a single rounded
+focus halo, no legacy Hermes titlebar controls, Vietnamese-first copy, and the
+installed rounded Atum icon at normal optical size in the Dock. The test
+character was cleared immediately afterward. Targeted Opus follow-up job
+`346c0bcd-2074-446c-9666-f4226e67b9ee` received this exact rendered evidence;
+its verdict and the pending Kimi result are appended after inspection rather
+than predicted here.
+
+## Independent review closure
+
+Kimi K3 job `9d83a51c-ab4a-4cbe-8df9-b231b4a349fa` returned `SHIP WITH
+FIXES`: the prior Opus findings were correctly addressed and no functional
+regression was found. Its two required corrections were accepted. The new
+source-regex titlebar guard violated the repository testing rule, so the legacy
+titlebar boundary is now a small rendered component with behavioral tests for
+both the Atum-hidden and legacy-visible states. Stale comments now accurately
+describe BrowserWindow vibrancy in development and packaged builds. The auth
+heading no longer receives background focus during unresolved/provider-only
+states, and the decorative `or` copy uses the already verified accessible ink
+token. Non-macOS first-launch tint remains outside this macOS-only milestone.
+
+The targeted Opus visual follow-up job
+`346c0bcd-2074-446c-9666-f4226e67b9ee` returned `SHIP WITH FIXES`. It marked
+both P0 findings fixed and four of five P1 findings fixed; flat desk vibrancy
+and slightly stronger elevation were optional polish. Its sole remaining fix
+was measurable non-text contrast: the installed focus halo was 1.81:1 and the
+resting input edge 1.22:1. Dedicated light/dark auth-field tokens now use 48%
+edge and 58% focus alpha, scoped to credential controls so the rest of the
+liquid-material hierarchy remains quiet.
+
+Post-review verification before the final package:
+
+- focused Atum/titlebar behavior: 57 passed;
+- full desktop typecheck: passed;
+- full UI run: 2,215 passed and one existing skip; the unrelated markdown
+  property-fuzz test alone exceeded its 30-second budget under full parallel
+  load;
+- isolated rerun of that markdown suite: 6 passed in 5.16 seconds;
+- targeted ESLint, Prettier, and `git diff --check`: passed.
+
+## Dogfood login proof
+
+A real nonproduction account was created/reset for the owner at
+`minh.dogfood@atum.vn` with handle `minh-dogfood`; its generated password is
+stored only in macOS Keychain service `com.atum.desktop.dogfood-login`. The
+hosted native password endpoint returned HTTP 200 and issued a session. The
+credential was then entered through the Finder-launched app. macOS displayed
+the expected first-use `Atum Safe Storage` Keychain prompt for this unsigned
+build; `Always Allow` succeeded without requesting or guessing the machine
+password. Atum transitioned to the signed-in product shell with its own rail,
+single Atum conversation, composer, and workspace control. No Hermes profile,
+session, or project appeared.
+
+Google is not merely hidden by renderer copy: the packaged config currently
+declares `providers.google=false`, its anon credential is a disabled legacy JWT,
+and the current Supabase project's public auth settings report Google disabled.
+The system-browser PKCE implementation remains present. A follow-up must use the
+current publishable key and enable/configure the Google provider before exposing
+the button; showing a nonfunctional affordance would be false progress.

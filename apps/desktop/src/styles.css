@@ -1866,8 +1866,9 @@ text-* variant utilities. */ .btn-arc {
      2. ONE translucent veil — `.atum-chat-header`, the only backdrop-filter in
         the shell (pinned and non-moving, so it never repaints during scroll);
      3. a soft specular hairline on plate top edges (`--atum-sheen`).
-   Real window vibrancy would be a main-process change and is deliberately not
-   claimed from CSS. */
+   The BrowserWindow already supplies native macOS vibrancy. The scoped clear
+   document paint below lets these recipes composite over that material while
+   keeping the legacy Hermes shell opaque. */
 .atum-shell {
   /* surfaces */
   --atum-desk: rgb(231 229 224 / 76%);
@@ -1891,6 +1892,8 @@ text-* variant utilities. */ .btn-arc {
   --atum-hover: rgb(0 0 0 / 4.5%);
   --atum-pressed: rgb(0 0 0 / 7%);
   --atum-focus: rgb(28 27 25 / 28%);
+  --atum-auth-field-line: rgb(28 27 25 / 48%);
+  --atum-auth-focus: rgb(28 27 25 / 58%);
   --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 18%, transparent);
 
   /* radii */
@@ -1915,8 +1918,9 @@ text-* variant utilities. */ .btn-arc {
   --atum-dur-slow: 300ms;
 }
 
-/* The packaged BrowserWindow supplies the actual NSVisualEffectView. Clear the
-   document paint only while the Atum product shell is mounted so its warm
+/* BrowserWindow supplies the actual NSVisualEffectView on macOS in dev and in
+   packaged builds. Clear the document paint only while the Atum product shell
+   is mounted so its warm
    translucent desk and plates can refract the native macOS material. Legacy
    Hermes remains fully opaque when the fallback shell is selected. */
 html:has(.atum-shell),
@@ -1947,6 +1951,8 @@ body:has(.atum-shell),
   --atum-hover: rgb(255 255 255 / 5%);
   --atum-pressed: rgb(255 255 255 / 9%);
   --atum-focus: rgb(242 236 225 / 32%);
+  --atum-auth-field-line: rgb(242 236 225 / 48%);
+  --atum-auth-focus: rgb(242 236 225 / 58%);
   --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 8%, transparent);
 
   --atum-shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
@@ -1984,12 +1990,18 @@ body:has(.atum-shell),
   backdrop-filter: blur(20px) saturate(180%);
 }
 
-/* Programmatic focus gives the auth gate a deterministic screen-reader entry
-   point, but a heading is not an interactive control and must not receive the
-   global keyboard-focus pill. */
+/* A heading is not an interactive control and must not receive the global
+   keyboard-focus pill if assistive technology or host code targets it. */
 .atum-auth-heading:focus,
 .atum-auth-heading:focus-visible {
   outline: none;
+}
+
+/* Credential boundaries remain locatable in glare and low-vision conditions.
+   These stronger values are scoped to the auth gate so the calmer plate
+   hairlines elsewhere keep their liquid-material hierarchy. */
+.atum-auth-plate input {
+  border-color: var(--atum-auth-field-line);
 }
 
 /* Hermes' global focus rule deliberately normalizes border-radius via inherit;
@@ -1999,5 +2011,5 @@ body:has(.atum-shell),
 .atum-auth-plate input:focus-visible {
   border-radius: var(--atum-r-control);
   outline: none;
-  box-shadow: 0 0 0 3px var(--atum-focus);
+  box-shadow: 0 0 0 3px var(--atum-auth-focus);
 }

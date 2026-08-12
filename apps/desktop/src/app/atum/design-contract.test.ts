@@ -70,11 +70,3 @@ describe('Atum shell — the devices control promises nothing', () => {
     }
   })
 })
-
-describe('Atum shell — Hermes chrome stays behind the fallback flag', () => {
-  it('does not mount legacy titlebar controls over the Atum product shell', () => {
-    const wiring = readFileSync(resolve(ATUM_DIR, '..', 'contrib', 'wiring.tsx'), 'utf8')
-
-    expect(wiring).toMatch(/!atumShellEnabled\s*&&\s*\(\s*<TitlebarControls/u)
-  })
-})

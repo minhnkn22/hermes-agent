@@ -23,7 +23,6 @@ export function AtumAuthView() {
   const { t } = useI18n()
   const account = useStore($atumAccountStatus)
   const [method, setMethod] = useState<'google' | 'password' | null>(null)
-  const headingRef = useRef<HTMLHeadingElement>(null)
   const alertRef = useRef<HTMLParagraphElement>(null)
 
   const signingIn = account.state === 'signing_in'
@@ -38,15 +37,6 @@ export function AtumAuthView() {
         : failureKind === 'provider'
           ? t.dm.signInProviderDown
           : null
-
-  // Let the credential field own focus whenever it exists so the first typed
-  // character is never lost. The heading needs programmatic focus only in a
-  // provider-only/unavailable state with no editable entry point.
-  useEffect(() => {
-    if (!account.providers.password) {
-      headingRef.current?.focus()
-    }
-  }, [account.providers.password])
 
   // A failure is the one thing that must interrupt: move focus to the band so
   // the reason is read before the user retypes.
@@ -71,11 +61,7 @@ export function AtumAuthView() {
       <main className="atum-auth-plate atum-plate w-[400px] max-w-full p-8 [-webkit-app-region:no-drag]">
         <BrandMark className="size-14 rounded-[var(--atum-r-tile)]" />
 
-        <h1
-          className="atum-auth-heading mt-5 text-[22px] font-semibold tracking-[-0.02em] text-(--atum-ink)"
-          ref={headingRef}
-          tabIndex={-1}
-        >
+        <h1 className="atum-auth-heading mt-5 text-[22px] font-semibold tracking-[-0.02em] text-(--atum-ink)">
           {expired ? t.atum.auth.expiredTitle : t.atum.auth.title}
         </h1>
         <p className="mt-2 max-w-prose text-[13px] leading-5 text-(--atum-ink-soft)">
@@ -113,7 +99,7 @@ export function AtumAuthView() {
             )}
 
             {account.providers.google && account.providers.password && (
-              <div className="flex items-center gap-3 text-[11px] text-(--atum-ink-faint)">
+              <div className="flex items-center gap-3 text-[11px] text-(--atum-ink-soft)">
                 <span className="h-px flex-1 bg-(--atum-line-strong)" />
                 <span>{t.dm.or}</span>
                 <span className="h-px flex-1 bg-(--atum-line-strong)" />
