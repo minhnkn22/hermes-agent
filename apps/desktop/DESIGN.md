@@ -88,6 +88,11 @@ for call-site shadow or border inventions.
 
 ## Stroke & color tokens
 
+Atum is the fresh-profile desktop theme. Its warm monochrome palette is a
+named registry entry (`atum`) rather than a component fork; existing Hermes
+themes remain available. Brand warmth must never replace semantic diff,
+destructive, warning, or success colors.
+
 | Token | Use |
 | --- | --- |
 | `--ui-stroke-primary…quaternary` | hairlines, in descending strength |
@@ -205,10 +210,21 @@ Notes:
 - Pick the vocabulary by semantic context and reuse the existing icon for an
   action. Do not introduce a third icon set or mix styles within one control
   group.
-- **`BrandMark`** (`src/components/brand-mark.tsx`) is the brand glyph — the
-  `nous-girl` mark on a white tile, softly rounded, identical in light/dark.
-  It replaced scattered Sparkles glyphs in updates / onboarding / about. Use it
-  for hero/brand moments; don't reintroduce decorative star/sparkle icons.
+- **`BrandMark`** (`src/components/brand-mark.tsx`) is the Atum orbit glyph.
+  Use it for hero/brand moments; don't reintroduce decorative star/sparkle
+  icons. The packaged macOS icon uses the same mark on a transparent 1024 px
+  canvas with an inset rounded body so its perceived Dock size matches native
+  apps.
+
+## Language and product naming
+
+- Vietnamese (`vi`) is the fresh-profile locale; English remains the complete
+  fallback catalog for untranslated settings and provider instructions.
+- Product-facing shell copy says **Atum**. Internal `hermes` package names,
+  config keys, environment variables, IPC identifiers, and the `hermes:` URL
+  scheme remain stable for upstream compatibility.
+- The founder-approved onboarding support line is maintained in the Vietnamese
+  catalog, not duplicated in components.
 
 ## Motion
 

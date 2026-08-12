@@ -1,15 +1,10 @@
 import { expect, test } from './test'
 
-import {
-  PACKAGED_BINARY_PATH,
-  type PackagedAppFixture,
-  packagedBinaryExists,
-  setupPackagedApp,
-} from './fixtures'
+import { PACKAGED_BINARY_PATH, type PackagedAppFixture, packagedBinaryExists, setupPackagedApp } from './fixtures'
 import { expectVisualSnapshot } from './visual-snapshot'
 
 /**
- * E2E smoke tests for the packaged Hermes desktop app.
+ * E2E smoke tests for the packaged Atum desktop app.
  *
  * Launches the real packaged Electron binary (produced by `npm run pack` →
  * `electron-builder --dir`) with BOOT_FAKE=1 and full sandbox isolation
@@ -21,10 +16,7 @@ import { expectVisualSnapshot } from './visual-snapshot'
 let fixture: PackagedAppFixture | null = null
 
 test.beforeAll(async () => {
-  test.skip(
-    !packagedBinaryExists(),
-    `Built app binary not found: ${PACKAGED_BINARY_PATH}. Run 'npm run pack' first.`,
-  )
+  test.skip(!packagedBinaryExists(), `Built app binary not found: ${PACKAGED_BINARY_PATH}. Run 'npm run pack' first.`)
 
   fixture = await setupPackagedApp()
 })
@@ -34,9 +26,9 @@ test.afterAll(async () => {
   fixture = null
 })
 
-test('window opens with the Hermes title', async () => {
+test('window opens with the Atum title', async () => {
   const title = await fixture!.page.title()
-  expect(title).toContain('Hermes')
+  expect(title).toContain('Atum')
 })
 
 test('renderer loads and shows DOM content', async () => {
@@ -69,10 +61,10 @@ test('boot progress overlay fades out or shows error state', async () => {
       const bootIndicators = ['starting', 'resolving', 'spawning', 'waiting', 'installing']
       const lower = text.toLowerCase()
 
-      return !bootIndicators.some((word) => lower.includes(word))
+      return !bootIndicators.some(word => lower.includes(word))
     },
     undefined,
-    { timeout: 60_000 },
+    { timeout: 60_000 }
   )
 })
 

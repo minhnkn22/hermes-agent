@@ -2,7 +2,11 @@ import { normalize } from '@/lib/text'
 
 import type { Locale } from './types'
 
-export const DEFAULT_LOCALE: Locale = 'en'
+/** Locale selected for a fresh Atum profile. */
+export const DEFAULT_LOCALE: Locale = 'vi'
+
+/** Complete catalog used when a partial locale has not translated a key yet. */
+export const FALLBACK_LOCALE: Locale = 'en'
 
 export const LOCALE_OPTIONS = [
   {
@@ -10,6 +14,12 @@ export const LOCALE_OPTIONS = [
     name: 'English',
     englishName: 'English',
     configValue: 'en'
+  },
+  {
+    id: 'vi',
+    name: 'Tiếng Việt',
+    englishName: 'Vietnamese',
+    configValue: 'vi'
   },
   {
     id: 'zh',
@@ -43,6 +53,9 @@ const LOCALE_ALIASES: Record<string, Locale> = {
   en: 'en',
   'en-us': 'en',
   en_us: 'en',
+  vi: 'vi',
+  'vi-vn': 'vi',
+  vi_vn: 'vi',
   zh: 'zh',
   'zh-cn': 'zh',
   zh_cn: 'zh',

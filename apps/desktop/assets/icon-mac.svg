@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="atum-app-halo">
+      <stop offset="62%" stop-color="#EFEEEA" stop-opacity="0" />
+      <stop offset="78%" stop-color="#EFEEEA" stop-opacity=".22" />
+      <stop offset="100%" stop-color="#EFEEEA" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#141311" />
+  <g transform="translate(256 256) scale(8)">
+    <circle cx="32" cy="32" r="32" fill="url(#atum-app-halo)" />
+    <circle cx="32" cy="32" r="27.5" fill="#EFEEEA" />
+    <circle cx="30" cy="34" r="26" fill="#0B0B0A" />
+    <circle cx="49.5" cy="14.5" r="4.6" fill="#EFEEEA" />
+  </g>
+</svg>

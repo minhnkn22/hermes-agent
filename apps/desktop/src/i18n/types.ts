@@ -5,7 +5,7 @@
 // partial locales should use `defineLocale()` so missing desktop-only strings
 // fall back to English while new keys remain type-checked.
 
-export type Locale = 'en' | 'zh' | 'zh-hant' | 'ja'
+export type Locale = 'en' | 'vi' | 'zh' | 'zh-hant' | 'ja'
 
 export type ToolTitleKey =
   | 'browser_click'
@@ -88,6 +88,11 @@ export interface Translations {
     tryHint: (term: string) => string
     on: string
     off: string
+  }
+
+  intro: {
+    heading: string
+    body: string
   }
 
   fileMenu: {

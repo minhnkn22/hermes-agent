@@ -45,6 +45,11 @@ export const en: Translations = {
     off: 'Off'
   },
 
+  intro: {
+    heading: 'Start with Atum',
+    body: 'Ask anything, or give Atum a task on your computer.'
+  },
+
   fileMenu: {
     revealFinder: 'Reveal in Finder',
     revealExplorer: 'Reveal in File Explorer',

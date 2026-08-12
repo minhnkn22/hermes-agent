@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { BrandMark } from '@/components/brand-mark'
 import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
@@ -392,9 +393,14 @@ function Header() {
   const { t } = useI18n()
 
   return (
-    <div className="bg-(--ui-chat-bubble-background) px-5 pt-5 pb-1">
-      <h2 className="text-[0.9375rem] font-semibold tracking-tight">{t.onboarding.headerTitle}</h2>
-      <p className="mt-1 max-w-xl text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">{t.onboarding.headerDesc}</p>
+    <div className="flex items-start gap-3 bg-(--ui-chat-bubble-background) px-5 pt-5 pb-1">
+      <BrandMark className="size-10" />
+      <div className="min-w-0">
+        <h2 className="text-[0.9375rem] font-semibold tracking-tight">{t.onboarding.headerTitle}</h2>
+        <p className="mt-1 max-w-[34rem] text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">
+          {t.onboarding.headerDesc}
+        </p>
+      </div>
     </div>
   )
 }

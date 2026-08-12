@@ -40,7 +40,7 @@ describe('PromptOverlays', () => {
 
     expect(screen.getByText('Administrator password')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy' }))
 
     await waitFor(() => expect($sudoRequest.get()).toBeNull())
     expect(request).toHaveBeenCalledWith('sudo.respond', { password: '', request_id: 'sudo-1' })
@@ -58,7 +58,7 @@ describe('PromptOverlays', () => {
 
     expect(screen.getByText('TEST_SECRET')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Hủy' }))
 
     await waitFor(() => expect($secretRequest.get()).toBeNull())
     expect(request).toHaveBeenCalledWith('secret.respond', { request_id: 'secret-1', value: '' })

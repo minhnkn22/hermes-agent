@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { I18nProvider } from '@/i18n'
 import { $desktopOnboarding, type DesktopOnboardingState, type OnboardingContext } from '@/store/onboarding'
 import type { OAuthProvider } from '@/types/hermes'
 
@@ -58,7 +59,11 @@ afterEach(() => {
 describe('onboarding Picker', () => {
   it('features Nous Portal and hides other providers behind a disclosure', () => {
     setProviders([provider('anthropic', 'Anthropic Claude'), provider('nous', 'Nous Portal')])
-    render(<Picker ctx={ctx} />)
+    render(
+      <I18nProvider configClient={null}>
+        <Picker ctx={ctx} />
+      </I18nProvider>
+    )
 
     expect(screen.getByText('Nous Portal')).toBeTruthy()
     expect(screen.getByText('Recommended')).toBeTruthy()
@@ -105,11 +110,15 @@ describe('onboarding Picker', () => {
     expect(screen.queryByText('Recommended')).toBeNull()
   })
 
-  it('offers "choose later" on first run and persists the skip', () => {
+  it('offers Vietnamese "choose later" copy on first run and persists the skip', () => {
     setProviders([provider('nous', 'Nous Portal')])
-    render(<Picker ctx={ctx} />)
+    render(
+      <I18nProvider configClient={null}>
+        <Picker ctx={ctx} />
+      </I18nProvider>
+    )
 
-    const skip = screen.getByRole('button', { name: "I'll choose a provider later" })
+    const skip = screen.getByRole('button', { name: 'Tôi sẽ chọn nhà cung cấp sau' })
 
     fireEvent.click(skip)
 
@@ -122,6 +131,6 @@ describe('onboarding Picker', () => {
     $desktopOnboarding.set({ ...$desktopOnboarding.get(), manual: true })
     render(<Picker ctx={ctx} />)
 
-    expect(screen.queryByRole('button', { name: "I'll choose a provider later" })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Tôi sẽ chọn nhà cung cấp sau' })).toBeNull()
   })
 })

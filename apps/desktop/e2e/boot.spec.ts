@@ -13,11 +13,7 @@
  */
 import { expect, test } from './test'
 
-import {
-  type MockBackendFixture,
-  setupMockBackend,
-  waitForAppReady,
-} from './fixtures'
+import { type MockBackendFixture, setupMockBackend, waitForAppReady } from './fixtures'
 import { expectVisualSnapshot } from './visual-snapshot'
 
 let fixture: MockBackendFixture | null = null
@@ -32,9 +28,9 @@ test.afterAll(async () => {
 })
 
 test.describe('dev-mode boot with mock backend', () => {
-  test('window opens with Hermes title', async () => {
+  test('window opens with Atum title', async () => {
     const title = await fixture!.page.title()
-    expect(title).toContain('Hermes')
+    expect(title).toContain('Atum')
   })
 
   test('renderer mounts and shows DOM content', async () => {
@@ -46,7 +42,7 @@ test.describe('dev-mode boot with mock backend', () => {
     // Wait for the main app shell — the composer is always present.
     await page.waitForSelector('textarea, [contenteditable="true"]', {
       state: 'attached',
-      timeout: 30_000,
+      timeout: 30_000
     })
   })
 

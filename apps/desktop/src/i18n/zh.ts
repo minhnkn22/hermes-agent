@@ -45,6 +45,11 @@ export const zh: Translations = {
     off: '关'
   },
 
+  intro: {
+    heading: 'Start with Atum',
+    body: 'Ask anything, or give Atum a task to handle on your computer.'
+  },
+
   fileMenu: {
     revealFinder: '在访达中显示',
     revealExplorer: '在文件资源管理器中显示',
