@@ -29,6 +29,7 @@ import { sessionMessagesSignature } from '@/lib/session-signatures'
 import { isMessagingSource } from '@/lib/session-source'
 import { latestSessionTodos } from '@/lib/todos'
 import { $billingSettingsRequest } from '@/store/billing-block'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
 import { $filePreviewTarget, $previewTarget } from '@/store/preview'
@@ -123,6 +124,7 @@ export { WiredPane } from './context'
 export function ContribWiring({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const location = useLocation()
+  const atumShellEnabled = useStore($atumShellEnabled)
   const navigate = useNavigate()
 
   const busyRef = useRef(false)
@@ -914,11 +916,13 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           } as CSSProperties
         }
       >
-        <TitlebarControls
-          leftTools={leftTitlebarTools}
-          onOpenSettings={() => navigate(SETTINGS_ROUTE)}
-          tools={rightTitlebarTools}
-        />
+        {!atumShellEnabled && (
+          <TitlebarControls
+            leftTools={leftTitlebarTools}
+            onOpenSettings={() => navigate(SETTINGS_ROUTE)}
+            tools={rightTitlebarTools}
+          />
+        )}
         {children}
       </div>
 

@@ -53,3 +53,39 @@ can still replace it after config loads.
 
 Final post-correction build/package/install and visual evidence are appended
 after the rerun.
+
+## Packaged visual correction checkpoint
+
+The first visible Vietnamese package exposed three production-design defects
+that component tests could not show:
+
+- `ContribWiring` still mounted the legacy fixed Hermes titlebar controls over
+  the Atum shell. The Atum product branch now keeps all contribution wiring but
+  omits only that legacy visual cluster; the existing fallback flag still
+  restores the complete Hermes chrome.
+- Programmatic screen-reader focus drew the global interactive focus ring around
+  the non-interactive auth heading. The auth heading now retains semantic focus
+  without an interactive outline.
+- The full-bleed opaque ICNS correction removed the prior nested white tile but
+  made Dock render a hard black square. `icon-mac.svg` now uses one 832px
+  Apple-style rounded tile on a transparent 1024px canvas. Generated PNG and
+  ICNS bytes remain content-correspondent; tests assert transparent corners,
+  an opaque centre, and the declared optical edge.
+
+The Atum plates now use translucent warm surfaces over the existing native
+macOS vibrancy, with bounded blur/saturation. This changes presentation only;
+Hermes plugins, providers, skills, browser/computer tools, contributions, and
+the isolated Atum engine remain intact.
+
+Targeted packaged-app design review: Opus job
+`d5aa8329-896f-49ed-b6cf-c9494115e6ad` (result pending at this checkpoint).
+
+Focused verification after these corrections:
+
+- `npm run typecheck`: passed.
+- `npx vitest run src/app/atum/auth-view.test.tsx src/app/atum/shell.test.tsx src/app/atum/design-contract.test.ts`:
+  54 passed.
+- `node --test scripts/atum-branding.test.mjs`: 5 passed.
+- `npx vitest run scripts/generate-mac-icon.test.mjs`: 6 passed.
+- `node scripts/generate-mac-icon.mjs --check`: passed.
+- `git diff --check`: passed.

@@ -74,7 +74,7 @@ export function AtumAuthView() {
         <BrandMark className="size-14 rounded-[var(--atum-r-tile)]" />
 
         <h1
-          className="mt-5 text-[22px] font-semibold tracking-[-0.02em] text-(--atum-ink) outline-none"
+          className="atum-auth-heading mt-5 text-[22px] font-semibold tracking-[-0.02em] text-(--atum-ink)"
           ref={headingRef}
           tabIndex={-1}
         >

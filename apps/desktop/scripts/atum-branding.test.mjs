@@ -4,7 +4,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { decodePngToRgba, isFullyOpaque, parseIcns } from './mac-icon.mjs'
+import { decodePngToRgba, parseIcns } from './mac-icon.mjs'
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const read = relativePath => fs.readFileSync(path.join(desktopRoot, relativePath), 'utf8')
@@ -21,22 +21,19 @@ test('packaged macOS identity is Atum while Hermes protocol compatibility remain
   assert.deepEqual(packageJson.build.protocols[0].schemes, ['hermes'])
 })
 
-test('Atum macOS icon source is a full-bleed opaque 1024 canvas (no transparent inset)', () => {
+test('Atum macOS icon source uses a standard rounded tile on a transparent 1024 canvas', () => {
   const svg = read('assets/icon-mac.svg')
 
   assert.match(svg, /viewBox="0 0 1024 1024"/)
-  // Full-bleed background: a 1024x1024 rect covering the whole canvas. The
-  // previous 824px inset body (x=100 y=100 rx=185) left the corners
-  // transparent, and current macOS wraps that artwork in a legacy white
-  // container tile — the exact user-visible defect this guards.
-  assert.match(svg, /<rect width="1024" height="1024" fill=/)
-  assert.doesNotMatch(svg, /<rect x="100" y="100"/)
+  assert.match(svg, /<rect x="96" y="96" width="832" height="832" rx="184" fill=/)
+  assert.doesNotMatch(svg, /<rect width="1024" height="1024" fill=/)
 })
 
-test('icon-mac.icns carries the SAME 1024 pixels as icon-mac.png, fully opaque', () => {
+test('icon-mac.icns carries the SAME rounded transparent 1024 pixels as icon-mac.png', () => {
   // Content correspondence, not size: the icns 1024px entry must decode to
-  // exactly the pixels of icon-mac.png, and every pixel must be opaque so the
-  // OS never composites a container tile behind transparent corners.
+  // exactly the pixels of icon-mac.png. Corners must stay transparent (macOS
+  // does not apply a rounded mask to ICNS artwork), while the tile centre is
+  // opaque. This prevents both the hard black square and a nested white tile.
   const pngPixels = decodePngToRgba(readBuffer('assets/icon-mac.png'))
 
   assert.equal(pngPixels.width, 1024)
@@ -56,7 +53,14 @@ test('icon-mac.icns carries the SAME 1024 pixels as icon-mac.png, fully opaque',
     pngPixels.data,
     'icns 1024 entry drifted from icon-mac.png — run: node scripts/generate-mac-icon.mjs'
   )
-  assert.ok(isFullyOpaque(pngPixels), 'icon-mac.png must be fully opaque (full-bleed, no transparent corners)')
+  const alphaAt = (x, y) => pngPixels.data[(y * pngPixels.width + x) * 4 + 3]
+
+  assert.equal(alphaAt(0, 0), 0, 'top-left canvas corner must be transparent')
+  assert.equal(alphaAt(1023, 0), 0, 'top-right canvas corner must be transparent')
+  assert.equal(alphaAt(0, 1023), 0, 'bottom-left canvas corner must be transparent')
+  assert.equal(alphaAt(1023, 1023), 0, 'bottom-right canvas corner must be transparent')
+  assert.equal(alphaAt(512, 512), 0xff, 'rounded tile centre must be opaque')
+  assert.equal(alphaAt(512, 96), 0xff, 'rounded tile must reach its declared optical top edge')
 })
 
 test('window title and native fallback name are Atum', () => {
