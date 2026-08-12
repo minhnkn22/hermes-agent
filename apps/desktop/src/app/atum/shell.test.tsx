@@ -127,16 +127,26 @@ describe('AtumShellRoot — signed in', () => {
 })
 
 describe('AtumShellRoot — auth gate', () => {
-  it.each(['signed_out', 'expired'] as const)('replaces the entire shell when the account is %s', state => {
-    $atumAccountStatus.set({ ...signedIn, account: null, state })
+  it.each(['signed_out', 'signing_in', 'expired', 'error'] as const)(
+    'replaces the entire shell when the account is %s',
+    state => {
+      $atumAccountStatus.set({ ...signedIn, account: null, state })
+      renderShell()
+
+      // The inline-sidebar-form regression cannot come back silently: with the
+      // gate up there is no rail, no roster, and no chat plate in the DOM at all.
+      expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
+      expect(document.querySelector('.atum-plate-chat')).toBeNull()
+      expect(document.querySelector('[data-atum-roster]')).toBeNull()
+      expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
+    }
+  )
+
+  it('keeps the product shell mounted while a signed-in session refreshes', () => {
+    $atumAccountStatus.set({ ...signedIn, state: 'refreshing' })
     renderShell()
 
-    // The inline-sidebar-form regression cannot come back silently: with the
-    // gate up there is no rail, no roster, and no chat plate in the DOM at all.
-    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
-    expect(document.querySelector('.atum-plate-chat')).toBeNull()
-    expect(document.querySelector('[data-atum-roster]')).toBeNull()
-    expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
+    expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeTruthy()
   })
 
   it('does NOT gate an unconfigured build — the app still works without hosted DMs', () => {

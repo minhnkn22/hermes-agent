@@ -93,6 +93,8 @@ title + preview, so `tro chuyen` finds `Trò chuyện`.
 - `authFailureKind` lifted out of `atum-section.tsx` into `src/lib/atum-auth.ts`
   so the view and both test suites import one copy.
 - `AtumAuthView` is a full-window gate: no rail, no roster, no chat in the DOM.
+  Configured accounts stay gated through signed-out, signing-in, expired, and
+  error states; only signed-in or refreshing sessions mount the product shell.
 - Reuses `signInToAtum`, `signInToAtumWithPassword`, `cancelAtumSignIn` verbatim,
   and reuses `AtumAccountForm` as the field group (it already owns validation,
   `aria-invalid`, and the required-field messages) with an `appearance="atum"`
