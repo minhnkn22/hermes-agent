@@ -8,12 +8,18 @@ import {
   $atumDrafts,
   $atumMessages,
   $atumRoster,
+  $atumStatus,
+  cancelAtumSignIn,
+  loadAtumMessages,
+  persistAtumDraft,
+  pollAtumSync,
   refreshAtumAccountStatus,
   refreshAtumRoster,
   resetAtumMessagingState,
   retryAtumMessage,
   sendAtumMessage,
   setAtumDraft,
+  shouldPollAtumSync,
   signInToAtum,
   signInToAtumWithPassword,
   signOutOfAtum
@@ -211,6 +217,50 @@ describe('Atum messaging renderer store', () => {
     expect($atumDrafts.get()).toEqual({})
   })
 
+  it('preserves the same account cache and drafts when native auth expires', async () => {
+    installClients(
+      {},
+      {
+        status: vi.fn().mockResolvedValue({
+          state: 'expired',
+          configured: true,
+          account: { id: 'account-a' },
+          errorCode: 'account_session_expired',
+          providers: { google: true, password: true }
+        })
+      }
+    )
+    $atumAccountStatus.set({
+      state: 'signed_in',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+    $atumStatus.set(status)
+    $atumRoster.set([
+      {
+        id: 'conversation-1',
+        title: 'Moon',
+        kind: 'direct',
+        participantIds: ['moon'],
+        updatedAt: '2026-08-12T00:00:00.000Z',
+        lastMessageAt: null,
+        unreadCount: 0,
+        payload: {}
+      }
+    ])
+    $atumMessages.set({ 'conversation-1': [message()] })
+    setAtumDraft('conversation-1', 'same-account draft')
+
+    await refreshAtumAccountStatus()
+
+    expect($atumAccountStatus.get().state).toBe('expired')
+    expect($atumRoster.get()).toHaveLength(1)
+    expect($atumMessages.get()['conversation-1']).toHaveLength(1)
+    expect($atumDrafts.get()['conversation-1']).toBe('same-account draft')
+  })
+
   it('publishes password sign-in pending/error state without storing credentials', async () => {
     let rejectSignIn!: (error: Error) => void
 
@@ -233,11 +283,156 @@ describe('Atum messaging renderer store', () => {
     expect($atumAccountStatus.get()).toMatchObject({ state: 'error', errorCode: 'invalid_credentials' })
   })
 
+  it('keeps prior valid cache and drafts after a failed reauthentication', async () => {
+    installClients({}, { signInWithPassword: vi.fn().mockRejectedValue(new Error('invalid_credentials')) })
+    $atumAccountStatus.set({
+      state: 'expired',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: 'account_session_expired',
+      providers: { google: true, password: true }
+    })
+    $atumStatus.set(status)
+    $atumMessages.set({ 'conversation-1': [message()] })
+    setAtumDraft('conversation-1', 'do not erase me')
+
+    await signInToAtumWithPassword({ identifier: '@minh', password: 'one-shot-secret' })
+
+    expect($atumAccountStatus.get()).toMatchObject({
+      state: 'error',
+      account: { id: 'account-a' },
+      errorCode: 'invalid_credentials'
+    })
+    expect($atumMessages.get()['conversation-1']).toHaveLength(1)
+    expect($atumDrafts.get()['conversation-1']).toBe('do not erase me')
+  })
+
+  it('keeps prior valid cache when an in-flight account switch is cancelled', async () => {
+    installClients(
+      {},
+      {
+        cancel: vi.fn().mockResolvedValue({
+          state: 'signed_out',
+          configured: true,
+          account: null,
+          errorCode: null,
+          providers: { google: true, password: true }
+        })
+      }
+    )
+    $atumAccountStatus.set({
+      state: 'signing_in',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+    $atumStatus.set(status)
+    $atumMessages.set({ 'conversation-1': [message()] })
+    setAtumDraft('conversation-1', 'preserved through cancel')
+
+    await cancelAtumSignIn()
+
+    expect($atumAccountStatus.get().state).toBe('signed_out')
+    expect($atumMessages.get()['conversation-1']).toHaveLength(1)
+    expect($atumDrafts.get()['conversation-1']).toBe('preserved through cancel')
+  })
+
   it('recovers from a rejected Google IPC call instead of remaining stuck pending', async () => {
     installClients({}, { signIn: vi.fn().mockRejectedValue(new Error('provider_not_configured')) })
 
     await signInToAtum()
 
     expect($atumAccountStatus.get()).toMatchObject({ state: 'error', errorCode: 'provider_not_configured' })
+  })
+
+  it.each(['zh', 'zh-hant', 'ja'] as const)('projects %s sends to the hosted en locale contract', async locale => {
+    const { messaging } = installClients({ messages: vi.fn().mockResolvedValue([]) })
+    $atumAccountStatus.set({
+      state: 'signed_in',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+    $atumStatus.set(status)
+
+    await sendAtumMessage('conversation-1', `hello from ${locale}`, locale)
+
+    expect(messaging.send).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }))
+  })
+
+  it('retains a local draft and reports persistence failure without rejecting', async () => {
+    installClients({ saveDraft: vi.fn().mockRejectedValue(new Error('disk_unavailable')) })
+    $atumStatus.set(status)
+    setAtumDraft('conversation-1', 'offline draft')
+
+    await expect(persistAtumDraft('conversation-1')).resolves.toBe(false)
+    expect($atumDrafts.get()['conversation-1']).toBe('offline draft')
+    expect($atumStatus.get()).toMatchObject({ connectivity: 'error', errorCode: 'disk_unavailable' })
+  })
+
+  it('keeps loaded messages when mark-read persistence fails', async () => {
+    installClients({
+      messages: vi.fn().mockResolvedValue([message()]),
+      markRead: vi.fn().mockRejectedValue(new Error('offline'))
+    })
+    $atumStatus.set(status)
+
+    await expect(loadAtumMessages('conversation-1')).resolves.toEqual([message()])
+    expect($atumMessages.get()['conversation-1']).toHaveLength(1)
+    expect($atumStatus.get()).toMatchObject({ connectivity: 'error', errorCode: 'offline' })
+  })
+
+  it('refreshes native auth during polling and surfaces expiry without erasing cache or syncing', async () => {
+    const { messaging, account } = installClients(
+      {},
+      {
+        status: vi.fn().mockResolvedValue({
+          state: 'expired',
+          configured: true,
+          account: { id: 'account-a' },
+          errorCode: 'account_session_expired',
+          providers: { google: true, password: true }
+        })
+      }
+    )
+
+    $atumAccountStatus.set({
+      state: 'signed_in',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+    $atumStatus.set(status)
+    $atumMessages.set({ 'conversation-1': [message()] })
+
+    await pollAtumSync()
+
+    expect(account.status).toHaveBeenCalledOnce()
+    expect(messaging.sync).not.toHaveBeenCalled()
+    expect($atumAccountStatus.get().state).toBe('expired')
+    expect($atumStatus.get()?.connectivity).toBe('auth_expired')
+    expect($atumMessages.get()['conversation-1']).toHaveLength(1)
+  })
+
+  it('does not hot-loop terminal poison or retry before nextRetryAt', async () => {
+    const terminal = { ...status, connectivity: 'error' as const, nextRetryAt: null, errorCode: 'invalid_response' }
+    const future = { ...status, connectivity: 'offline_cached' as const, nextRetryAt: '2026-08-12T00:01:00.000Z' }
+    const { messaging } = installClients({ status: vi.fn().mockResolvedValue(terminal) })
+    $atumAccountStatus.set({
+      state: 'signed_in',
+      configured: true,
+      account: { id: 'account-a' },
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+
+    await pollAtumSync()
+    expect(messaging.sync).not.toHaveBeenCalled()
+    expect(shouldPollAtumSync(terminal, Date.parse('2026-08-12T00:00:00.000Z'))).toBe(false)
+    expect(shouldPollAtumSync(future, Date.parse('2026-08-12T00:00:00.000Z'))).toBe(false)
+    expect(shouldPollAtumSync({ ...future, nextRetryAt: 'not-a-date' }, Date.now())).toBe(false)
   })
 })
