@@ -61,10 +61,12 @@ export function AtumShellRoot() {
     void initializeAtumMessaging()
   }, [])
 
-  // The gate: signed out or expired with a configured account replaces the
-  // whole shell. `configured: false` is a different fact — the app still works,
-  // hosted DMs just do not exist — so it does NOT gate.
-  const gated = account.configured && (account.state === 'signed_out' || account.state === 'expired')
+  // A configured account stays inside the full-window auth flow until it is
+  // genuinely usable. In particular, `signing_in` and `error` must not flash
+  // the product shell between submitting credentials and reaching a terminal
+  // result. `configured: false` remains a different fact — the local assistant
+  // still works, while hosted DMs simply do not exist.
+  const gated = account.configured && account.state !== 'signed_in' && account.state !== 'refreshing'
 
   // One cancel gesture does exactly one thing, resolved topmost-first: close
   // the roster drawer, else close the workspace drawer, else clear a non-empty
