@@ -9,8 +9,12 @@ test('account IPC exposes only sanitized commands and status', async () => {
   const handlers = new Map<string, (...args: any[]) => unknown>()
 
   const ipc = {
-    handle(channel: string, listener: (...args: any[]) => unknown) {handlers.set(channel, listener)},
-    removeHandler(channel: string) {handlers.delete(channel)}
+    handle(channel: string, listener: (...args: any[]) => unknown) {
+      handlers.set(channel, listener)
+    },
+    removeHandler(channel: string) {
+      handlers.delete(channel)
+    }
   }
 
   const sanitized = {
@@ -32,7 +36,10 @@ test('account IPC exposes only sanitized commands and status', async () => {
   const unregister = registerAtumAccountIpc(ipc, controller)
 
   assert.deepEqual([...handlers.keys()].sort(), [...ATUM_ACCOUNT_IPC_CHANNELS].sort())
-  assert.equal([...handlers.keys()].some(channel => /token|refresh|verifier|secret|fetch|supabase/i.test(channel)), false)
+  assert.equal(
+    [...handlers.keys()].some(channel => /token|refresh|verifier|secret|fetch|supabase/i.test(channel)),
+    false
+  )
   const rendered = JSON.stringify(await handlers.get('atum:account:status')!({}))
   assert.equal(/access|refresh|verifier|anon.?key|supabase/i.test(rendered), false)
 
@@ -45,33 +52,66 @@ test('account IPC exposes only sanitized commands and status', async () => {
   })
   assert.doesNotMatch(JSON.stringify(passwordStatus), /owner@example|dogfood-password/i)
 
-  await handlers.get('atum:account:sign-in-password')!({}, {
-    identifier: '@Minh.Owner',
-    password: 'dogfood-password-123'
-  })
-  await handlers.get('atum:account:sign-in-password')!({}, {
-    identifier: '0912 345 678',
-    password: 'dogfood-password-123'
-  })
-  assert.deepEqual(vi.mocked(controller.signInWithPassword).mock.calls.slice(1).map(call => call[0]?.identifier), [
-    'minh.owner',
-    '+84912345678'
-  ])
+  await handlers.get('atum:account:sign-in-password')!(
+    {},
+    {
+      identifier: '@Minh-Owner',
+      password: 'dogfood-password-123'
+    }
+  )
+  await handlers.get('atum:account:sign-in-password')!(
+    {},
+    {
+      identifier: '0912 345 678',
+      password: 'dogfood-password-123'
+    }
+  )
+  await handlers.get('atum:account:sign-in-password')!(
+    {},
+    {
+      identifier: '84912345678',
+      password: 'dogfood-password-123'
+    }
+  )
+  await handlers.get('atum:account:sign-in-password')!(
+    {},
+    {
+      identifier: 'owner@example.test',
+      password: 'x'
+    }
+  )
+  assert.deepEqual(
+    vi
+      .mocked(controller.signInWithPassword)
+      .mock.calls.slice(1)
+      .map(call => call[0]?.identifier),
+    ['minh-owner', '+84912345678', '+84912345678', 'owner@example.test']
+  )
 
   for (const invalid of [
     null,
-    { identifier: 'not-an-email', password: 'dogfood-password-123' },
-    { identifier: 'owner@example.test', password: 'short' },
     { identifier: `${'a'.repeat(250)}@example.test`, password: 'dogfood-password-123' },
-    { identifier: 'owner@example.test', password: 'x'.repeat(1025) },
+    { identifier: 'owner@example.test', password: '' },
+    { identifier: 'owner@example.test', password: 'x'.repeat(4097) },
     { identifier: 'owner@example.test', password: 'password\0secret' },
-    { identifier: '+841234', password: 'dogfood-password-123' }
+    { identifier: '+841234', password: 'dogfood-password-123' },
+    { identifier: 'ab', password: 'dogfood-password-123' },
+    { identifier: 'invalid_handle', password: 'dogfood-password-123' }
   ]) {
-    await assert.rejects(
-      Promise.resolve().then(() => handlers.get('atum:account:sign-in-password')!({}, invalid)),
-      /account_credentials_invalid/
-    )
+    vi.mocked(controller.status).mockReturnValueOnce({
+      ...sanitized,
+      state: 'signed_out',
+      account: null
+    })
+    assert.deepEqual(await handlers.get('atum:account:sign-in-password')!({}, invalid), {
+      ...sanitized,
+      state: 'error',
+      account: null,
+      errorCode: 'account_credentials_invalid'
+    })
   }
+
+  assert.equal(vi.mocked(controller.signInWithPassword).mock.calls.length, 5)
 
   unregister()
   assert.equal(handlers.size, 0)

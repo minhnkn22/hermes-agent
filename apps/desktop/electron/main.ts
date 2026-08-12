@@ -10694,8 +10694,10 @@ app.whenReady().then(() => {
   atumMessagingRuntime = new AtumMessagingRuntime({
     userDataPath: app.getPath('userData'),
     safeStorage,
-    refreshSession: session =>
-      atumAccountController?.refresh(session) ?? atumAccountClient?.refresh(session) ?? Promise.resolve(null)
+    refreshSession: (session, signal) =>
+      atumAccountController?.refresh(session, signal) ??
+      atumAccountClient?.refresh(session, signal) ??
+      Promise.resolve(null)
   })
   atumAccountController = new AtumAccountAuthController({
     runtime: atumMessagingRuntime,

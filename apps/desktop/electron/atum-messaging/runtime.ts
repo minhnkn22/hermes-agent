@@ -9,7 +9,7 @@ export interface AtumMessagingRuntimeOptions {
   userDataPath: string
   safeStorage: SafeStorageLike
   fetchImpl?: MessagingFetch
-  refreshSession?: (session: MessagingAccountSession) => Promise<MessagingAccountSession | null>
+  refreshSession?: (session: MessagingAccountSession, signal: AbortSignal) => Promise<MessagingAccountSession | null>
   requestTimeoutMs?: number
   maxResponseBytes?: number
   maxSyncPages?: number
@@ -24,6 +24,13 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
   private readonly vault: MessagingCredentialVault
   private readonly engine: AtumMessagingSyncEngine
   private sessionValue: MessagingAccountSession | null
+  private refreshFlight: {
+    controller: AbortController
+    generation: number
+    identity: string
+    promise: Promise<MessagingAccountSession | null>
+  } | null = null
+  private sessionGeneration = 0
 
   constructor(private readonly options: AtumMessagingRuntimeOptions) {
     this.vault = new MessagingCredentialVault(
@@ -42,25 +49,28 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
 
     const tokenSource: MessagingTokenSource = {
       current: () => this.sessionValue,
-      refresh: async rejected => {
+      refresh: rejected => {
         // Do not refresh a session which was replaced while the rejected
         // request was in flight.
-        if (!this.sessionValue || this.sessionValue.tokens.accessToken !== rejected.tokens.accessToken) {
-          return this.sessionValue
+        if (!this.sameSession(this.sessionValue, rejected)) {
+          return Promise.resolve(this.sessionValue)
         }
 
-        const refreshed = (await options.refreshSession?.(rejected)) ?? null
+        const generation = this.sessionGeneration
+        const identity = this.sessionIdentity(rejected)
 
-        if (!this.sessionValue || this.sessionValue.tokens.accessToken !== rejected.tokens.accessToken) {
-          return this.sessionValue
+        if (this.refreshFlight?.generation === generation && this.refreshFlight.identity === identity) {
+          return this.refreshFlight.promise
         }
 
-        if (refreshed) {
-          this.sessionValue = refreshed
-          this.vault.save(refreshed)
-        }
+        const controller = new AbortController()
+        // Defer execution one microtask so even a non-conforming refresh
+        // callback that throws synchronously cannot settle before the flight
+        // is published for concurrent 401s.
+        const promise = Promise.resolve().then(() => this.performRefresh(rejected, generation, identity, controller))
+        this.refreshFlight = { controller, generation, identity, promise }
 
-        return refreshed
+        return promise
       }
     }
 
@@ -86,10 +96,12 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
   }
 
   stop(): void {
+    this.beginSessionLifecycle()
     this.engine.stop()
   }
 
   async installSession(session: MessagingAccountSession): Promise<MessagingSyncStatus> {
+    this.beginSessionLifecycle()
     this.vault.save(session)
     this.sessionValue = this.vault.load()
 
@@ -97,6 +109,7 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
   }
 
   async clearSession(): Promise<MessagingSyncStatus> {
+    this.beginSessionLifecycle()
     this.vault.clear()
     this.sessionValue = null
 
@@ -120,4 +133,50 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
     this.engine.markRead(conversationId, throughMessageId)
   sync = () => this.engine.sync()
   realtimeHint = () => this.engine.realtimeHint()
+
+  private beginSessionLifecycle(): void {
+    this.sessionGeneration += 1
+    this.refreshFlight?.controller.abort()
+    this.refreshFlight = null
+  }
+
+  private sameSession(current: MessagingAccountSession | null, expected: MessagingAccountSession): boolean {
+    return current !== null && this.sessionIdentity(current) === this.sessionIdentity(expected)
+  }
+
+  private sessionIdentity(session: MessagingAccountSession): string {
+    return [session.baseUrl, session.user.id, session.tokens.accessToken, session.tokens.refreshToken].join('\0')
+  }
+
+  private async performRefresh(
+    rejected: MessagingAccountSession,
+    generation: number,
+    identity: string,
+    controller: AbortController
+  ): Promise<MessagingAccountSession | null> {
+    let refreshed: MessagingAccountSession | null = null
+
+    try {
+      refreshed = (await this.options.refreshSession?.(rejected, controller.signal)) ?? null
+
+      if (
+        controller.signal.aborted ||
+        generation !== this.sessionGeneration ||
+        !this.sameSession(this.sessionValue, rejected)
+      ) {
+        return this.sessionValue
+      }
+
+      if (refreshed) {
+        this.sessionValue = refreshed
+        this.vault.save(refreshed)
+      }
+
+      return refreshed
+    } finally {
+      if (this.refreshFlight?.generation === generation && this.refreshFlight.identity === identity) {
+        this.refreshFlight = null
+      }
+    }
+  }
 }
