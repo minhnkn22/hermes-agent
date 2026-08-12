@@ -3,7 +3,12 @@ export {
   resolveAtumAccountConfig,
   SupabaseAtumAccountClient
 } from './account-auth'
-export type { AtumAccountAuthStatus, AtumAccountConfig } from './account-auth'
+export type {
+  AtumAccountAuthStatus,
+  AtumAccountConfig,
+  AtumAccountProviders,
+  AtumPasswordSignInInput
+} from './account-auth'
 export { registerAtumAccountIpc } from './account-ipc'
 export { AtumMessagingHttpClient, MessagingHttpError } from './http-client'
 export { registerAtumMessagingIpc } from './ipc'

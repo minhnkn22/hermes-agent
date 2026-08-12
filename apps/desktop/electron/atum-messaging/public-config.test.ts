@@ -29,14 +29,16 @@ const packaged = {
   schemaVersion: 1,
   hostedBaseUrl: 'https://atum-shell-nonprod.vercel.app',
   supabaseUrl: 'https://project.supabase.co',
-  supabaseAnonKey: 'packaged-public-key'
+  supabaseAnonKey: 'packaged-public-key',
+  providers: { google: false, password: true }
 }
 
 test('packaged Resources config is the Finder-launch fallback', () => {
   assert.deepEqual(resolveAtumPublicAccountConfig({ environment: {}, packagedPath: configFile(packaged) }), {
     hostedBaseUrl: packaged.hostedBaseUrl,
     supabaseUrl: packaged.supabaseUrl,
-    supabaseAnonKey: packaged.supabaseAnonKey
+    supabaseAnonKey: packaged.supabaseAnonKey,
+    providers: packaged.providers
   })
 })
 
@@ -45,13 +47,15 @@ test('a complete development environment overrides the package without merging p
     environment: {
       hostedBaseUrl: 'http://127.0.0.1:3000',
       supabaseUrl: 'http://127.0.0.1:55321',
-      supabaseAnonKey: 'local-public-key'
+      supabaseAnonKey: 'local-public-key',
+      providers: { google: true, password: true }
     },
     packagedPath: configFile(packaged)
   }), {
     hostedBaseUrl: 'http://127.0.0.1:3000',
     supabaseUrl: 'http://127.0.0.1:55321',
-    supabaseAnonKey: 'local-public-key'
+    supabaseAnonKey: 'local-public-key',
+    providers: { google: true, password: true }
   })
 
   assert.throws(() => resolveAtumPublicAccountConfig({
@@ -73,4 +77,8 @@ test('packaged config rejects unknown fields, world-write access, and excessive 
     environment: {},
     packagedPath: configFile({ ...packaged, supabaseAnonKey: 'x'.repeat(40_000) })
   }), /file_invalid/)
+  assert.throws(() => resolveAtumPublicAccountConfig({
+    environment: {},
+    packagedPath: configFile({ ...packaged, providers: { google: 'yes', password: true } })
+  }), /providers_invalid/)
 })

@@ -9,7 +9,13 @@ export const PUBLIC_CONFIG_FIELDS = {
 }
 
 export function publicConfigFromEnvironment(environment) {
-  const config = { schemaVersion: 1 }
+  const config = {
+    schemaVersion: 1,
+    providers: {
+      google: environment.ATUM_PUBLIC_GOOGLE_AUTH_ENABLED === 'true',
+      password: environment.ATUM_PUBLIC_PASSWORD_AUTH_ENABLED !== 'false'
+    }
+  }
 
   for (const [field, variable] of Object.entries(PUBLIC_CONFIG_FIELDS)) {
     const value = environment[variable]

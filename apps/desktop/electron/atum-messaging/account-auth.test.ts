@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 
 import {
   AtumAccountAuthController,
@@ -24,6 +24,10 @@ type AuthorizeMode = 'success' | 'state_mismatch' | 'callback_error' | 'never'
 interface FakeAuthState {
   authorizeMode: AuthorizeMode
   userId: string
+  hostedUserId?: string
+  passwordAccepted: boolean
+  passwordNeverRespond?: boolean
+  passwordOversized?: boolean
   malformedToken: boolean
   refreshCount: number
   tokenCount: number
@@ -168,6 +172,46 @@ async function fakeServer(state: FakeAuthState): Promise<string> {
       return
     }
 
+    if (url.pathname === '/api/desktop/v1/auth/password') {
+      const input = JSON.parse(requestBody)
+
+      if (state.passwordNeverRespond) {return}
+
+      if (state.passwordOversized) {
+        json(200, { session: { padding: 'x'.repeat(70_000) } })
+
+        return
+      }
+
+      if (!state.passwordAccepted) {
+        json(400, {
+          error: 'invalid_credentials',
+          echoed_identifier: input.identifier,
+          echoed_password: input.password
+        })
+
+        return
+      }
+
+      state.tokenCount += 1
+      const accessToken = `password-${state.userId}-${state.tokenCount}`
+      state.validTokens.add(accessToken)
+      json(200, {
+        session: {
+          access_token: accessToken,
+          refresh_token: `refresh-${state.userId}`,
+          expires_in: 3600,
+          user: {
+            id: state.userId,
+            display_name: state.userId === USER_A ? 'Minh' : 'Lan',
+            handle: state.userId === USER_A ? 'minh' : 'lan'
+          }
+        }
+      })
+
+      return
+    }
+
     if (url.pathname.startsWith('/api/desktop/v1/')) {
       const token = request.headers.authorization?.replace(/^Bearer /, '') ?? ''
 
@@ -185,9 +229,10 @@ async function fakeServer(state: FakeAuthState): Promise<string> {
       }
 
       if (url.pathname.endsWith('/session')) {
+        const hostedUserId = state.hostedUserId ?? state.userId
         json(200, {
-          user: { id: state.userId, display_name: state.userId === USER_A ? 'Minh' : 'Lan', handle: null },
-          realtime: { transport: 'supabase_private_broadcast', topic: `user:${state.userId}:messaging:v1` },
+          user: { id: hostedUserId, display_name: hostedUserId === USER_A ? 'Minh' : 'Lan', handle: null },
+          realtime: { transport: 'supabase_private_broadcast', topic: `user:${hostedUserId}:messaging:v1` },
           server_time: '2026-08-12T09:00:00.000Z',
           sync_cursor: null
         })
@@ -227,6 +272,7 @@ function initialState(overrides: Partial<FakeAuthState> = {}): FakeAuthState {
   return {
     authorizeMode: 'success',
     userId: USER_A,
+    passwordAccepted: true,
     malformedToken: false,
     refreshCount: 0,
     tokenCount: 0,
@@ -236,7 +282,14 @@ function initialState(overrides: Partial<FakeAuthState> = {}): FakeAuthState {
   }
 }
 
-async function harness(state: FakeAuthState, options: { timeoutMs?: number } = {}) {
+async function harness(
+  state: FakeAuthState,
+  options: {
+    timeoutMs?: number
+    passwordTimeoutMs?: number
+    providers?: { google: boolean; password: boolean }
+  } = {}
+) {
   const origin = await fakeServer(state)
   const directory = userData()
   let client!: SupabaseAtumAccountClient
@@ -250,9 +303,15 @@ async function harness(state: FakeAuthState, options: { timeoutMs?: number } = {
 
   runtimes.push(runtime)
   client = new SupabaseAtumAccountClient(
-    resolveAtumAccountConfig({ hostedBaseUrl: origin, supabaseUrl: origin, supabaseAnonKey: 'public-anon-key' })!,
+    resolveAtumAccountConfig({
+      hostedBaseUrl: origin,
+      supabaseUrl: origin,
+      supabaseAnonKey: 'public-anon-key',
+      providers: options.providers ?? { google: true, password: true }
+    })!,
     {
       timeoutMs: options.timeoutMs,
+      passwordTimeoutMs: options.passwordTimeoutMs,
       openExternal: async url => {
         const response = await fetch(url, { redirect: 'manual' })
         const redirect = response.headers.get('location')
@@ -277,6 +336,111 @@ test('system-browser loopback PKCE carries real bytes and installs only a hosted
   assert.equal(state.requests.some(request => request.path.includes('code_verifier')), false)
   const tokenRequest = state.requests.find(request => request.path.includes('grant_type=pkce'))!
   assert.equal(typeof JSON.parse(tokenRequest.body).code_verifier, 'string')
+})
+
+test('sanitized provider capabilities gate unavailable flows without opening a request', async () => {
+  const state = initialState()
+  const { controller } = await harness(state, { providers: { google: false, password: true } })
+
+  assert.deepEqual(controller.status().providers, { google: false, password: true })
+  const unavailable = await controller.signIn()
+  assert.equal(unavailable.state, 'signed_out')
+  assert.equal(unavailable.errorCode, 'google_provider_unavailable')
+  assert.deepEqual(unavailable.providers, { google: false, password: true })
+  assert.equal(state.requests.length, 0)
+})
+
+test('loopback hosted identifier/password auth installs only a hosted-verified encrypted session', async () => {
+  const state = initialState()
+  const { controller, directory, runtime } = await harness(state)
+  const input = { identifier: 'owner@example.test', password: 'dogfood-password-123' }
+  const status = await controller.signInWithPassword(input)
+
+  assert.deepEqual(status, {
+    state: 'signed_in',
+    configured: true,
+    account: { id: USER_A, displayName: 'Minh', handle: null },
+    errorCode: null,
+    providers: { google: true, password: true }
+  })
+  assert.equal((await runtime.status()).connectivity, 'online')
+  const passwordRequest = state.requests.find(request => request.path === '/api/desktop/v1/auth/password')!
+  assert.deepEqual(JSON.parse(passwordRequest.body), input)
+  assert.doesNotMatch(JSON.stringify(status), /owner@example|dogfood-password/i)
+  assert.doesNotMatch(
+    readFileSync(join(directory, 'atum-messaging', 'session.json'), 'utf8'),
+    /owner@example|dogfood-password/i
+  )
+})
+
+test('password auth rejection is sanitized even when upstream echoes credentials', async () => {
+  const state = initialState({ passwordAccepted: false })
+  const { controller, directory, runtime } = await harness(state)
+  const identifier = '@owner'
+  const password = 'wrong-password-123'
+
+  const consoleSpies = [
+    vi.spyOn(console, 'log').mockImplementation(() => undefined),
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined),
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  ]
+
+  const status = await controller.signInWithPassword({ identifier, password })
+
+  assert.equal(status.state, 'error')
+  assert.equal(status.errorCode, 'password_sign_in_rejected:400')
+  assert.doesNotMatch(JSON.stringify(status), new RegExp(`${identifier}|${password}`))
+  assert.equal(runtime.accountProfile(), null)
+  assert.throws(() => readFileSync(join(directory, 'atum-messaging', 'session.json'), 'utf8'))
+  assert.equal(consoleSpies.some(spy => JSON.stringify(spy.mock.calls).includes(identifier)), false)
+  assert.equal(consoleSpies.some(spy => JSON.stringify(spy.mock.calls).includes(password)), false)
+
+  for (const spy of consoleSpies) {spy.mockRestore()}
+})
+
+test('identifier/password session is not installed when auth and session identities disagree', async () => {
+  const { controller, runtime } = await harness(initialState({ hostedUserId: USER_B }))
+
+  const status = await controller.signInWithPassword({
+    identifier: '+84912345678',
+    password: 'dogfood-password-123'
+  })
+
+  assert.equal(status.state, 'error')
+  assert.equal(status.errorCode, 'hosted_account_mismatch')
+  assert.equal(runtime.accountProfile(), null)
+})
+
+test('hosted identifier/password auth has bounded timeout and response body', async () => {
+  const timed = await harness(initialState({ passwordNeverRespond: true }), { passwordTimeoutMs: 20 })
+
+  const timedStatus = await timed.controller.signInWithPassword({
+    identifier: 'owner',
+    password: 'dogfood-password-123'
+  })
+
+  assert.equal(timedStatus.errorCode, 'password_sign_in_timeout')
+
+  const cancelled = await harness(initialState({ passwordNeverRespond: true }), { passwordTimeoutMs: 5_000 })
+
+  const pending = cancelled.controller.signInWithPassword({
+    identifier: 'owner',
+    password: 'dogfood-password-123'
+  })
+
+  await new Promise(resolve => setTimeout(resolve, 5))
+  cancelled.controller.cancel()
+  assert.equal((await pending).state, 'signed_out')
+
+  const oversized = await harness(initialState({ passwordOversized: true }))
+
+  const oversizedStatus = await oversized.controller.signInWithPassword({
+    identifier: 'owner',
+    password: 'dogfood-password-123'
+  })
+
+  assert.equal(oversizedStatus.errorCode, 'auth_response_too_large')
+  assert.equal(oversized.runtime.accountProfile(), null)
 })
 
 test.each([
@@ -304,7 +468,8 @@ test('timeout and explicit cancel close the loopback attempt', async () => {
     state: 'signed_out',
     configured: true,
     account: null,
-    errorCode: null
+    errorCode: null,
+    providers: { google: true, password: true }
   })
 
   const shutdown = await harness(initialState({ authorizeMode: 'never' }), { timeoutMs: 5_000 })

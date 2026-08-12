@@ -11,6 +11,8 @@ const environment = {
   ATUM_PUBLIC_HOSTED_BASE_URL: 'https://atum-shell-nonprod.vercel.app',
   ATUM_PUBLIC_SUPABASE_URL: 'https://project.supabase.co',
   ATUM_PUBLIC_SUPABASE_ANON_KEY: 'public-anon-key',
+  ATUM_PUBLIC_GOOGLE_AUTH_ENABLED: 'false',
+  ATUM_PUBLIC_PASSWORD_AUTH_ENABLED: 'true',
   SUPABASE_SERVICE_ROLE_KEY: 'must-not-ship',
   ATUM_APP_SERVICE_CREDENTIALS: 'must-not-ship',
   CRON_SECRET: 'must-not-ship'
@@ -26,7 +28,8 @@ test('build config generator emits only the three allowlisted public fields', as
       schemaVersion: 1,
       hostedBaseUrl: environment.ATUM_PUBLIC_HOSTED_BASE_URL,
       supabaseUrl: environment.ATUM_PUBLIC_SUPABASE_URL,
-      supabaseAnonKey: environment.ATUM_PUBLIC_SUPABASE_ANON_KEY
+      supabaseAnonKey: environment.ATUM_PUBLIC_SUPABASE_ANON_KEY,
+      providers: { google: false, password: true }
     })
     assert.doesNotMatch(readFileSync(outputPath, 'utf8'), /service|credential|cron|must-not-ship/i)
   } finally {
