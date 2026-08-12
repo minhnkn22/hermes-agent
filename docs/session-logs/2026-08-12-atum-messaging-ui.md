@@ -30,8 +30,9 @@ uses one Vietnamese-first identifier field — `Tên người dùng, email hoặ
 `account.signInWithPassword({identifier,password})`. This intentionally adds
 Atum handle / `@handle` support alongside Moon-compatible email and Vietnamese
 phone identifiers. The password exists only in component state for one narrow
-IPC request, is cleared when that request settles, and is never persisted,
-logged, or returned.
+IPC request and is never persisted, logged, or returned. It is cleared after
+success or a credential rejection; a network/provider interruption preserves
+the input so the user is not forced to retype it.
 
 ## State matrix (locked before implementation)
 
@@ -97,3 +98,30 @@ This renderer branch targets a native-auth contract newer than its exact
 `src/global.d.ts` / account-client overlap with WS3c, preserve the
 main-process-only credentials boundary, and implement handle, email, and
 Vietnamese-phone identifier resolution before the dogfood login can work.
+
+## Targeted Opus auth follow-up
+
+Targeted Opus UI/copy job `9f50b518-b566-42a9-ba40-de8c88b3f954`
+reviewed the assembled auth surface. Its actionable findings were applied in
+the assembly: a rejected Google IPC call can no longer strand the rail in
+`signing_in`; pending login has a native Cancel/Escape recovery; sanitized
+error codes map separately to invalid credentials, connectivity failure, and
+provider/configuration failure; identifier/password fields use visible labels,
+accepted-input hints, validation focus, and linked descriptions; dead local
+ring utilities were removed in favor of the global focus token; and signed-in
+identity/logout text and target sizing were raised for Vietnamese legibility.
+
+Focused post-assembly verification:
+
+- `npm run typecheck` — passed.
+- `npx vitest run --project ui
+  src/app/chat/sidebar/atum-account-form.test.tsx
+  src/app/chat/sidebar/atum-section.test.tsx
+  src/store/atum-messaging.test.ts` — 16/16 passed.
+- `npm run test:ui` — 254 files, 2,091 passed and one existing skip. The
+  existing jsdom canvas warnings remained non-failing.
+- `ALLOW_NO_DOCS_LOG=1 npm run test:desktop:platforms` — 70 files passed and
+  one intentionally skipped; 751 tests passed and two skipped. The environment
+  variable is required only because this machine's global Git hook otherwise
+  rejects disposable fixture commits; the initial run's sole failure was that
+  harness hook, not product code.

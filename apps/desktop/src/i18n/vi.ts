@@ -70,10 +70,18 @@ export const vi = defineLocale({
     signedInAs: name => `Đã đăng nhập: ${name}`,
     notSignedIn: 'Chưa đăng nhập',
     signIn: 'Đăng nhập',
-    identifier: 'Tên người dùng, email hoặc số điện thoại',
+    identifier: 'Tên đăng nhập',
+    identifierHint: '@tên, email hoặc số điện thoại',
+    identifierPlaceholder: '@minh · minh@email.com · 0912…',
+    identifierRequired: 'Nhập tên đăng nhập, email hoặc số điện thoại.',
     password: 'Mật khẩu',
-    signingIn: 'Đang đăng nhập...',
-    signInFailed: 'Đăng nhập thất bại. Kiểm tra thông tin đăng nhập.',
+    passwordRequired: 'Nhập mật khẩu.',
+    signingIn: 'Đang đăng nhập…',
+    googlePending: 'Đang mở trình duyệt…',
+    signInFailed: 'Sai tên đăng nhập hoặc mật khẩu.',
+    signInOffline: 'Không kết nối được. Kiểm tra mạng rồi thử lại.',
+    signInProviderDown: 'Đăng nhập tạm thời không khả dụng. Thử lại sau ít phút.',
+    signInRetry: 'Thử lại',
     continueWithGoogle: 'Tiếp tục với Google',
     or: 'hoặc',
     signOut: 'Đăng xuất',
@@ -81,7 +89,7 @@ export const vi = defineLocale({
     you: 'Bạn',
     messageDelivered: 'Đã gửi',
     messageRead: 'Đã xem',
-    unavailable: 'Tính năng nhắn tin Atum chưa được cấu hình.'
+    unavailable: 'Đăng nhập chưa khả dụng trong bản này.'
   },
 
   boot: {

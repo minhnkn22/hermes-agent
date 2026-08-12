@@ -72,10 +72,18 @@ export const zh: Translations = {
     signedInAs: name => `已登录：${name}`,
     notSignedIn: '未登录',
     signIn: '登录',
-    identifier: '用户名、邮箱或电话号码',
+    identifier: '用户名',
+    identifierHint: '@用户名、邮箱或电话号码',
+    identifierPlaceholder: '@minh · you@email.com · 0912…',
+    identifierRequired: '请输入用户名、邮箱或电话号码。',
     password: '密码',
-    signingIn: '正在登录...',
-    signInFailed: '登录失败，请检查邮箱和密码。',
+    passwordRequired: '请输入密码。',
+    signingIn: '正在登录…',
+    googlePending: '正在打开浏览器…',
+    signInFailed: '用户名或密码不正确。',
+    signInOffline: '无法连接，请检查网络后重试。',
+    signInProviderDown: '登录暂时不可用，请稍后重试。',
+    signInRetry: '重试',
     continueWithGoogle: '使用 Google 继续',
     or: '或',
     signOut: '退出登录',
@@ -83,7 +91,7 @@ export const zh: Translations = {
     you: '你',
     messageDelivered: '已送达',
     messageRead: '已读',
-    unavailable: 'Atum 消息功能尚未配置。'
+    unavailable: '此版本尚不支持登录。'
   },
 
   fileMenu: {

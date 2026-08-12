@@ -364,12 +364,24 @@ export async function initializeAtumMessaging(): Promise<void> {
 
 export async function signInToAtum(): Promise<void> {
   $atumAccountStatus.set({ ...$atumAccountStatus.get(), state: 'signing_in', errorCode: null })
-  const status = await atumAccountClient().signIn()
-  clearAccountScopedState()
-  $atumAccountStatus.set(status)
 
-  if (status.state === 'signed_in') {
-    await Promise.all([refreshAtumStatus(), refreshAtumRoster()])
+  try {
+    const status = await atumAccountClient().signIn()
+    clearAccountScopedState()
+    $atumAccountStatus.set(status)
+
+    if (status.state === 'signed_in') {
+      await Promise.all([refreshAtumStatus(), refreshAtumRoster()])
+    }
+  } catch (error) {
+    clearAccountScopedState()
+    $atumAccountStatus.set({
+      state: 'error',
+      configured: true,
+      account: null,
+      errorCode: errorCode(error),
+      providers: $atumAccountStatus.get().providers
+    })
   }
 }
 

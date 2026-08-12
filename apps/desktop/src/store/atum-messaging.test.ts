@@ -14,6 +14,7 @@ import {
   retryAtumMessage,
   sendAtumMessage,
   setAtumDraft,
+  signInToAtum,
   signInToAtumWithPassword,
   signOutOfAtum
 } from './atum-messaging'
@@ -230,5 +231,13 @@ describe('Atum messaging renderer store', () => {
     rejectSignIn(new Error('invalid_credentials'))
     await pending
     expect($atumAccountStatus.get()).toMatchObject({ state: 'error', errorCode: 'invalid_credentials' })
+  })
+
+  it('recovers from a rejected Google IPC call instead of remaining stuck pending', async () => {
+    installClients({}, { signIn: vi.fn().mockRejectedValue(new Error('provider_not_configured')) })
+
+    await signInToAtum()
+
+    expect($atumAccountStatus.get()).toMatchObject({ state: 'error', errorCode: 'provider_not_configured' })
   })
 })

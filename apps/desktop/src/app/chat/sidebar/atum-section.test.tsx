@@ -52,10 +52,18 @@ vi.mock('@/i18n', () => ({
         cancelSignIn: 'Hủy',
         authExpiredAction: 'Đăng nhập lại',
         signIn: 'Đăng nhập',
-        identifier: 'Tên người dùng, email hoặc số điện thoại',
+        identifier: 'Tên đăng nhập',
+        identifierHint: '@tên, email hoặc số điện thoại',
+        identifierPlaceholder: '@minh · minh@email.com · 0912…',
+        identifierRequired: 'Nhập tên đăng nhập, email hoặc số điện thoại.',
         password: 'Mật khẩu',
-        signingIn: 'Đang đăng nhập...',
-        signInFailed: 'Đăng nhập thất bại',
+        passwordRequired: 'Nhập mật khẩu.',
+        signingIn: 'Đang đăng nhập…',
+        googlePending: 'Đang mở trình duyệt…',
+        signInFailed: 'Sai tên đăng nhập hoặc mật khẩu.',
+        signInOffline: 'Không kết nối được. Kiểm tra mạng rồi thử lại.',
+        signInProviderDown: 'Đăng nhập tạm thời không khả dụng. Thử lại sau ít phút.',
+        signInRetry: 'Thử lại',
         continueWithGoogle: 'Tiếp tục với Google',
         or: 'hoặc',
         signedInAs: (name: string) => `Đã đăng nhập: ${name}`,
@@ -137,7 +145,7 @@ describe('AtumSection', () => {
     )
 
     const google = screen.getByRole('button', { name: 'Tiếp tục với Google' })
-    const identifier = screen.getByRole('textbox', { name: 'Tên người dùng, email hoặc số điện thoại' })
+    const identifier = screen.getByRole('textbox', { name: /Tên đăng nhập/ })
     expect(google.compareDocumentPosition(identifier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(screen.getByText('hoặc')).toBeTruthy()
   })
@@ -159,6 +167,56 @@ describe('AtumSection', () => {
     )
 
     expect(screen.queryByRole('button', { name: 'Tiếp tục với Google' })).toBeNull()
-    expect(screen.getByRole('textbox', { name: 'Tên người dùng, email hoặc số điện thoại' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: /Tên đăng nhập/ })).toBeTruthy()
+  })
+
+  it('offers cancel and a truthful progress label during Google sign-in', () => {
+    $atumAccountStatus.set({
+      state: 'signing_in',
+      configured: true,
+      account: null,
+      errorCode: null,
+      providers: { google: true, password: true }
+    })
+    render(
+      <MemoryRouter>
+        <SidebarProvider>
+          <AtumSection />
+        </SidebarProvider>
+      </MemoryRouter>
+    )
+    expect(screen.getByRole('button', { name: 'Hủy' })).toBeTruthy()
+  })
+
+  it('maps credential, network, and provider failures to distinct copy', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <SidebarProvider>
+          <AtumSection />
+        </SidebarProvider>
+      </MemoryRouter>
+    )
+
+    for (const [errorCode, expected] of [
+      ['password_sign_in_rejected:401', 'Sai tên đăng nhập hoặc mật khẩu.'],
+      ['password_sign_in_timeout', 'Không kết nối được. Kiểm tra mạng rồi thử lại.'],
+      ['provider_not_configured', 'Đăng nhập tạm thời không khả dụng. Thử lại sau ít phút.']
+    ]) {
+      $atumAccountStatus.set({
+        state: 'error',
+        configured: true,
+        account: null,
+        errorCode,
+        providers: { google: false, password: true }
+      })
+      rerender(
+        <MemoryRouter>
+          <SidebarProvider>
+            <AtumSection />
+          </SidebarProvider>
+        </MemoryRouter>
+      )
+      expect(screen.getByRole('alert').textContent).toBe(expected)
+    }
   })
 })

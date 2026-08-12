@@ -118,9 +118,17 @@ export interface Translations {
     notSignedIn: string
     signIn: string
     identifier: string
+    identifierHint: string
+    identifierPlaceholder: string
+    identifierRequired: string
     password: string
+    passwordRequired: string
     signingIn: string
+    googlePending: string
     signInFailed: string
+    signInOffline: string
+    signInProviderDown: string
+    signInRetry: string
     continueWithGoogle: string
     or: string
     signOut: string

@@ -72,10 +72,18 @@ export const en: Translations = {
     signedInAs: name => `Signed in as ${name}`,
     notSignedIn: 'Not signed in',
     signIn: 'Sign in',
-    identifier: 'Username, email, or phone number',
+    identifier: 'Username',
+    identifierHint: '@handle, email, or phone',
+    identifierPlaceholder: '@minh · you@email.com · 0912…',
+    identifierRequired: 'Enter your username, email, or phone number.',
     password: 'Password',
-    signingIn: 'Signing in...',
-    signInFailed: 'Sign-in failed. Check your email and password.',
+    passwordRequired: 'Enter your password.',
+    signingIn: 'Signing in…',
+    googlePending: 'Opening your browser…',
+    signInFailed: 'Incorrect username or password.',
+    signInOffline: "Can't connect. Check your network and try again.",
+    signInProviderDown: 'Sign-in is temporarily unavailable. Try again in a few minutes.',
+    signInRetry: 'Try again',
     continueWithGoogle: 'Continue with Google',
     or: 'or',
     signOut: 'Sign out',
@@ -83,7 +91,7 @@ export const en: Translations = {
     you: 'You',
     messageDelivered: 'Delivered',
     messageRead: 'Read',
-    unavailable: 'Atum messaging is not configured yet.'
+    unavailable: "Sign-in isn't available in this build."
   },
 
   fileMenu: {

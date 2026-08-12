@@ -4,8 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AtumAccountForm } from './atum-account-form'
 
 const copy = {
-  identifier: 'Tên người dùng, email hoặc số điện thoại',
+  identifier: 'Tên đăng nhập',
+  identifierHint: '@tên, email hoặc số điện thoại',
+  identifierPlaceholder: '@minh · minh@email.com · 0912…',
+  identifierRequired: 'Nhập tên đăng nhập, email hoặc số điện thoại.',
   password: 'Mật khẩu',
+  passwordRequired: 'Nhập mật khẩu.',
   signIn: 'Đăng nhập',
   signingIn: 'Đang đăng nhập...'
 }
@@ -18,10 +22,10 @@ afterEach(() => {
 
 describe('AtumAccountForm', () => {
   it('submits credentials once and clears the password when the request settles', async () => {
-    const onSubmit = vi.fn().mockResolvedValue(undefined)
-    render(<AtumAccountForm copy={copy} error={null} onSubmit={onSubmit} pending={false} />)
+    const onSubmit = vi.fn().mockResolvedValue(true)
+    render(<AtumAccountForm copy={copy} failureKind={null} onSubmit={onSubmit} pending={false} />)
 
-    fireEvent.change(screen.getByRole('textbox', { name: copy.identifier }), { target: { value: ' @minh ' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Tên đăng nhập/ }), { target: { value: ' @minh ' } })
     fireEvent.change(screen.getByLabelText('Mật khẩu'), { target: { value: 'one-shot-secret' } })
     fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }))
 
@@ -32,24 +36,40 @@ describe('AtumAccountForm', () => {
   })
 
   it('disables every credential control while the native request is pending', () => {
-    render(<AtumAccountForm copy={copy} error={null} onSubmit={vi.fn()} pending />)
+    render(<AtumAccountForm copy={copy} failureKind={null} onSubmit={vi.fn().mockResolvedValue(false)} pending />)
 
-    expect((screen.getByRole('textbox', { name: copy.identifier }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('textbox', { name: /Tên đăng nhập/ }) as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByLabelText('Mật khẩu') as HTMLInputElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Đang đăng nhập...' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('renders a stable accessible error without echoing credentials', () => {
+  it('validates required fields, links the error, and focuses the first invalid field', async () => {
+    const onSubmit = vi.fn()
     render(
-      <AtumAccountForm
-        copy={copy}
-        error="Đăng nhập thất bại. Kiểm tra email và mật khẩu."
-        onSubmit={vi.fn()}
-        pending={false}
-      />
+      <AtumAccountForm copy={copy} failureKind={null} onSubmit={onSubmit.mockResolvedValue(false)} pending={false} />
     )
 
-    expect(screen.getByRole('alert').textContent).toBe('Đăng nhập thất bại. Kiểm tra email và mật khẩu.')
-    expect(screen.queryByText('one-shot-secret')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Đăng nhập' }))
+    const identifier = screen.getByRole('textbox', { name: /Tên đăng nhập/ })
+    expect(identifier.getAttribute('aria-invalid')).toBe('true')
+    expect(identifier.getAttribute('aria-describedby')).toContain('atum-identifier-error')
+    expect(globalThis.document.activeElement).toBe(identifier)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('clears the password after credential failure but preserves it for a network failure', () => {
+    const submit = vi.fn().mockResolvedValue(false)
+    const { rerender } = render(<AtumAccountForm copy={copy} failureKind={null} onSubmit={submit} pending={false} />)
+    const identifier = screen.getByRole('textbox', { name: /Tên đăng nhập/ })
+    const password = screen.getByLabelText('Mật khẩu') as HTMLInputElement
+    fireEvent.change(identifier, { target: { value: '@minh' } })
+    fireEvent.change(password, { target: { value: 'one-shot-secret' } })
+
+    rerender(<AtumAccountForm copy={copy} failureKind="network" onSubmit={submit} pending={false} />)
+    expect(password.value).toBe('one-shot-secret')
+    rerender(<AtumAccountForm copy={copy} failureKind="credentials" onSubmit={submit} pending={false} />)
+    expect(password.value).toBe('')
+    expect(localStorage.length).toBe(0)
+    expect(sessionStorage.length).toBe(0)
   })
 })
