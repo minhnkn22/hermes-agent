@@ -52,12 +52,20 @@
  *    `npm run build` left behind, per target, right before files are read
  *    for packing.
  *
+ * 3. Regenerates the macOS icon assets when the SVG source is newer than the
+ *    checked-in icon-mac.png / icon-mac.icns (darwin targets only). The
+ *    checked-in assets remain the authoritative fallback: when the macOS
+ *    icon toolchain (iconutil/sips) is unavailable we warn and pack what's
+ *    committed. Never runs for win32/linux targets, so non-macOS builds need
+ *    no icon tooling at all. See scripts/generate-mac-icon.mjs.
+ *
  * electron-builder passes a context with:
  *   - appOutDir:            the unpacked app directory about to be staged
  *   - electronPlatformName: 'win32' | 'darwin' | 'linux'
  *   - arch:                 Arch enum (0=ia32, 1=x64, 2=armv7l, 3=arm64, 4=universal)
  */
 import { existsSync, rmSync } from 'node:fs'
+import path from 'node:path'
 import { Arch } from 'electron-builder'
 import { stageNodePty } from './stage-native-deps.mjs'
 
@@ -107,5 +115,21 @@ export default async function beforePack(context) {
     // target arch means a broken package shipped to users, which is worse
     // than a build that fails loudly here.
     throw new Error(`[before-pack] failed to stage node-pty for this target: ${err.message}`)
+  }
+
+  if (context && context.electronPlatformName === 'darwin') {
+    try {
+      const { ensureMacIconsFresh } = await import('./generate-mac-icon.mjs')
+      const result = ensureMacIconsFresh({ root: path.resolve(import.meta.dirname, '..') })
+
+      if (result.status === 'regenerated') {
+        console.log('[before-pack] regenerated macOS icon assets from icon-mac.svg')
+      }
+    } catch (err) {
+      // The checked-in assets are the authoritative fallback — an icon regen
+      // failure (missing iconutil/sips on the build host) must never fail a
+      // pack; the branding test still guards source↔asset correspondence.
+      console.warn(`[before-pack] macOS icon regeneration skipped (${err.message}); using checked-in assets`)
+    }
   }
 }
