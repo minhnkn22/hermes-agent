@@ -59,6 +59,18 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     get: () => ipcRenderer.invoke('hermes:profile:get'),
     set: name => ipcRenderer.invoke('hermes:profile:set', name)
   },
+  messaging: {
+    status: () => ipcRenderer.invoke('atum:messaging:status'),
+    roster: limit => ipcRenderer.invoke('atum:messaging:roster', limit),
+    messages: (conversationId, limit) => ipcRenderer.invoke('atum:messaging:messages', conversationId, limit),
+    draft: conversationId => ipcRenderer.invoke('atum:messaging:draft:get', conversationId),
+    saveDraft: (conversationId, draft) => ipcRenderer.invoke('atum:messaging:draft:save', conversationId, draft),
+    send: input => ipcRenderer.invoke('atum:messaging:send', input),
+    retry: clientMessageId => ipcRenderer.invoke('atum:messaging:retry', clientMessageId),
+    markRead: (conversationId, throughMessageId) =>
+      ipcRenderer.invoke('atum:messaging:read', conversationId, throughMessageId),
+    sync: () => ipcRenderer.invoke('atum:messaging:sync')
+  },
   api: request => ipcRenderer.invoke('hermes:api', request),
   notify: payload => ipcRenderer.invoke('hermes:notify', payload),
   requestMicrophoneAccess: () => ipcRenderer.invoke('hermes:requestMicrophoneAccess'),

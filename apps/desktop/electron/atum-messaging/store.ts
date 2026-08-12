@@ -454,6 +454,26 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
     return this.getMutation(clientMessageId)
   }
 
+  retryMutation(clientMessageId: string, now = new Date().toISOString()): PendingMutation {
+    const result = this.database
+      .prepare(
+        `
+        UPDATE messaging_pending_mutations
+        SET state = 'queued', next_attempt_at = ?, last_error_code = NULL, updated_at = ?
+        WHERE account_id = ? AND client_message_id = ? AND state = 'failed_retryable'
+      `
+      )
+      .run(now, now, this.accountId, clientMessageId)
+
+    if (result.changes !== 1) {
+      throw new Error(`Mutation is not retryable: ${clientMessageId}`)
+    }
+
+    this.setOptimisticDelivery(clientMessageId, 'queued')
+
+    return this.getMutation(clientMessageId)
+  }
+
   listDueMutations(now = new Date().toISOString(), limit = 100): PendingMutation[] {
     const boundedLimit = Math.max(1, Math.min(limit, 500))
 
@@ -582,6 +602,21 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
 
       return messageFromRow(this.findMessageByCanonicalId(message.id)!)
     })
+  }
+
+  deleteCanonicalMessage(messageId: string): boolean {
+    assertIdentifier('messageId', messageId)
+    const row = this.findMessageByCanonicalId(messageId)
+
+    if (!row) {
+      return false
+    }
+
+    const result = this.database
+      .prepare('DELETE FROM messaging_messages WHERE account_id = ? AND canonical_id = ?')
+      .run(this.accountId, messageId)
+
+    return result.changes === 1
   }
 
   markRead(conversationId: string, throughMessageId: string, now = new Date().toISOString()): boolean {
