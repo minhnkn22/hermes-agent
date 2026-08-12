@@ -45,6 +45,65 @@ export const zhHant = defineLocale({
     off: '關閉'
   },
 
+  atum: {
+    nav: {
+      aria: '主導覽',
+      chat: '對話',
+      devices: '電腦',
+      devicesSoon: '電腦 — 即將推出',
+      settings: '設定',
+      account: '帳戶'
+    },
+    account: {
+      menu: '帳戶選單',
+      signedOut: '尚未登入',
+      language: '語言',
+      theme: '外觀'
+    },
+    roster: {
+      title: '對話',
+      search: '搜尋對話',
+      assistant: 'Atum',
+      assistantHint: '你這台電腦上的助理',
+      unread: count => `${count} 則未讀`,
+      results: count => `${count} 筆結果`,
+      emptySearch: '找不到對話',
+      emptySearchHint: '換個關鍵字試試。',
+      loadFailed: '無法載入對話清單'
+    },
+    chat: {
+      none: '選擇一個對話',
+      noneHint: '在左側選擇一個對話即可開始。',
+      openRoster: '顯示對話清單',
+      closeRoster: '隱藏對話清單'
+    },
+    workspace: {
+      title: '工作區',
+      open: '開啟工作區',
+      close: '關閉工作區',
+      none: '這個對話目前沒有可操作的內容',
+      resize: '調整寬度',
+      tabView: '檢視',
+      tabFiles: '檔案',
+      tabDetails: '詳細資料',
+      empty: '目前沒有內容',
+      detailsConversation: '對話',
+      detailsParticipants: '成員',
+      detailsUpdated: '最近活動'
+    },
+    auth: {
+      title: '歡迎使用 Atum',
+      expiredTitle: '請重新登入以繼續',
+      expiredBody: '登入已過期。你的對話仍然保留。',
+      terms: '繼續即表示你同意 Atum 的條款。'
+    },
+    offline: {
+      banner: '離線 — 顯示已儲存的內容',
+      reconnecting: '正在重新連線…',
+      reconnected: '已重新連線'
+    }
+  },
+
   fileMenu: {
     revealFinder: '在 Finder 中顯示',
     revealExplorer: '在檔案總管中顯示',

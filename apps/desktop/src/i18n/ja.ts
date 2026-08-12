@@ -45,6 +45,65 @@ export const ja = defineLocale({
     off: 'オフ'
   },
 
+  atum: {
+    nav: {
+      aria: 'メインナビゲーション',
+      chat: 'チャット',
+      devices: 'コンピューター',
+      devicesSoon: 'コンピューター — 近日公開',
+      settings: '設定',
+      account: 'アカウント'
+    },
+    account: {
+      menu: 'アカウントメニュー',
+      signedOut: '未ログイン',
+      language: '言語',
+      theme: '外観'
+    },
+    roster: {
+      title: 'チャット',
+      search: 'チャットを検索',
+      assistant: 'Atum',
+      assistantHint: 'このコンピューター上のアシスタント',
+      unread: count => `未読 ${count} 件`,
+      results: count => `${count} 件の結果`,
+      emptySearch: 'チャットが見つかりません',
+      emptySearchHint: '別のキーワードをお試しください。',
+      loadFailed: 'チャット一覧を読み込めませんでした'
+    },
+    chat: {
+      none: 'チャットを選択',
+      noneHint: '左の一覧からチャットを選んで始めてください。',
+      openRoster: 'チャット一覧を表示',
+      closeRoster: 'チャット一覧を隠す'
+    },
+    workspace: {
+      title: 'ワークスペース',
+      open: 'ワークスペースを開く',
+      close: 'ワークスペースを閉じる',
+      none: 'このチャットにはまだ作業対象がありません',
+      resize: '幅を変更',
+      tabView: '表示',
+      tabFiles: 'ファイル',
+      tabDetails: '詳細',
+      empty: '表示できるものがまだありません',
+      detailsConversation: '会話',
+      detailsParticipants: '参加者',
+      detailsUpdated: '最終アクティビティ'
+    },
+    auth: {
+      title: 'Atum へようこそ',
+      expiredTitle: '続けるには再度ログインしてください',
+      expiredBody: 'セッションの有効期限が切れました。チャットはそのまま残っています。',
+      terms: '続行すると Atum の利用規約に同意したことになります。'
+    },
+    offline: {
+      banner: 'オフライン — 保存済みの内容を表示中',
+      reconnecting: '再接続中…',
+      reconnected: '再接続しました'
+    }
+  },
+
   fileMenu: {
     revealFinder: 'Finder で表示',
     revealExplorer: 'エクスプローラーで表示',

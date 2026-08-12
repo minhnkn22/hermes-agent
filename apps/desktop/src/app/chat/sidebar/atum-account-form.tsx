@@ -1,10 +1,20 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import type { AtumAuthFailureKind } from '@/lib/atum-auth'
+import { cn } from '@/lib/utils'
 
-export type AtumAuthFailureKind = 'credentials' | 'network' | 'provider' | null
+export type { AtumAuthFailureKind }
+
+/** `sidebar` is the compact legacy treatment; `atum` is the full-window auth
+ *  gate's roomier one. Appearance changes container/control sizing only — the
+ *  validation, `aria-invalid` wiring, and messages are identical. */
+export type AtumAccountFormAppearance = 'atum' | 'sidebar'
 
 interface AtumAccountFormProps {
+  appearance?: AtumAccountFormAppearance
+  /** Focus the identifier field on mount (the auth gate's entry point). */
+  autoFocus?: boolean
   copy: {
     identifier: string
     identifierHint: string
@@ -21,12 +31,33 @@ interface AtumAccountFormProps {
 }
 
 /** Ephemeral credential form: values never leave component state except for the one native IPC call. */
-export function AtumAccountForm({ copy, failureKind, onSubmit, pending }: AtumAccountFormProps) {
+export function AtumAccountForm({
+  appearance = 'sidebar',
+  autoFocus = false,
+  copy,
+  failureKind,
+  onSubmit,
+  pending
+}: AtumAccountFormProps) {
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({})
   const identifierRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
+  const roomy = appearance === 'atum'
+  const fieldClass = roomy
+    ? 'h-11 w-full rounded-[10px] border border-(--ui-border) bg-(--ui-control-background) px-3 text-sm outline-none focus-visible:border-primary/60'
+    : 'h-8 w-full rounded-md border border-(--ui-border) bg-(--ui-control-background) px-2 text-xs outline-none focus-visible:border-primary/60'
+  const labelClass = cn(
+    'block font-medium text-(--ui-text-secondary)',
+    roomy ? 'text-xs' : 'text-[0.6875rem]'
+  )
+
+  useEffect(() => {
+    if (autoFocus) {
+      identifierRef.current?.focus()
+    }
+  }, [autoFocus])
 
   useEffect(() => {
     if (failureKind === 'credentials') {
@@ -66,9 +97,9 @@ export function AtumAccountForm({ copy, failureKind, onSubmit, pending }: AtumAc
   }
 
   return (
-    <form aria-busy={pending} className="space-y-2" onSubmit={event => void submit(event)}>
+    <form aria-busy={pending} className={roomy ? 'space-y-3' : 'space-y-2'} onSubmit={event => void submit(event)}>
       <div className="space-y-1">
-        <label className="block text-[0.6875rem] font-medium text-(--ui-text-secondary)" htmlFor="atum-identifier">
+        <label className={labelClass} htmlFor="atum-identifier">
           {copy.identifier}
         </label>
         <p className="text-[0.6875rem] leading-4 text-(--ui-text-tertiary)" id="atum-identifier-hint">
@@ -79,7 +110,7 @@ export function AtumAccountForm({ copy, failureKind, onSubmit, pending }: AtumAc
           aria-invalid={Boolean(fieldErrors.identifier)}
           autoCapitalize="none"
           autoComplete="username"
-          className="h-8 w-full rounded-md border border-(--ui-border) bg-(--ui-control-background) px-2 text-xs outline-none focus-visible:border-primary/60"
+          className={fieldClass}
           disabled={pending}
           id="atum-identifier"
           name="identifier"
@@ -101,14 +132,14 @@ export function AtumAccountForm({ copy, failureKind, onSubmit, pending }: AtumAc
         )}
       </div>
       <div className="space-y-1">
-        <label className="block text-[0.6875rem] font-medium text-(--ui-text-secondary)" htmlFor="atum-password">
+        <label className={labelClass} htmlFor="atum-password">
           {copy.password}
         </label>
         <input
           aria-describedby={fieldErrors.password ? 'atum-password-error' : undefined}
           aria-invalid={Boolean(fieldErrors.password)}
           autoComplete="current-password"
-          className="h-8 w-full rounded-md border border-(--ui-border) bg-(--ui-control-background) px-2 text-xs outline-none focus-visible:border-primary/60"
+          className={fieldClass}
           disabled={pending}
           id="atum-password"
           name="password"
@@ -127,7 +158,12 @@ export function AtumAccountForm({ copy, failureKind, onSubmit, pending }: AtumAc
           </p>
         )}
       </div>
-      <Button className="h-8 w-full text-xs" disabled={pending} size="sm" type="submit">
+      <Button
+        className={roomy ? 'h-11 w-full text-sm' : 'h-8 w-full text-xs'}
+        disabled={pending}
+        size={roomy ? 'default' : 'sm'}
+        type="submit"
+      >
         {pending ? copy.signingIn : copy.signIn}
       </Button>
     </form>

@@ -15,10 +15,17 @@ export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
+/** The Atum sign-in gate. Internal plumbing stays conventional English; the
+ *  copy the user reads is Vietnamese-first (see `t.atum.auth`). */
+export const ATUM_AUTH_ROUTE = '/sign-in'
 
 export type AppView =
   | 'agents'
   | 'artifacts'
+  // The full-window Atum sign-in gate. NOT an OVERLAY_VIEW: it replaces the
+  // shell entirely rather than floating a card over it, so there is nothing
+  // behind it to click around.
+  | 'atum-auth'
   | 'chat'
   | 'command-center'
   | 'cron'
@@ -37,6 +44,7 @@ export type AppView =
 export type AppRouteId =
   | 'agents'
   | 'artifacts'
+  | 'atum-auth'
   | 'command-center'
   | 'cron'
   | 'messaging'
@@ -62,7 +70,8 @@ export const APP_ROUTES = [
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },
   { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
-  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' }
+  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
+  { id: 'atum-auth', path: ATUM_AUTH_ROUTE, view: 'atum-auth' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))

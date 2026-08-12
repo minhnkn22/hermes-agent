@@ -92,6 +92,65 @@ export const vi = defineLocale({
     unavailable: 'Đăng nhập chưa khả dụng trong bản này.'
   },
 
+  atum: {
+    nav: {
+      aria: 'Điều hướng chính',
+      chat: 'Trò chuyện',
+      devices: 'Máy tính',
+      devicesSoon: 'Máy tính — sắp có',
+      settings: 'Cài đặt',
+      account: 'Tài khoản'
+    },
+    account: {
+      menu: 'Menu tài khoản',
+      signedOut: 'Chưa đăng nhập',
+      language: 'Ngôn ngữ',
+      theme: 'Giao diện'
+    },
+    roster: {
+      title: 'Trò chuyện',
+      search: 'Tìm cuộc trò chuyện',
+      assistant: 'Atum',
+      assistantHint: 'Trợ lý của bạn trên máy này',
+      unread: count => `${count} tin chưa đọc`,
+      results: count => `${count} kết quả`,
+      emptySearch: 'Không tìm thấy cuộc trò chuyện nào',
+      emptySearchHint: 'Thử từ khóa khác.',
+      loadFailed: 'Không tải được danh sách trò chuyện'
+    },
+    chat: {
+      none: 'Chọn một cuộc trò chuyện',
+      noneHint: 'Chọn cuộc trò chuyện ở cột bên trái để bắt đầu.',
+      openRoster: 'Hiện danh sách trò chuyện',
+      closeRoster: 'Ẩn danh sách trò chuyện'
+    },
+    workspace: {
+      title: 'Không gian thao tác',
+      open: 'Mở không gian thao tác',
+      close: 'Đóng không gian thao tác',
+      none: 'Cuộc trò chuyện này chưa có thao tác nào',
+      resize: 'Thay đổi độ rộng',
+      tabView: 'Xem',
+      tabFiles: 'Tệp',
+      tabDetails: 'Chi tiết',
+      empty: 'Chưa có gì để xem',
+      detailsConversation: 'Cuộc trò chuyện',
+      detailsParticipants: 'Thành viên',
+      detailsUpdated: 'Hoạt động gần nhất'
+    },
+    auth: {
+      title: 'Chào mừng đến Atum',
+      expiredTitle: 'Đăng nhập lại để tiếp tục',
+      expiredBody: 'Phiên đăng nhập đã hết hạn. Cuộc trò chuyện của bạn vẫn được giữ nguyên.',
+      terms: 'Bằng việc tiếp tục, bạn đồng ý với Điều khoản của Atum.'
+    },
+    offline: {
+      banner: 'Đang ngoại tuyến — hiển thị nội dung đã lưu',
+      reconnecting: 'Đang kết nối lại…',
+      reconnected: 'Đã kết nối lại'
+    }
+  },
+
   boot: {
     ready: 'Atum đã sẵn sàng',
     desktopBootFailedWithMessage: message => `Không khởi động được Atum: ${message}`,
