@@ -62,6 +62,7 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
   account: {
     status: () => ipcRenderer.invoke('atum:account:status'),
     signIn: () => ipcRenderer.invoke('atum:account:sign-in'),
+    signInWithPassword: input => ipcRenderer.invoke('atum:account:sign-in-password', input),
     cancel: () => ipcRenderer.invoke('atum:account:cancel'),
     signOut: () => ipcRenderer.invoke('atum:account:sign-out')
   },

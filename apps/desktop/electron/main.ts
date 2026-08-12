@@ -10672,7 +10672,11 @@ app.whenReady().then(() => {
       environment: {
         hostedBaseUrl: process.env.ATUM_PLATFORM_URL,
         supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
-        supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+        supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        providers: {
+          google: process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === 'true',
+          password: process.env.ATUM_PASSWORD_AUTH_ENABLED !== 'false'
+        }
       },
       packagedPath: process.resourcesPath ? path.join(process.resourcesPath, 'atum-public-config.json') : null
     })

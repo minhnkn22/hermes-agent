@@ -7,18 +7,27 @@ import type { MessagingAccountSession, MessagingUser } from './types'
 import { parseDesktopSession } from './wire'
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1000
+const PASSWORD_LOGIN_TIMEOUT_MS = 15_000
+const MAX_AUTH_RESPONSE_BYTES = 64 * 1024
 const CALLBACK_PREFIX = '/atum-auth/callback'
 
 export interface AtumAccountConfigInput {
   hostedBaseUrl?: string | null
   supabaseUrl?: string | null
   supabaseAnonKey?: string | null
+  providers?: Partial<AtumAccountProviders> | null
+}
+
+export interface AtumAccountProviders {
+  google: boolean
+  password: boolean
 }
 
 export interface AtumAccountConfig {
   hostedBaseUrl: string
   supabaseUrl: string
   supabaseAnonKey: string
+  providers: AtumAccountProviders
 }
 
 export type AtumAccountAuthState =
@@ -41,6 +50,7 @@ export interface AtumAccountAuthStatus {
   configured: boolean
   account: AtumAccountProfile | null
   errorCode: string | null
+  providers: AtumAccountProviders
 }
 
 export interface AtumAccountAuthClientOptions {
@@ -48,6 +58,7 @@ export interface AtumAccountAuthClientOptions {
   createServer?: typeof http.createServer
   openExternal: (url: string) => Promise<void>
   timeoutMs?: number
+  passwordTimeoutMs?: number
 }
 
 interface SupabaseTokenBody {
@@ -63,6 +74,11 @@ interface SupabaseTokenBody {
 
 interface LoginAttempt {
   signal: AbortSignal
+}
+
+export interface AtumPasswordSignInInput {
+  identifier: string
+  password: string
 }
 
 function base64Url(value: Buffer): string {
@@ -112,7 +128,11 @@ export function resolveAtumAccountConfig(input: AtumAccountConfigInput): AtumAcc
   return {
     hostedBaseUrl: normalizeHttpUrl(hostedBaseUrl, 'hosted_base_url'),
     supabaseUrl: normalizeHttpUrl(supabaseUrl, 'supabase_url'),
-    supabaseAnonKey
+    supabaseAnonKey,
+    providers: {
+      google: input.providers?.google === true,
+      password: input.providers?.password !== false
+    }
   }
 }
 
@@ -156,8 +176,28 @@ function parseTokenBody(value: unknown, nowMs: number): { user: MessagingUser; t
   }
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const bytes = await response.text()
+async function readJson(response: Response, maxBytes = 128 * 1024): Promise<unknown> {
+  if (!response.body) {return null}
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+
+  for (;;) {
+    const { done, value } = await reader.read()
+
+    if (done) {break}
+    size += value.byteLength
+
+    if (size > maxBytes) {
+      await reader.cancel()
+      throw new Error('auth_response_too_large')
+    }
+
+    chunks.push(value)
+  }
+
+  const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk))).toString('utf8')
 
   try {
     return bytes ? JSON.parse(bytes) : null
@@ -178,6 +218,7 @@ export class SupabaseAtumAccountClient {
   private readonly fetchImpl: typeof fetch
   private readonly createServer: typeof http.createServer
   private readonly timeoutMs: number
+  private readonly passwordTimeoutMs: number
 
   constructor(
     readonly config: AtumAccountConfig,
@@ -186,6 +227,7 @@ export class SupabaseAtumAccountClient {
     this.fetchImpl = options.fetchImpl ?? fetch
     this.createServer = options.createServer ?? http.createServer
     this.timeoutMs = options.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS
+    this.passwordTimeoutMs = options.passwordTimeoutMs ?? PASSWORD_LOGIN_TIMEOUT_MS
   }
 
   async signIn(attempt: LoginAttempt): Promise<MessagingAccountSession> {
@@ -214,6 +256,59 @@ export class SupabaseAtumAccountClient {
     }
 
     const parsed = parseTokenBody(body, Date.now())
+
+    return { baseUrl: this.config.hostedBaseUrl, ...parsed }
+  }
+
+  async signInWithPassword(input: AtumPasswordSignInInput, signal?: AbortSignal): Promise<MessagingAccountSession> {
+    const timeoutSignal = AbortSignal.timeout(this.passwordTimeoutMs)
+    const requestSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
+    let response: Response
+
+    try {
+      response = await this.fetchImpl(`${this.config.hostedBaseUrl}/api/desktop/v1/auth/password`, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(input),
+        cache: 'no-store',
+        signal: requestSignal
+      })
+    } catch {
+      if (signal?.aborted) {throw new Error('authorization_cancelled')}
+
+      if (timeoutSignal.aborted) {throw new Error('password_sign_in_timeout')}
+      throw new Error('password_sign_in_unavailable')
+    }
+
+    const body = await readJson(response, MAX_AUTH_RESPONSE_BYTES)
+
+    if (!response.ok) {
+      // Hosted bodies may echo user-controlled material. Return a stable code
+      // and discard the body rather than reflecting credentials/provider copy.
+      throw new Error(`password_sign_in_rejected:${response.status}`)
+    }
+
+    const root = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+    const session = root.session
+    const record = session && typeof session === 'object' ? (session as Record<string, unknown>) : {}
+
+    const projectedUser = record.user && typeof record.user === 'object'
+      ? (record.user as Record<string, unknown>)
+      : {}
+
+    const parsed = parseTokenBody(
+      {
+        ...record,
+        user: {
+          id: projectedUser.id,
+          user_metadata: {
+            full_name: projectedUser.display_name,
+            user_name: projectedUser.handle
+          }
+        }
+      },
+      Date.now()
+    )
 
     return { baseUrl: this.config.hostedBaseUrl, ...parsed }
   }
@@ -380,7 +475,8 @@ export class AtumAccountAuthController {
       state: this.transientState ?? (account ? 'signed_in' : this.options.client ? 'signed_out' : 'unconfigured'),
       configured: Boolean(this.options.client),
       account,
-      errorCode: this.errorCode
+      errorCode: this.errorCode,
+      providers: this.options.client?.config.providers ?? { google: false, password: false }
     }
   }
 
@@ -388,6 +484,13 @@ export class AtumAccountAuthController {
     if (!this.options.client) {
       this.transientState = 'unconfigured'
       this.errorCode = 'atum_account_unconfigured'
+
+      return this.status()
+    }
+
+    if (!this.options.client.config.providers.google) {
+      this.transientState = this.options.runtime.accountProfile() ? null : 'signed_out'
+      this.errorCode = 'google_provider_unavailable'
 
       return this.status()
     }
@@ -416,6 +519,60 @@ export class AtumAccountAuthController {
       this.transientState = null
     } catch (error) {
       const code = error instanceof Error ? error.message : 'account_sign_in_failed'
+
+      if (code === 'authorization_cancelled') {
+        this.transientState = this.options.runtime.accountProfile() ? null : 'signed_out'
+        this.errorCode = null
+      } else {
+        this.transientState = this.options.runtime.accountProfile() ? null : 'error'
+        this.errorCode = code
+      }
+    } finally {
+      if (this.activeAttempt === attempt) {this.activeAttempt = null}
+    }
+
+    return this.status()
+  }
+
+  async signInWithPassword(input: AtumPasswordSignInInput): Promise<AtumAccountAuthStatus> {
+    if (!this.options.client) {
+      this.transientState = 'unconfigured'
+      this.errorCode = 'atum_account_unconfigured'
+
+      return this.status()
+    }
+
+    if (!this.options.client.config.providers.password) {
+      this.transientState = this.options.runtime.accountProfile() ? null : 'signed_out'
+      this.errorCode = 'password_provider_unavailable'
+
+      return this.status()
+    }
+
+    if (this.activeAttempt) {return this.status()}
+
+    const attempt = new AbortController()
+    this.activeAttempt = attempt
+    this.transientState = 'signing_in'
+    this.errorCode = null
+
+    try {
+      const acquired = await this.options.client.signInWithPassword(input, attempt.signal)
+
+      if (attempt.signal.aborted || this.activeAttempt !== attempt) {
+        throw new Error('authorization_cancelled')
+      }
+
+      const verified = await this.options.client.verifyHostedSession(acquired, attempt.signal)
+
+      if (attempt.signal.aborted || this.activeAttempt !== attempt) {
+        throw new Error('authorization_cancelled')
+      }
+
+      await this.options.runtime.installSession(verified)
+      this.transientState = null
+    } catch (error) {
+      const code = error instanceof Error ? error.message : 'password_sign_in_failed'
 
       if (code === 'authorization_cancelled') {
         this.transientState = this.options.runtime.accountProfile() ? null : 'signed_out'
@@ -475,4 +632,10 @@ export class AtumAccountAuthController {
   }
 }
 
-export { CALLBACK_PREFIX, DEFAULT_LOGIN_TIMEOUT_MS, parseTokenBody }
+export {
+  CALLBACK_PREFIX,
+  DEFAULT_LOGIN_TIMEOUT_MS,
+  MAX_AUTH_RESPONSE_BYTES,
+  parseTokenBody,
+  PASSWORD_LOGIN_TIMEOUT_MS
+}

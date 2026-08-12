@@ -23,7 +23,7 @@ function parsePackagedPublicConfig(path: string): AtumAccountConfigInput {
   }
 
   const record = parsed as Record<string, unknown>
-  const allowed = new Set(['schemaVersion', 'hostedBaseUrl', 'supabaseUrl', 'supabaseAnonKey'])
+  const allowed = new Set(['schemaVersion', 'hostedBaseUrl', 'supabaseUrl', 'supabaseAnonKey', 'providers'])
 
   if (Object.keys(record).some(key => !allowed.has(key))) {
     throw new Error('atum_public_config_contains_unknown_field')
@@ -33,10 +33,24 @@ function parsePackagedPublicConfig(path: string): AtumAccountConfigInput {
     throw new Error('atum_public_config_schema_unsupported')
   }
 
+  const providers = record.providers && typeof record.providers === 'object' && !Array.isArray(record.providers)
+    ? (record.providers as Record<string, unknown>)
+    : null
+
+  if (
+    !providers ||
+    Object.keys(providers).some(key => key !== 'google' && key !== 'password') ||
+    typeof providers.google !== 'boolean' ||
+    typeof providers.password !== 'boolean'
+  ) {
+    throw new Error('atum_public_config_providers_invalid')
+  }
+
   return {
     hostedBaseUrl: typeof record.hostedBaseUrl === 'string' ? record.hostedBaseUrl : null,
     supabaseUrl: typeof record.supabaseUrl === 'string' ? record.supabaseUrl : null,
-    supabaseAnonKey: typeof record.supabaseAnonKey === 'string' ? record.supabaseAnonKey : null
+    supabaseAnonKey: typeof record.supabaseAnonKey === 'string' ? record.supabaseAnonKey : null,
+    providers: { google: providers.google, password: providers.password }
   }
 }
 

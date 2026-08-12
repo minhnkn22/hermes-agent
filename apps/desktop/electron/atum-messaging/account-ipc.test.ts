@@ -17,12 +17,14 @@ test('account IPC exposes only sanitized commands and status', async () => {
     state: 'signed_in' as const,
     configured: true,
     account: { id: 'account-a', displayName: 'Minh', handle: null },
-    errorCode: null
+    errorCode: null,
+    providers: { google: false, password: true }
   }
 
   const controller = {
     status: vi.fn(() => sanitized),
     signIn: vi.fn(async () => sanitized),
+    signInWithPassword: vi.fn(async () => sanitized),
     cancel: vi.fn(() => sanitized),
     signOut: vi.fn(async () => ({ ...sanitized, state: 'signed_out', account: null }))
   } as unknown as AtumAccountAuthController
@@ -33,6 +35,43 @@ test('account IPC exposes only sanitized commands and status', async () => {
   assert.equal([...handlers.keys()].some(channel => /token|refresh|verifier|secret|fetch|supabase/i.test(channel)), false)
   const rendered = JSON.stringify(await handlers.get('atum:account:status')!({}))
   assert.equal(/access|refresh|verifier|anon.?key|supabase/i.test(rendered), false)
+
+  const passwordInput = { identifier: ' OWNER@Example.Test ', password: 'dogfood-password-123', token: 'forged' }
+  const passwordStatus = await handlers.get('atum:account:sign-in-password')!({}, passwordInput)
+  assert.deepEqual(passwordStatus, sanitized)
+  assert.deepEqual(vi.mocked(controller.signInWithPassword).mock.calls[0]?.[0], {
+    identifier: 'owner@example.test',
+    password: 'dogfood-password-123'
+  })
+  assert.doesNotMatch(JSON.stringify(passwordStatus), /owner@example|dogfood-password/i)
+
+  await handlers.get('atum:account:sign-in-password')!({}, {
+    identifier: '@Minh.Owner',
+    password: 'dogfood-password-123'
+  })
+  await handlers.get('atum:account:sign-in-password')!({}, {
+    identifier: '0912 345 678',
+    password: 'dogfood-password-123'
+  })
+  assert.deepEqual(vi.mocked(controller.signInWithPassword).mock.calls.slice(1).map(call => call[0]?.identifier), [
+    'minh.owner',
+    '+84912345678'
+  ])
+
+  for (const invalid of [
+    null,
+    { identifier: 'not-an-email', password: 'dogfood-password-123' },
+    { identifier: 'owner@example.test', password: 'short' },
+    { identifier: `${'a'.repeat(250)}@example.test`, password: 'dogfood-password-123' },
+    { identifier: 'owner@example.test', password: 'x'.repeat(1025) },
+    { identifier: 'owner@example.test', password: 'password\0secret' },
+    { identifier: '+841234', password: 'dogfood-password-123' }
+  ]) {
+    await assert.rejects(
+      Promise.resolve().then(() => handlers.get('atum:account:sign-in-password')!({}, invalid)),
+      /account_credentials_invalid/
+    )
+  }
 
   unregister()
   assert.equal(handlers.size, 0)
