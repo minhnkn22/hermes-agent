@@ -170,6 +170,16 @@ function removeBytecodeCaches(root) {
   return removed
 }
 
+function compileRelocatableBytecode({ pythonRoot }) {
+  const python = join(pythonRoot, 'bin', 'python3.11')
+  run(python, ['-B', '-m', 'compileall', '--invalidation-mode', 'unchecked-hash', '-q', pythonRoot], {
+    env: {
+      ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1'
+    }
+  })
+}
+
 function installPython({ uv, scratchRoot, destination, pythonInstallKey }) {
   const installRoot = join(scratchRoot, 'python-install')
   run(uv, [
@@ -314,6 +324,11 @@ export function stageBundledRuntime({
     // first launch remains cache-free and the app signature stays valid.
     removeBytecodeCaches(pythonRoot)
     probeStagedRuntime({ pythonRoot, sourceRoot, expectedArch: arch })
+    // Some Hermes helper processes intentionally sanitize inherited env before
+    // re-executing this interpreter. Precompile hash-based bytecode after every
+    // source/copy/probe step so those helpers consume sealed, relocation-safe
+    // caches instead of creating timestamp caches inside Atum.app.
+    compileRelocatableBytecode({ pythonRoot })
 
     const manifest = {
       schemaVersion: BUNDLED_RUNTIME_SCHEMA_VERSION,
@@ -354,6 +369,7 @@ export function stageBundledRuntime({
 export {
   assertCleanPackageSource,
   assertSafeRuntimeTarget,
+  compileRelocatableBytecode,
   removeBytecodeCaches,
   rewriteInternalAbsoluteSymlinks,
   targetConfig

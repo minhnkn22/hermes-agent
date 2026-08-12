@@ -6,7 +6,7 @@ The exact-head Atum dogfood package launched and successfully used the bundled H
 
 ## Resolution
 
-`stage-bundled-runtime.mjs` now removes `__pycache__`, `.pyc`, and `.pyo` artifacts from the staged Python payload before its executable probe and before electron-builder signs the bundle. Desktop-managed Python processes already receive `PYTHONDONTWRITEBYTECODE=1`; shipping the source modules without staging-prefix bytecode prevents relocation-triggered cache refreshes and keeps the installed application bundle immutable during dogfood use.
+`stage-bundled-runtime.mjs` now removes uv's timestamp/staging-prefix bytecode, runs its executable probe cache-free, then explicitly compiles the final payload with Python's relocation-safe `unchecked-hash` invalidation mode before electron-builder signs the bundle. Desktop-managed Python processes still receive `PYTHONDONTWRITEBYTECODE=1`, while helper processes that sanitize inherited environment consume the sealed hash caches instead of writing timestamp caches into `Atum.app`.
 
 The staging probe also explicitly sets `PYTHONDONTWRITEBYTECODE=1`; otherwise the probe itself would recreate a small cache after cleanup.
 
@@ -17,6 +17,6 @@ The package remains ad-hoc signed for local dogfood. Developer ID signing and no
 ## Verification
 
 - Focused staging tests cover bytecode-cache removal and preservation of Python sources.
-- The packaged payload contains no `__pycache__`, `.pyc`, or `.pyo` paths.
+- The packaged payload contains only final unchecked-hash bytecode caches; the executable test asserts the PEP 552 flags word is `1`.
 - The staged runtime import probe and packaged Hermes runtime still start successfully.
 - The final installed app is deep ad-hoc signed, launched, performs a Hermes terminal action, and passes `codesign --verify --deep --strict` after that runtime use.

@@ -9,6 +9,7 @@ import {
   assertCleanPackageSource,
   assertSafeRuntimeTarget,
   BUNDLED_PYTHON_VERSION,
+  compileRelocatableBytecode,
   removeBytecodeCaches,
   rewriteInternalAbsoluteSymlinks,
   targetConfig
@@ -78,5 +79,23 @@ test('packaged runtime removes relocatable bytecode caches before signing', () =
   assert.equal(fs.existsSync(path.join(scratch, 'lib', '__pycache__')), false)
   assert.equal(fs.existsSync(path.join(scratch, 'site-packages', 'legacy.pyo')), false)
   assert.equal(fs.readFileSync(path.join(scratch, 'site-packages', 'module.py'), 'utf8'), 'source')
+  fs.rmSync(scratch, { recursive: true })
+})
+
+test('packaged runtime produces relocation-safe unchecked-hash bytecode', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'atum-runtime-hash-bytecode-'))
+  const pythonRoot = path.join(scratch, 'runtime-test')
+  fs.mkdirSync(path.join(pythonRoot, 'bin'), { recursive: true })
+  fs.mkdirSync(path.join(pythonRoot, 'package'), { recursive: true })
+  fs.symlinkSync('/usr/bin/python3', path.join(pythonRoot, 'bin', 'python3.11'))
+  fs.writeFileSync(path.join(pythonRoot, 'package', 'module.py'), 'value = 1\n')
+
+  compileRelocatableBytecode({ pythonRoot })
+
+  const cache = path.join(pythonRoot, 'package', '__pycache__')
+  const [actual] = fs.readdirSync(cache).filter(name => name.endsWith('.pyc'))
+  assert.ok(actual)
+  const bytes = fs.readFileSync(path.join(cache, actual))
+  assert.equal(bytes.readUInt32LE(4), 1)
   fs.rmSync(scratch, { recursive: true })
 })
