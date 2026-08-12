@@ -20,14 +20,23 @@ import { Arch } from 'electron-builder'
 
 import { stampExeIdentity } from './set-exe-identity.mjs'
 import { stageBundledRuntime } from './stage-bundled-runtime.mjs'
+import { writeAtumPublicConfig } from './write-atum-public-config.mjs'
 
 export default async function afterPack(context) {
   if (context.electronPlatformName === 'darwin') {
     const productName = context.packager?.appInfo?.productFilename || 'Hermes'
     const arch = typeof context.arch === 'number' ? Arch[context.arch] : process.arch
     const runtimeRoot = path.join(context.appOutDir, `${productName}.app`, 'Contents', 'Resources', 'runtime')
+    const publicConfigPath = path.join(
+      context.appOutDir,
+      `${productName}.app`,
+      'Contents',
+      'Resources',
+      'atum-public-config.json'
+    )
 
     stageBundledRuntime({ targetRoot: runtimeRoot, platform: 'darwin', arch })
+    writeAtumPublicConfig({ outputPath: publicConfigPath })
     return
   }
 
