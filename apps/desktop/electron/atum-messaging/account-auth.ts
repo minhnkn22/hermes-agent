@@ -7,6 +7,7 @@ import type { MessagingAccountSession, MessagingUser } from './types'
 import { parseDesktopSession } from './wire'
 
 const DEFAULT_LOGIN_TIMEOUT_MS = 5 * 60 * 1000
+const DEFAULT_AUTH_REQUEST_TIMEOUT_MS = 15_000
 const PASSWORD_LOGIN_TIMEOUT_MS = 15_000
 const MAX_AUTH_RESPONSE_BYTES = 64 * 1024
 const CALLBACK_PREFIX = '/atum-auth/callback'
@@ -58,6 +59,7 @@ export interface AtumAccountAuthClientOptions {
   createServer?: typeof http.createServer
   openExternal: (url: string) => Promise<void>
   timeoutMs?: number
+  requestTimeoutMs?: number
   passwordTimeoutMs?: number
 }
 
@@ -151,7 +153,10 @@ function parseUser(body: SupabaseTokenBody): MessagingUser {
   }
 }
 
-function parseTokenBody(value: unknown, nowMs: number): { user: MessagingUser; tokens: MessagingAccountSession['tokens'] } {
+function parseTokenBody(
+  value: unknown,
+  nowMs: number
+): { user: MessagingUser; tokens: MessagingAccountSession['tokens'] } {
   const body = value && typeof value === 'object' ? (value as Partial<SupabaseTokenBody>) : {}
   const accessToken = typeof body.access_token === 'string' ? body.access_token : ''
   const refreshToken = typeof body.refresh_token === 'string' ? body.refresh_token : ''
@@ -164,11 +169,12 @@ function parseTokenBody(value: unknown, nowMs: number): { user: MessagingUser; t
   const explicitExpiry = Number(body.expires_at)
   const duration = Number(body.expires_in)
 
-  const expiresAt = Number.isFinite(explicitExpiry) && explicitExpiry > 0
-    ? explicitExpiry
-    : Number.isFinite(duration) && duration > 0
-      ? Math.floor(nowMs / 1000) + duration
-      : null
+  const expiresAt =
+    Number.isFinite(explicitExpiry) && explicitExpiry > 0
+      ? explicitExpiry
+      : Number.isFinite(duration) && duration > 0
+        ? Math.floor(nowMs / 1000) + duration
+        : null
 
   return {
     user: parseUser(body as SupabaseTokenBody),
@@ -177,7 +183,9 @@ function parseTokenBody(value: unknown, nowMs: number): { user: MessagingUser; t
 }
 
 async function readJson(response: Response, maxBytes = 128 * 1024): Promise<unknown> {
-  if (!response.body) {return null}
+  if (!response.body) {
+    return null
+  }
 
   const reader = response.body.getReader()
   const chunks: Uint8Array[] = []
@@ -186,7 +194,9 @@ async function readJson(response: Response, maxBytes = 128 * 1024): Promise<unkn
   for (;;) {
     const { done, value } = await reader.read()
 
-    if (done) {break}
+    if (done) {
+      break
+    }
     size += value.byteLength
 
     if (size > maxBytes) {
@@ -218,6 +228,7 @@ export class SupabaseAtumAccountClient {
   private readonly fetchImpl: typeof fetch
   private readonly createServer: typeof http.createServer
   private readonly timeoutMs: number
+  private readonly requestTimeoutMs: number
   private readonly passwordTimeoutMs: number
 
   constructor(
@@ -227,6 +238,7 @@ export class SupabaseAtumAccountClient {
     this.fetchImpl = options.fetchImpl ?? fetch
     this.createServer = options.createServer ?? http.createServer
     this.timeoutMs = options.timeoutMs ?? DEFAULT_LOGIN_TIMEOUT_MS
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_AUTH_REQUEST_TIMEOUT_MS
     this.passwordTimeoutMs = options.passwordTimeoutMs ?? PASSWORD_LOGIN_TIMEOUT_MS
   }
 
@@ -242,14 +254,19 @@ export class SupabaseAtumAccountClient {
     const nonce = randomSecret(24)
     const code = await this.waitForCode({ attempt, challenge, nonce, state })
 
-    const response = await this.fetchImpl(`${this.config.supabaseUrl}/auth/v1/token?grant_type=pkce`, {
-      method: 'POST',
-      headers: authHeaders(this.config),
-      body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
-      signal: attempt.signal
-    })
-
-    const body = await readJson(response)
+    const { body, response } = await this.fetchAuthJson(
+      `${this.config.supabaseUrl}/auth/v1/token?grant_type=pkce`,
+      {
+        method: 'POST',
+        headers: authHeaders(this.config),
+        body: JSON.stringify({ auth_code: code, code_verifier: verifier })
+      },
+      {
+        signal: attempt.signal,
+        timeoutCode: 'token_exchange_timeout',
+        unavailableCode: 'token_exchange_unavailable'
+      }
+    )
 
     if (!response.ok) {
       throw new Error(`token_exchange_failed:${response.status}`)
@@ -274,9 +291,13 @@ export class SupabaseAtumAccountClient {
         signal: requestSignal
       })
     } catch {
-      if (signal?.aborted) {throw new Error('authorization_cancelled')}
+      if (signal?.aborted) {
+        throw new Error('authorization_cancelled')
+      }
 
-      if (timeoutSignal.aborted) {throw new Error('password_sign_in_timeout')}
+      if (timeoutSignal.aborted) {
+        throw new Error('password_sign_in_timeout')
+      }
       throw new Error('password_sign_in_unavailable')
     }
 
@@ -292,9 +313,7 @@ export class SupabaseAtumAccountClient {
     const session = root.session
     const record = session && typeof session === 'object' ? (session as Record<string, unknown>) : {}
 
-    const projectedUser = record.user && typeof record.user === 'object'
-      ? (record.user as Record<string, unknown>)
-      : {}
+    const projectedUser = record.user && typeof record.user === 'object' ? (record.user as Record<string, unknown>) : {}
 
     const parsed = parseTokenBody(
       {
@@ -313,18 +332,25 @@ export class SupabaseAtumAccountClient {
     return { baseUrl: this.config.hostedBaseUrl, ...parsed }
   }
 
-  async refresh(session: MessagingAccountSession): Promise<MessagingAccountSession | null> {
+  async refresh(session: MessagingAccountSession, signal?: AbortSignal): Promise<MessagingAccountSession | null> {
     if (!session.tokens.refreshToken) {
       return null
     }
 
-    const response = await this.fetchImpl(`${this.config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: authHeaders(this.config),
-      body: JSON.stringify({ refresh_token: session.tokens.refreshToken })
-    })
-
-    const body = await readJson(response)
+    const { body, response } = await this.fetchAuthJson(
+      `${this.config.supabaseUrl}/auth/v1/token?grant_type=refresh_token`,
+      {
+        method: 'POST',
+        headers: authHeaders(this.config),
+        body: JSON.stringify({ refresh_token: session.tokens.refreshToken })
+      },
+      {
+        signal,
+        cancelledCode: 'account_refresh_cancelled',
+        timeoutCode: 'account_refresh_timeout',
+        unavailableCode: 'account_refresh_unavailable'
+      }
+    )
 
     if (!response.ok) {
       return null
@@ -340,16 +366,21 @@ export class SupabaseAtumAccountClient {
   }
 
   async verifyHostedSession(session: MessagingAccountSession, signal?: AbortSignal): Promise<MessagingAccountSession> {
-    const response = await this.fetchImpl(`${this.config.hostedBaseUrl}/api/desktop/v1/session`, {
-      headers: {
-        accept: 'application/json',
-        authorization: `Bearer ${session.tokens.accessToken}`
+    const { body, response } = await this.fetchAuthJson(
+      `${this.config.hostedBaseUrl}/api/desktop/v1/session`,
+      {
+        headers: {
+          accept: 'application/json',
+          authorization: `Bearer ${session.tokens.accessToken}`
+        },
+        cache: 'no-store'
       },
-      cache: 'no-store',
-      signal
-    })
-
-    const body = await readJson(response)
+      {
+        signal,
+        timeoutCode: 'hosted_session_timeout',
+        unavailableCode: 'hosted_session_unavailable'
+      }
+    )
 
     if (!response.ok) {
       throw new Error(`hosted_session_rejected:${response.status}`)
@@ -362,6 +393,44 @@ export class SupabaseAtumAccountClient {
     }
 
     return { ...session, user: verified.user }
+  }
+
+  private async fetchAuthJson(
+    url: string,
+    init: RequestInit,
+    errors: {
+      signal?: AbortSignal
+      cancelledCode?: string
+      timeoutCode: string
+      unavailableCode: string
+    }
+  ): Promise<{ body: unknown; response: Response }> {
+    const timeoutSignal = AbortSignal.timeout(this.requestTimeoutMs)
+    const signal = errors.signal ? AbortSignal.any([errors.signal, timeoutSignal]) : timeoutSignal
+
+    try {
+      const response = await this.fetchImpl(url, { ...init, signal })
+      const body = await readJson(response, MAX_AUTH_RESPONSE_BYTES)
+
+      return { body, response }
+    } catch (error) {
+      if (errors.signal?.aborted) {
+        throw new Error(errors.cancelledCode ?? 'authorization_cancelled')
+      }
+
+      if (timeoutSignal.aborted) {
+        throw new Error(errors.timeoutCode)
+      }
+
+      if (
+        error instanceof Error &&
+        (error.message === 'auth_response_too_large' || error.message === 'invalid_json_response')
+      ) {
+        throw error
+      }
+
+      throw new Error(errors.unavailableCode)
+    }
   }
 
   private waitForCode(input: {
@@ -379,12 +448,16 @@ export class SupabaseAtumAccountClient {
         response.writeHead(204, { 'cache-control': 'no-store' })
         response.end()
 
-        if (settled) {return}
+        if (settled) {
+          return
+        }
 
         const url = new URL(request.url ?? '/', 'http://127.0.0.1')
         const carriesResult = url.searchParams.has('code') || url.searchParams.has('error')
 
-        if (!carriesResult) {return}
+        if (!carriesResult) {
+          return
+        }
 
         if (url.pathname !== expectedPath) {
           finish(new Error('callback_state_or_nonce_mismatch'))
@@ -412,19 +485,30 @@ export class SupabaseAtumAccountClient {
       })
 
       const cleanup = () => {
-        if (timer) {clearTimeout(timer)}
+        if (timer) {
+          clearTimeout(timer)
+        }
         input.attempt.signal.removeEventListener('abort', onAbort)
 
-        try {server.close()} catch { /* already closed */ }
+        try {
+          server.close()
+        } catch {
+          /* already closed */
+        }
       }
 
       const finish = (error: Error | null, code?: string) => {
-        if (settled) {return}
+        if (settled) {
+          return
+        }
         settled = true
         cleanup()
 
-        if (error) {reject(error)}
-        else {resolve(code!)}
+        if (error) {
+          reject(error)
+        } else {
+          resolve(code!)
+        }
       }
 
       const onAbort = () => finish(new Error('authorization_cancelled'))
@@ -463,6 +547,7 @@ export interface AtumAccountAuthControllerOptions {
 
 export class AtumAccountAuthController {
   private activeAttempt: AbortController | null = null
+  private refreshLifecycle = new AbortController()
   private transientState: AtumAccountAuthState | null = null
   private errorCode: string | null = null
 
@@ -495,7 +580,9 @@ export class AtumAccountAuthController {
       return this.status()
     }
 
-    if (this.activeAttempt) {return this.status()}
+    if (this.activeAttempt) {
+      return this.status()
+    }
 
     const attempt = new AbortController()
     this.activeAttempt = attempt
@@ -515,6 +602,7 @@ export class AtumAccountAuthController {
         throw new Error('authorization_cancelled')
       }
 
+      this.abortRefreshes()
       await this.options.runtime.installSession(verified)
       this.transientState = null
     } catch (error) {
@@ -528,7 +616,9 @@ export class AtumAccountAuthController {
         this.errorCode = code
       }
     } finally {
-      if (this.activeAttempt === attempt) {this.activeAttempt = null}
+      if (this.activeAttempt === attempt) {
+        this.activeAttempt = null
+      }
     }
 
     return this.status()
@@ -549,7 +639,9 @@ export class AtumAccountAuthController {
       return this.status()
     }
 
-    if (this.activeAttempt) {return this.status()}
+    if (this.activeAttempt) {
+      return this.status()
+    }
 
     const attempt = new AbortController()
     this.activeAttempt = attempt
@@ -569,6 +661,7 @@ export class AtumAccountAuthController {
         throw new Error('authorization_cancelled')
       }
 
+      this.abortRefreshes()
       await this.options.runtime.installSession(verified)
       this.transientState = null
     } catch (error) {
@@ -582,7 +675,9 @@ export class AtumAccountAuthController {
         this.errorCode = code
       }
     } finally {
-      if (this.activeAttempt === attempt) {this.activeAttempt = null}
+      if (this.activeAttempt === attempt) {
+        this.activeAttempt = null
+      }
     }
 
     return this.status()
@@ -590,27 +685,51 @@ export class AtumAccountAuthController {
 
   cancel(): AtumAccountAuthStatus {
     this.activeAttempt?.abort()
-    this.transientState = this.options.runtime.accountProfile() ? null : this.options.client ? 'signed_out' : 'unconfigured'
+    this.transientState = this.options.runtime.accountProfile()
+      ? null
+      : this.options.client
+        ? 'signed_out'
+        : 'unconfigured'
     this.errorCode = null
 
     return this.status()
   }
 
-  async refresh(session: MessagingAccountSession): Promise<MessagingAccountSession | null> {
-    if (!this.options.client) {return null}
+  async refresh(session: MessagingAccountSession, signal?: AbortSignal): Promise<MessagingAccountSession | null> {
+    if (!this.options.client) {
+      return null
+    }
 
-    this.transientState = 'refreshing'
-    this.errorCode = null
+    const lifecycle = this.refreshLifecycle.signal
+    const requestSignal = signal ? AbortSignal.any([signal, lifecycle]) : lifecycle
+
+    if (this.transientState !== 'signing_in') {
+      this.transientState = 'refreshing'
+      this.errorCode = null
+    }
 
     try {
-      const refreshed = await this.options.client.refresh(session)
-      this.transientState = refreshed ? null : 'expired'
-      this.errorCode = refreshed ? null : 'account_session_expired'
+      const refreshed = await this.options.client.refresh(session, requestSignal)
+
+      if (requestSignal.aborted) {
+        return null
+      }
+
+      if (this.transientState !== 'signing_in') {
+        this.transientState = refreshed ? null : 'expired'
+        this.errorCode = refreshed ? null : 'account_session_expired'
+      }
 
       return refreshed
     } catch (error) {
-      this.transientState = 'expired'
-      this.errorCode = error instanceof Error ? error.message : 'account_refresh_failed'
+      if (requestSignal.aborted) {
+        return null
+      }
+
+      if (this.transientState !== 'signing_in') {
+        this.transientState = 'expired'
+        this.errorCode = error instanceof Error ? error.message : 'account_refresh_failed'
+      }
 
       return null
     }
@@ -619,6 +738,7 @@ export class AtumAccountAuthController {
   async signOut(): Promise<AtumAccountAuthStatus> {
     this.activeAttempt?.abort()
     this.activeAttempt = null
+    this.abortRefreshes()
     await this.options.runtime.clearSession()
     this.transientState = null
     this.errorCode = null
@@ -629,11 +749,18 @@ export class AtumAccountAuthController {
   stop(): void {
     this.activeAttempt?.abort()
     this.activeAttempt = null
+    this.abortRefreshes()
+  }
+
+  private abortRefreshes(): void {
+    this.refreshLifecycle.abort()
+    this.refreshLifecycle = new AbortController()
   }
 }
 
 export {
   CALLBACK_PREFIX,
+  DEFAULT_AUTH_REQUEST_TIMEOUT_MS,
   DEFAULT_LOGIN_TIMEOUT_MS,
   MAX_AUTH_RESPONSE_BYTES,
   parseTokenBody,
