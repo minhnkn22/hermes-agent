@@ -47,7 +47,11 @@ function authFailureKind(errorCode: string | null): AtumAuthFailureKind {
   if (!errorCode) {return null}
   const code = errorCode.toLowerCase()
 
-  if (code.includes('invalid_credentials') || code.includes('invalid_grant') || code.includes('rejected:401')) {
+  if (
+    code.includes('invalid_credentials') ||
+    code.includes('invalid_grant') ||
+    /password_sign_in_rejected:4\d\d/u.test(code)
+  ) {
     return 'credentials'
   }
 

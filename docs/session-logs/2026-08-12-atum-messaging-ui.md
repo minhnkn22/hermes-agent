@@ -125,3 +125,9 @@ Focused post-assembly verification:
   variable is required only because this machine's global Git hook otherwise
   rejects disposable fixture commits; the initial run's sole failure was that
   harness hook, not product code.
+
+The Kimi assembly review `12e52ad1-52f2-464c-9193-7466e33d57a4` found that
+the Electron test's hosted credential rejection used HTTP 400 while the
+renderer regression covered only 401. The classifier now treats any hosted
+password-bootstrap 4xx rejection as invalid credentials; the visible copy is
+truthful and the password-clearing policy applies to the exact native error.

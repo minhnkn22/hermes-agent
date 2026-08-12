@@ -198,7 +198,7 @@ describe('AtumSection', () => {
     )
 
     for (const [errorCode, expected] of [
-      ['password_sign_in_rejected:401', 'Sai tên đăng nhập hoặc mật khẩu.'],
+      ['password_sign_in_rejected:400', 'Sai tên đăng nhập hoặc mật khẩu.'],
       ['password_sign_in_timeout', 'Không kết nối được. Kiểm tra mạng rồi thử lại.'],
       ['provider_not_configured', 'Đăng nhập tạm thời không khả dụng. Thử lại sau ít phút.']
     ]) {
