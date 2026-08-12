@@ -103,6 +103,11 @@ function buildDesktopBackendEnv({
   const key = pathEnvKey(currentEnv, platform)
 
   return {
+    // Packaged Atum ships Python inside the signed application bundle. Python's
+    // default bytecode cache would mutate that bundle on first use and break
+    // its code signature, so every desktop-managed backend runs cache-free.
+    // Source checkouts also benefit from deterministic, side-effect-free probes.
+    PYTHONDONTWRITEBYTECODE: '1',
     PYTHONPATH: appendUniquePathEntries([...pythonPathEntries, currentPythonPath], { delimiter }),
     [key]: buildDesktopBackendPath({
       hermesHome,

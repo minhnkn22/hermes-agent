@@ -82,3 +82,13 @@ Python root. Their replacements are relative bundle-local links; unrelated
 absolute links remain untouched. A focused relocation test removes the source
 tree and proves the rewritten alias still resolves. Bundled-runtime tests pass
 10/10 and desktop typecheck plus `git diff --check` remain green.
+
+## Signed-bundle immutability correction
+
+A later install rehearsal caught a second packaging-only defect: exercising the
+packaged backend after ad-hoc signing allowed Python to add and refresh `.pyc`
+files inside `Atum.app`, invalidating the bundle seal even though the backend
+itself started correctly. All desktop-managed Python environments now set
+`PYTHONDONTWRITEBYTECODE=1`, and both packaged-app verification harnesses set it
+explicitly. This keeps the bundled source and standard library byte-for-byte
+immutable during first launch, package auditing, and normal dogfood use.

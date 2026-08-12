@@ -36,6 +36,7 @@ env.HERMES_DESKTOP_CWD = sandbox
 env.HERMES_DESKTOP_IGNORE_EXISTING = '1'
 env.HERMES_DESKTOP_USER_DATA_DIR = userData
 env.HERMES_HOME = hermesHome
+env.PYTHONDONTWRITEBYTECODE = '1'
 
 const child = spawn(executable, [], { cwd: sandbox, env, stdio: 'ignore' })
 const startedAt = Date.now()

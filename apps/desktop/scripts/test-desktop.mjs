@@ -259,6 +259,7 @@ function launchFresh() {
   env.HERMES_DESKTOP_TEST_MODE = 'fresh-install'
   env.HERMES_DESKTOP_USER_DATA_DIR = userDataDir
   env.HERMES_HOME = hermesHome
+  env.PYTHONDONTWRITEBYTECODE = '1'
   delete env.HERMES_DESKTOP_HERMES
   delete env.HERMES_DESKTOP_HERMES_ROOT
 
