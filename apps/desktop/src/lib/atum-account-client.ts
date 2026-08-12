@@ -1,4 +1,4 @@
-export type AtumAccountAuthState =
+export type AtumAccountState =
   | 'unconfigured'
   | 'signed_out'
   | 'signing_in'
@@ -7,18 +7,46 @@ export type AtumAccountAuthState =
   | 'expired'
   | 'error'
 
-export interface AtumAccountAuthStatus {
-  state: AtumAccountAuthState
+export interface AtumAccountIdentity {
+  id: string
+  displayName?: string | null
+  handle?: string | null
+}
+
+export interface AtumAccountStatus {
+  state: AtumAccountState
   configured: boolean
-  account: { id: string; displayName: string | null; handle: string | null } | null
+  account: AtumAccountIdentity | null
   errorCode: string | null
   providers: { google: boolean; password: boolean }
 }
 
 export interface AtumAccountClient {
-  status(): Promise<AtumAccountAuthStatus>
-  signIn(): Promise<AtumAccountAuthStatus>
-  signInWithPassword(input: { identifier: string; password: string }): Promise<AtumAccountAuthStatus>
-  cancel(): Promise<AtumAccountAuthStatus>
-  signOut(): Promise<AtumAccountAuthStatus>
+  status(): Promise<AtumAccountStatus>
+  signIn(): Promise<AtumAccountStatus>
+  /** Credentials cross the narrow IPC seam once and are never persisted, logged, or returned. */
+  signInWithPassword(credentials: { identifier: string; password: string }): Promise<AtumAccountStatus>
+  cancel(): Promise<AtumAccountStatus>
+  signOut(): Promise<AtumAccountStatus>
+}
+
+const UNCONFIGURED: AtumAccountStatus = {
+  state: 'unconfigured',
+  configured: false,
+  account: null,
+  errorCode: null,
+  providers: { google: false, password: false }
+}
+
+/** Native-account renderer seam. Tokens and PKCE material stay in Electron main. */
+export function atumAccountClient(): AtumAccountClient {
+  return (
+    window.hermesDesktop?.account ?? {
+      status: async () => UNCONFIGURED,
+      signIn: async () => UNCONFIGURED,
+      signInWithPassword: async () => UNCONFIGURED,
+      cancel: async () => UNCONFIGURED,
+      signOut: async () => UNCONFIGURED
+    }
+  )
 }

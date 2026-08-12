@@ -9,6 +9,7 @@ export const SETTINGS_ROUTE = '/settings'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const MESSAGING_ROUTE = '/messaging'
+export const DM_ROUTE_PREFIX = '/dm/'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
@@ -21,6 +22,7 @@ export type AppView =
   | 'chat'
   | 'command-center'
   | 'cron'
+  | 'dm'
   // A contributed (plugin) full page at its own route — NOT chat. Without this
   // distinction contributed paths fell through appViewForPath's 'chat' default,
   // so the sidebar kept a session highlighted and the titlebar kept the
@@ -133,11 +135,30 @@ export function isNewChatRoute(pathname: string): boolean {
 }
 
 export function routeSessionId(pathname: string): string | null {
-  if (!pathname.startsWith(SESSION_ROUTE_PREFIX) || RESERVED_PATHS.has(pathname) || isContributedPath(pathname)) {
+  if (
+    !pathname.startsWith(SESSION_ROUTE_PREFIX) ||
+    pathname.startsWith(DM_ROUTE_PREFIX) ||
+    RESERVED_PATHS.has(pathname) ||
+    isContributedPath(pathname)
+  ) {
     return null
   }
 
   const id = pathname.slice(SESSION_ROUTE_PREFIX.length)
+
+  return id && !id.includes('/') ? decodeURIComponent(id) : null
+}
+
+export function dmRoute(conversationId: string): string {
+  return `${DM_ROUTE_PREFIX}${encodeURIComponent(conversationId)}`
+}
+
+export function routeDmConversationId(pathname: string): string | null {
+  if (!pathname.startsWith(DM_ROUTE_PREFIX)) {
+    return null
+  }
+
+  const id = pathname.slice(DM_ROUTE_PREFIX.length)
 
   return id && !id.includes('/') ? decodeURIComponent(id) : null
 }
@@ -147,6 +168,10 @@ export function sessionRoute(sessionId: string): string {
 }
 
 export function appViewForPath(pathname: string): AppView {
+  if (routeDmConversationId(pathname)) {
+    return 'dm'
+  }
+
   if (isNewChatRoute(pathname) || routeSessionId(pathname)) {
     return 'chat'
   }

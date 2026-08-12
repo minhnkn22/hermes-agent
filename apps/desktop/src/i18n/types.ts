@@ -95,6 +95,42 @@ export interface Translations {
     body: string
   }
 
+  dm: {
+    sectionTitle: string
+    brandLine: string
+    compose: string
+    send: string
+    retry: string
+    sending: string
+    sendFailed: string
+    noMessages: string
+    noConversations: string
+    offline: string
+    reconnecting: string
+    authExpired: string
+    authExpiredAction: string
+    errorGeneric: string
+    loadingMessages: string
+    today: string
+    yesterday: string
+    unreadCount: (count: number) => string
+    signedInAs: (name: string) => string
+    notSignedIn: string
+    signIn: string
+    identifier: string
+    password: string
+    signingIn: string
+    signInFailed: string
+    continueWithGoogle: string
+    or: string
+    signOut: string
+    cancelSignIn: string
+    you: string
+    messageDelivered: string
+    messageRead: string
+    unavailable: string
+  }
+
   fileMenu: {
     revealFinder: string
     revealExplorer: string
