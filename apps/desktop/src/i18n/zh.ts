@@ -114,11 +114,22 @@ export const zh: Translations = {
       search: '搜索对话',
       assistant: 'Atum',
       assistantHint: '你这台电脑上的助手',
+      groupAssistant: 'Atum',
+      groupApps: '应用',
+      groupPeople: '联系人',
+      signedOutTitle: '登录后查看专家',
+      signedOutBody: '登录后，你与 Atum 专家的对话会显示在这里。',
+      signIn: '登录',
+      retry: '重试',
+      emptyChats: '暂无其他对话',
       unread: count => `${count} 条未读`,
       results: count => `${count} 条结果`,
       emptySearch: '未找到对话',
       emptySearchHint: '换个关键词试试。',
       loadFailed: '无法加载对话列表'
+    },
+    empty: {
+      chips: ['随便问 Atum 一个问题', '在这台电脑上交办一项任务', '给专家发消息']
     },
     chat: {
       none: '选择一个对话',

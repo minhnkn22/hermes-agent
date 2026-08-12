@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react'
-import { type CSSProperties, lazy, Suspense, useEffect } from 'react'
+import { lazy, Suspense, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import { titlebarControlsPosition } from '@/app/shell/titlebar'
@@ -23,7 +23,9 @@ import { routeDmConversationId } from '../routes'
 import { AtumAuthView } from './auth-view'
 import { AtumChatPanel } from './chat-panel'
 import { AtumRail } from './rail'
+import { AtumRim } from './rim'
 import { AtumRosterPanel } from './roster-panel'
+import { toDisplayTitle } from './roster'
 import { useAtumWorkspace } from './use-workspace'
 
 // The workspace pulls in the real preview rail and file tree. It is closed by
@@ -34,9 +36,10 @@ const AtumWorkspacePanel = lazy(async () => ({ default: (await import('./workspa
 /**
  * The Atum product shell.
  *
- * There is no titlebar and no statusbar: the 10px gutter around the plates IS
- * the drag region, which is how the top rim gets simplified — there is no bar
- * left to simplify. The rail and every plate opt out of dragging.
+ * Layout: a full-width 44px rim on top (traffic lights + brand lockup +
+ * workspace toggle), then the plate row (rail, roster, chat, workspace) inside
+ * the 10px gutter. The rim band and gutter are drag regions; the rail and every
+ * plate opt out of dragging.
  *
  * This component is mounted INSIDE `ContribWiring`, so contributions, keybinds,
  * overlays, dialogs, notifications, the command palette, the persistent
@@ -112,38 +115,45 @@ export function AtumShellRoot() {
   }
 
   const dmId = routeDmConversationId(location.pathname)
-  const dmTitle = dmId ? (roster.find(entry => entry.id === dmId)?.title ?? dmId) : null
-  const title = dmTitle ?? t.atum.roster.assistant
+  const dmEntry = dmId ? roster.find(entry => entry.id === dmId) : undefined
+  const title = dmEntry ? toDisplayTitle(dmEntry.title ?? dmEntry.participantIds[0] ?? dmId) : t.atum.roster.assistant
+  // Conversation header's second line: the specialist's role when the hosted
+  // row supplies one; the local assistant always gets its hint. Never a
+  // placeholder when the payload has nothing to say.
+  const subtitle = dmEntry
+    ? (typeof dmEntry.payload?.role === 'string' && dmEntry.payload.role) || ''
+    : t.atum.roster.assistantHint
 
-  // macOS traffic lights live in the gutter, so the rail's first control has to
-  // clear them. Read the real position rather than assuming a platform.
+  // macOS traffic lights live in the rim, so the rim's content has to clear
+  // them. Read the real position rather than assuming a platform; Windows and
+  // Linux reserve the native overlay width on the right instead.
   const controlsPos = titlebarControlsPosition(connection?.windowButtonPosition, Boolean(connection?.isFullscreen))
+  const nativeOverlayWidth = connection?.nativeOverlayWidth ?? 0
 
   return (
-    <main
-      className="atum-shell relative flex h-dvh min-h-[520px] gap-2.5 overflow-hidden bg-(--atum-desk) p-2.5 text-(--atum-ink) [-webkit-app-region:drag]"
-      style={{ '--atum-rail-top': `${Math.max(24, controlsPos.top + 20)}px` } as CSSProperties}
-    >
-      <div className="flex shrink-0 flex-col pt-(--atum-rail-top)">
+    <main className="atum-shell relative flex h-dvh min-h-[520px] flex-col overflow-hidden bg-(--atum-desk) text-(--atum-ink) [-webkit-app-region:drag]">
+      <AtumRim controlsLeft={controlsPos.left} nativeOverlayWidth={nativeOverlayWidth} workspace={workspace} />
+
+      <div className="flex min-h-0 flex-1 gap-2.5 p-2.5">
         <AtumRail />
+
+        {(!compact || rosterDrawerOpen) && (
+          <AtumRosterPanel compact={compact} onNavigated={() => compact && setRosterDrawerOpen(false)} />
+        )}
+
+        <AtumChatPanel
+          onToggleRoster={compact ? () => setRosterDrawerOpen(!rosterDrawerOpen) : undefined}
+          rosterOpen={rosterDrawerOpen}
+          subtitle={subtitle}
+          title={title}
+        />
+
+        {workspaceOpen && workspace.available.length > 0 && (
+          <Suspense fallback={null}>
+            <AtumWorkspacePanel drawer={workspaceIsDrawer} workspace={workspace} />
+          </Suspense>
+        )}
       </div>
-
-      {(!compact || rosterDrawerOpen) && (
-        <AtumRosterPanel compact={compact} onNavigated={() => compact && setRosterDrawerOpen(false)} />
-      )}
-
-      <AtumChatPanel
-        onToggleRoster={compact ? () => setRosterDrawerOpen(!rosterDrawerOpen) : undefined}
-        rosterOpen={rosterDrawerOpen}
-        title={title}
-        workspace={workspace}
-      />
-
-      {workspaceOpen && workspace.available.length > 0 && (
-        <Suspense fallback={null}>
-          <AtumWorkspacePanel drawer={workspaceIsDrawer} workspace={workspace} />
-        </Suspense>
-      )}
     </main>
   )
 }

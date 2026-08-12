@@ -62,8 +62,15 @@ describe('Vietnamese-first P0 copy', () => {
       title: 'Trò chuyện',
       search: 'Tìm cuộc trò chuyện',
       assistant: 'Atum',
+      groupAssistant: 'Atum',
+      groupApps: 'Ứng dụng',
+      groupPeople: 'Mọi người',
+      signIn: 'Đăng nhập',
+      retry: 'Thử lại',
+      emptyChats: 'Chưa có cuộc trò chuyện nào khác',
       emptySearch: 'Không tìm thấy cuộc trò chuyện nào'
     })
+    expect(vi.atum.empty.chips).toHaveLength(3)
     expect(vi.atum.workspace.title).toBe('Không gian thao tác')
     expect(vi.atum.auth.title).toBe('Chào mừng đến Atum')
     expect(vi.atum.offline.banner).toBe('Đang ngoại tuyến — hiển thị nội dung đã lưu')
@@ -84,9 +91,19 @@ describe('Atum namespace coverage across every locale', () => {
   // `defineLocale` merges over `en`, so a missing override silently falls back
   // to English. Assert real translations exist rather than that the KEY exists.
   it.each(Object.entries(LOCALES))('%s carries the whole atum namespace', (name, catalog) => {
-    expect(Object.keys(catalog.atum).sort()).toEqual(['account', 'auth', 'chat', 'nav', 'offline', 'roster', 'workspace'])
+    expect(Object.keys(catalog.atum).sort()).toEqual([
+      'account',
+      'auth',
+      'chat',
+      'empty',
+      'nav',
+      'offline',
+      'roster',
+      'workspace'
+    ])
     expect(typeof catalog.atum.roster.unread(3)).toBe('string')
     expect(typeof catalog.atum.roster.results(3)).toBe('string')
+    expect(catalog.atum.empty.chips).toHaveLength(3)
     expect(catalog.atum.workspace.title.length).toBeGreaterThan(0)
 
     if (name !== 'en') {

@@ -65,11 +65,22 @@ export const zhHant = defineLocale({
       search: '搜尋對話',
       assistant: 'Atum',
       assistantHint: '你這台電腦上的助理',
+      groupAssistant: 'Atum',
+      groupApps: '應用程式',
+      groupPeople: '聯絡人',
+      signedOutTitle: '登入後檢視專家',
+      signedOutBody: '登入後，你與 Atum 專家的對話會顯示在這裡。',
+      signIn: '登入',
+      retry: '重試',
+      emptyChats: '暫無其他對話',
       unread: count => `${count} 則未讀`,
       results: count => `${count} 筆結果`,
       emptySearch: '找不到對話',
       emptySearchHint: '換個關鍵字試試。',
       loadFailed: '無法載入對話清單'
+    },
+    empty: {
+      chips: ['隨便問 Atum 一個問題', '在這台電腦上交辦一項任務', '傳訊息給專家']
     },
     chat: {
       none: '選擇一個對話',

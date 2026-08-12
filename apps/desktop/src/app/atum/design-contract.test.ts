@@ -44,7 +44,17 @@ describe('Atum shell — every icon-only control carries a tooltip', () => {
 })
 
 describe('Atum shell — no Hermes nouns reach the product surface', () => {
-  const FORBIDDEN = ['$sessions', '$profiles', '$projects', '$cronSessions', '$pinnedSessionIds', 'LayoutTreeRoot']
+  const FORBIDDEN = [
+    '$sessions',
+    '$profiles',
+    '$projects',
+    '$cronSessions',
+    '$pinnedSessionIds',
+    'LayoutTreeRoot',
+    // The rim is macOS/Hermes GEOMETRY with Atum contents — the Hermes
+    // titlebar surface itself must never be wired back in.
+    'WiredPane part="titlebar"'
+  ]
 
   it.each(sources)('%s stays out of the Hermes organisation stores', (_name, source) => {
     const code = stripCommentsAndStrings(source)
@@ -52,6 +62,63 @@ describe('Atum shell — no Hermes nouns reach the product surface', () => {
     for (const noun of FORBIDDEN) {
       expect(code, `${noun} must not appear in the Atum shell`).not.toContain(noun)
     }
+  })
+})
+
+describe('Atum shell — the rim carries Atum contents only', () => {
+  const rim = readFileSync(join(ATUM_DIR, 'rim.tsx'), 'utf8')
+
+  it('hosts no Hermes organisation control', () => {
+    const code = stripCommentsAndStrings(rim)
+
+    for (const noun of ['session', 'profile', 'project', 'worktree', 'approval', 'gateway', 'context-usage']) {
+      expect(code.toLowerCase(), `${noun} must not appear in the rim`).not.toContain(noun)
+    }
+  })
+
+  it('is a drag region with the sanctioned workspace control', () => {
+    expect(rim).toContain('data-atum-rim')
+    expect(rim).toContain('[-webkit-app-region:drag]')
+    expect(rim).toContain('toggleWorkspace')
+    expect(rim).not.toContain('AtumAccountMenu')
+  })
+})
+
+describe('Atum shell — the chat plane is opaque and the composer is Atum-shaped', () => {
+  const styles = readFileSync(resolve(ATUM_DIR, '../../styles.css'), 'utf8')
+  const chatView = readFileSync(resolve(ATUM_DIR, '../chat/index.tsx'), 'utf8')
+
+  it('never mounts the legacy Hermes image backdrop in the product transcript', () => {
+    expect(chatView).not.toContain('@/components/Backdrop')
+    expect(chatView).not.toContain('<Backdrop')
+  })
+
+  it('paints an opaque Atum chat ground under every chat descendant', () => {
+    // Scoped override — the legacy shell keeps its own surface color.
+    expect(styles).toMatch(/\.atum-shell\s*\{[^}]*--ui-chat-surface-background:\s*var\(--atum-chat-solid\)/u)
+    // Near-fully opaque chat tokens in both ramps: nothing recognizable can
+    // leak through the transcript.
+    expect(styles).toContain('--atum-chat: rgb(253 252 250 / 96%)')
+    expect(styles).toContain('--atum-chat-solid: rgb(252 251 248)')
+    expect(styles).toContain('--atum-chat: rgb(38 35 30 / 96%)')
+  })
+
+  it('scopes the rounded floating composer to the Atum shell', () => {
+    expect(styles).toContain(".atum-shell [data-slot='composer-root']")
+    expect(styles).toContain('border-radius: var(--atum-r-composer)')
+    expect(styles).toContain('--atum-r-composer: 18px')
+    expect(styles).toContain(".atum-shell [data-slot='composer-surface']:focus-within")
+    // The Hermes input recess is killed inside Atum only.
+    expect(styles).toMatch(/\.atum-shell\s*\{[^}]*--dt-input-inset:\s*none/u)
+    // Composer minimum height and the Atum-ground fade.
+    expect(styles).toContain('min-height: 44px')
+    expect(styles).toContain(".atum-shell [data-slot='composer-root'] > .pointer-events-none")
+  })
+
+  it('puts the specular sheen on the TOP edge, in both ramps', () => {
+    expect(styles).toContain('--atum-sheen: inset 0 1px 0 color-mix(in srgb, white 62%, transparent)')
+    expect(styles).toContain('--atum-sheen: inset 0 1px 0 color-mix(in srgb, white 12%, transparent)')
+    expect(styles).not.toContain('--atum-sheen: inset 0.0625rem 0 0')
   })
 })
 

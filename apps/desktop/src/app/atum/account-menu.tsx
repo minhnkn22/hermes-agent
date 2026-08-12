@@ -79,10 +79,7 @@ export function AtumAccountMenu({ children }: { children: ReactNode }) {
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>{t.atum.account.theme}</DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup
-              onValueChange={value => setMode(value as 'dark' | 'light' | 'system')}
-              value={mode}
-            >
+            <DropdownMenuRadioGroup onValueChange={value => setMode(value as 'dark' | 'light' | 'system')} value={mode}>
               <DropdownMenuRadioItem value="light">{t.settings.modeOptions.light.label}</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="dark">{t.settings.modeOptions.dark.label}</DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="system">{t.settings.modeOptions.system.label}</DropdownMenuRadioItem>

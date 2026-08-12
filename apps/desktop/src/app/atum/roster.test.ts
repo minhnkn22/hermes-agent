@@ -5,12 +5,19 @@ import { describe, expect, it } from 'vitest'
 
 import type { AtumMessagingConversation } from '@/lib/atum-messaging-client'
 
-import { buildAtumRoster, filterRoster, foldSearchText } from './roster'
+import {
+  ATUM_AVATAR_TINTS,
+  avatarTintIndex,
+  buildAtumRoster,
+  filterRoster,
+  foldSearchText,
+  toDisplayTitle
+} from './roster'
 
 const conversation = (overrides: Partial<AtumMessagingConversation> = {}): AtumMessagingConversation => ({
   id: 'c1',
   title: 'Moon',
-  kind: 'direct',
+  kind: 'specialist',
   participantIds: ['moon'],
   updatedAt: '2026-08-12T00:00:00.000Z',
   lastMessageAt: '2026-08-12T00:00:00.000Z',
@@ -21,7 +28,8 @@ const conversation = (overrides: Partial<AtumMessagingConversation> = {}): AtumM
 
 const base = {
   assistantHint: 'Trợ lý của bạn trên máy này',
-  assistantTitle: 'Atum'
+  assistantTitle: 'Atum',
+  locale: 'vi' as const
 }
 
 describe('buildAtumRoster', () => {
@@ -49,22 +57,22 @@ describe('buildAtumRoster', () => {
     expect(roster.map(entry => entry.kind)).toEqual(['assistant'])
   })
 
-  it('maps hosted DMs after the assistant, preserving unread counts and order', () => {
+  it('maps app chats after the assistant in curated product order', () => {
     const roster = buildAtumRoster({
       ...base,
       activeSessionId: null,
       conversations: [
-        conversation({ id: 'c1', title: 'Moon', unreadCount: 2, payload: { preview: 'Chào Minh' } }),
-        conversation({ id: 'c2', title: 'Sao' })
+        conversation({ id: 'c1', title: 'Taylor', unreadCount: 2, payload: { preview: 'Chào Minh' } }),
+        conversation({ id: 'c2', title: 'Moon' })
       ],
       dmsAvailable: true
     })
 
-    expect(roster.map(entry => entry.id)).toEqual(['assistant', 'c1', 'c2'])
-    expect(roster[1]).toMatchObject({ preview: 'Chào Minh', route: '/dm/c1', unreadCount: 2 })
+    expect(roster.map(entry => entry.id)).toEqual(['assistant', 'c2', 'c1'])
+    expect(roster[2]).toMatchObject({ kind: 'app', preview: 'Chào Minh', route: '/dm/c1', unreadCount: 2 })
   })
 
-  it('falls back to a participant id rather than inventing a title', () => {
+  it('falls back to a participant id rather than inventing a title, title-cased', () => {
     const roster = buildAtumRoster({
       ...base,
       activeSessionId: null,
@@ -72,7 +80,99 @@ describe('buildAtumRoster', () => {
       dmsAvailable: true
     })
 
-    expect(roster[1]!.title).toBe('moon')
+    expect(roster[1]!.title).toBe('Moon')
+  })
+
+  it('title-cases lowercase hosted names but leaves self-cased titles alone', () => {
+    const roster = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [
+        conversation({ id: 'c1', title: 'taylor' }),
+        conversation({ id: 'c2', title: 'Trò chuyện nhóm' }),
+        conversation({ id: 'c3', title: 'mary jane' })
+      ],
+      dmsAvailable: true
+    })
+
+    expect(roster.map(entry => entry.title)).toEqual(['Atum', 'Taylor', 'Mary Jane', 'Trò chuyện nhóm'])
+  })
+
+  it('reads role, avatar, and presence only from what the hosted row actually supplies', () => {
+    const roster = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [
+        conversation({
+          id: 'c1',
+          payload: { preview: 'Chào Minh', role: 'Kế toán trưởng', avatar_url: 'https://x/a.png', presence: 'online' }
+        }),
+        conversation({ id: 'c2', title: 'Ben', payload: {} })
+      ],
+      dmsAvailable: true
+    })
+
+    expect(roster[1]).toMatchObject({
+      role: 'Kế toán trưởng',
+      avatarUrl: 'https://x/a.png',
+      presence: 'online',
+      preview: 'Chào Minh'
+    })
+    // Curated first-party app copy is presentation truth; images/presence are
+    // still never fabricated when the hosted row does not supply them.
+    expect(roster[2]).toMatchObject({ role: 'Chuyên gia hướng nghiệp', avatarUrl: '', presence: null })
+  })
+
+  it('keeps direct chats after app chats and orders people by recent activity', () => {
+    const roster = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [
+        conversation({
+          id: 'p-old',
+          title: 'Lan',
+          kind: 'direct',
+          lastMessageAt: '2026-08-10T00:00:00.000Z',
+          updatedAt: '2026-08-10T00:00:00.000Z'
+        }),
+        conversation({ id: 'moon', title: 'Moon', kind: 'specialist' }),
+        conversation({
+          id: 'p-new',
+          title: 'Minh',
+          kind: 'direct',
+          lastMessageAt: '2026-08-13T00:00:00.000Z',
+          updatedAt: '2026-08-13T00:00:00.000Z'
+        })
+      ],
+      dmsAvailable: true
+    })
+
+    expect(roster.map(entry => [entry.id, entry.kind])).toEqual([
+      ['assistant', 'assistant'],
+      ['moon', 'app'],
+      ['p-new', 'direct'],
+      ['p-old', 'direct']
+    ])
+  })
+
+  it('derives a deterministic avatar tint from the conversation id', () => {
+    const first = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [conversation()],
+      dmsAvailable: true
+    })
+    const second = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [conversation()],
+      dmsAvailable: true
+    })
+
+    expect(first[1]!.avatarTint).toBe(second[1]!.avatarTint)
+    expect(first[1]!.avatarTint).toBe(avatarTintIndex('c1'))
+    expect(first[1]!.avatarTint).toBeGreaterThanOrEqual(0)
+    expect(first[1]!.avatarTint).toBeLessThan(ATUM_AVATAR_TINTS.length)
   })
 })
 

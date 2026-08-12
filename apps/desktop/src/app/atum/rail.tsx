@@ -17,20 +17,14 @@ import { AtumAccountMenu } from './account-menu'
 const RAIL_BUTTON = 'flex size-8 items-center justify-center rounded-[var(--atum-r-control)] transition-colors'
 
 function connectivityTone(connectivity: string): StatusTone | null {
-  if (connectivity === 'offline_cached' || connectivity === 'reconnecting') {
-    return 'warn'
-  }
-
-  if (connectivity === 'error' || connectivity === 'auth_expired') {
-    return 'bad'
-  }
-
+  if (connectivity === 'offline_cached' || connectivity === 'reconnecting') return 'warn'
+  if (connectivity === 'error' || connectivity === 'auth_expired') return 'bad'
   return null
 }
 
 /**
  * The one fixed rail. Bare on the desk — no plate, no hairline — with exactly
- * four interactive elements: account tile, chat, devices (disabled), settings.
+ * four interactive elements: account, chat, devices (disabled), settings.
  *
  * Devices is present but genuinely disabled: `aria-disabled`, no `onClick`, no
  * pairing UI, no device names. Rendering a control that promises a capability

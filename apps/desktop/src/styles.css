@@ -1863,20 +1863,29 @@ text-* variant utilities. */ .btn-arc {
    "Liquid glass" here is exactly three pure-CSS effects and nothing else:
      1. depth by elevation, not borders — `--atum-shadow-chat` sits above
         `--atum-shadow-panel`, and no divider borders run between regions;
-     2. ONE translucent veil — `.atum-chat-header`, the only backdrop-filter in
-        the shell (pinned and non-moving, so it never repaints during scroll);
-     3. a soft specular hairline on plate top edges (`--atum-sheen`).
+     2. translucent veils on PINNED structural surfaces only — the rim, the
+        plates, and `.atum-chat-header` carry a backdrop-filter; scrolling
+        content (rows, transcript, workspace body) carries none, so nothing
+        repaints during scroll;
+     3. a soft specular hairline on plate TOP edges (`--atum-sheen`).
    The BrowserWindow already supplies native macOS vibrancy. The scoped clear
    document paint below lets these recipes composite over that material while
-   keeping the legacy Hermes shell opaque. */
+   keeping the legacy Hermes shell opaque.
+
+   The transcript is the ONE opaque plane: `--atum-chat` /
+   `--atum-chat-solid` are near-fully opaque so no desktop image or legacy
+   Hermes art can leak through the main panel. Glass stays on the rim, rail,
+   panels, and edges — never by making the transcript transparent. */
 .atum-shell {
   /* surfaces */
-  --atum-desk: rgb(231 229 224 / 76%);
-  --atum-panel: rgb(239 238 234 / 76%);
-  --atum-card: rgb(250 249 247 / 86%);
-  --atum-chat: rgb(246 245 242 / 84%);
-  --atum-chat-veil: rgb(246 245 242 / 76%);
-  --atum-sunk: rgb(241 240 236 / 82%);
+  --atum-desk: rgb(222 218 210 / 90%);
+  --atum-panel: rgb(249 248 245 / 74%);
+  --atum-card: rgb(255 255 255 / 88%);
+  --atum-chat: rgb(253 252 250 / 96%);
+  --atum-chat-solid: rgb(252 251 248);
+  --atum-chat-veil: rgb(253 252 250 / 62%);
+  --atum-rim: rgb(250 249 246 / 60%);
+  --atum-sunk: rgb(236 233 227 / 88%);
 
   /* ink */
   --atum-ink: #1c1b19;
@@ -1894,7 +1903,7 @@ text-* variant utilities. */ .btn-arc {
   --atum-focus: rgb(28 27 25 / 28%);
   --atum-auth-field-line: rgb(28 27 25 / 48%);
   --atum-auth-focus: rgb(28 27 25 / 58%);
-  --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 18%, transparent);
+  --atum-sheen: inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
 
   /* radii */
   --atum-r-surface: 16px;
@@ -1905,10 +1914,13 @@ text-* variant utilities. */ .btn-arc {
   --atum-r-sm: 9px;
   --atum-r-tile: 9px;
 
+  /* geometry */
+  --atum-rim-h: 44px;
+
   /* elevation */
-  --atum-shadow-panel: 0 1px 2px rgb(0 0 0 / 3.5%);
-  --atum-shadow-chat: 0 1px 2px rgb(0 0 0 / 5%), 0 18px 40px -30px rgb(0 0 0 / 40%);
-  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 16px -12px rgb(0 0 0 / 26%);
+  --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 6%), 0 8px 20px -12px rgb(0 0 0 / 22%);
+  --atum-shadow-chat: 0 1px 1px rgb(0 0 0 / 7%), 0 24px 48px -24px rgb(0 0 0 / 34%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 18px -12px rgb(0 0 0 / 24%);
   --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 18%);
 
   /* motion */
@@ -1916,6 +1928,23 @@ text-* variant utilities. */ .btn-arc {
   --atum-dur-fast: 150ms;
   --atum-dur: 200ms;
   --atum-dur-slow: 300ms;
+
+  /* Inside Atum the "chat surface" every Hermes chat descendant paints
+     (thread column, sticky user-message headers, empty states) is the OPAQUE
+     Atum chat ground — this is what stops any desktop image or legacy art
+     from leaking through the main panel. Scoped, so the legacy shell keeps
+     its own chrome color. */
+  --ui-chat-surface-background: var(--atum-chat-solid);
+
+  /* The Hermes input recess reads as a black inset on the warm Atum material;
+     the floating composer below replaces it with elevation. */
+  --dt-input-inset: none;
+
+  /* Composer geometry inside the Atum chat plate. */
+  --composer-width: 45rem;
+  --composer-surface-pad-x: 0.5rem;
+  --composer-surface-pad-y: 0.375rem;
+  --composer-shell-pad-block-end: 0.875rem;
 }
 
 /* BrowserWindow supplies the actual NSVisualEffectView on macOS in dev and in
@@ -1932,12 +1961,14 @@ body:has(.atum-shell),
 /* Dark ramp derived from `atumTheme.darkColors` (themes/presets.ts) — the same
    warm dark palette, not a second one. */
 .dark .atum-shell {
-  --atum-desk: rgb(16 15 14 / 78%);
-  --atum-panel: rgb(26 24 21 / 76%);
-  --atum-card: rgb(33 30 26 / 86%);
-  --atum-chat: rgb(28 26 23 / 84%);
-  --atum-chat-veil: rgb(28 26 23 / 76%);
-  --atum-sunk: rgb(22 21 18 / 82%);
+  --atum-desk: rgb(12 11 10 / 92%);
+  --atum-panel: rgb(30 28 24 / 74%);
+  --atum-card: rgb(46 43 38 / 88%);
+  --atum-chat: rgb(38 35 30 / 96%);
+  --atum-chat-solid: rgb(36 33 29);
+  --atum-chat-veil: rgb(38 35 30 / 62%);
+  --atum-rim: rgb(30 28 24 / 60%);
+  --atum-sunk: rgb(24 22 19 / 88%);
 
   --atum-ink: #f2ece1;
   --atum-ink-deep: #0c0b0a;
@@ -1953,11 +1984,11 @@ body:has(.atum-shell),
   --atum-focus: rgb(242 236 225 / 32%);
   --atum-auth-field-line: rgb(242 236 225 / 48%);
   --atum-auth-focus: rgb(242 236 225 / 58%);
-  --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 8%, transparent);
+  --atum-sheen: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
 
-  --atum-shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
-  --atum-shadow-chat: 0 1px 2px rgb(0 0 0 / 38%), 0 18px 40px -30px rgb(0 0 0 / 80%);
-  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 35%), 0 6px 16px -12px rgb(0 0 0 / 60%);
+  --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 32%), 0 8px 20px -12px rgb(0 0 0 / 55%);
+  --atum-shadow-chat: 0 1px 1px rgb(0 0 0 / 40%), 0 24px 48px -24px rgb(0 0 0 / 85%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 38%), 0 8px 18px -12px rgb(0 0 0 / 62%);
   --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 50%);
 }
 
@@ -1966,7 +1997,7 @@ body:has(.atum-shell),
   border-radius: var(--atum-r-surface);
   background: var(--atum-panel);
   box-shadow: var(--atum-shadow-panel), var(--atum-sheen);
-  backdrop-filter: blur(28px) saturate(145%);
+  backdrop-filter: blur(30px) saturate(180%);
   contain: layout paint;
 }
 
@@ -1980,14 +2011,57 @@ body:has(.atum-shell),
   border-radius: var(--atum-r-surface);
   background: var(--atum-chat);
   box-shadow: var(--atum-shadow-chat), var(--atum-sheen);
-  backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(30px) saturate(180%);
   contain: layout paint;
+}
+
+/* The top rim: full-width brand band that hosts the traffic lights and gives
+   the plates a lid. Same pinned-veil recipe as the plates. */
+.atum-rim {
+  height: var(--atum-rim-h);
+  background: var(--atum-rim);
+  border-bottom: 1px solid var(--atum-line);
+  box-shadow: var(--atum-sheen);
+  backdrop-filter: blur(30px) saturate(180%);
 }
 
 .atum-chat-header {
   background: var(--atum-chat-veil);
   border-bottom: 1px solid var(--atum-line);
-  backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+
+/* ── Atum composer — the floating rounded surface. Scoped to `.atum-shell` so
+   the Hermes composer is byte-for-byte untouched outside the product shell. */
+.atum-shell [data-slot='composer-root'] {
+  border-radius: var(--atum-r-composer);
+}
+
+.atum-shell [data-slot='composer-surface'] {
+  border-color: var(--atum-line-strong) !important;
+  background: color-mix(in srgb, var(--atum-card) 92%, transparent);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    0 10px 24px -18px rgb(0 0 0 / 35%),
+    var(--atum-sheen);
+  min-height: 44px;
+}
+
+.atum-shell [data-slot='composer-surface']:focus-within {
+  border-color: var(--atum-focus) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--atum-focus) 32%, transparent),
+    var(--atum-sheen);
+}
+
+/* The fade above the composer must merge into the ATUM chat ground, not the
+   legacy Hermes surface color — otherwise a faint band floats over the plate. */
+.atum-shell [data-slot='composer-root'] > .pointer-events-none {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--atum-chat-solid) 92%, transparent)
+  ) !important;
 }
 
 /* A heading is not an interactive control and must not receive the global

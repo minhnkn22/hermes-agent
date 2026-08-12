@@ -65,11 +65,22 @@ export const ja = defineLocale({
       search: 'チャットを検索',
       assistant: 'Atum',
       assistantHint: 'このコンピューター上のアシスタント',
+      groupAssistant: 'Atum',
+      groupApps: 'アプリ',
+      groupPeople: 'ユーザー',
+      signedOutTitle: 'ログインしてスペシャリストを表示',
+      signedOutBody: 'Atum スペシャリストとのチャットは、ログイン後にここに表示されます。',
+      signIn: 'ログイン',
+      retry: '再試行',
+      emptyChats: '他の会話はまだありません',
       unread: count => `未読 ${count} 件`,
       results: count => `${count} 件の結果`,
       emptySearch: 'チャットが見つかりません',
       emptySearchHint: '別のキーワードをお試しください。',
       loadFailed: 'チャット一覧を読み込めませんでした'
+    },
+    empty: {
+      chips: ['Atum に何でも聞く', 'このコンピューターで作業を任せる', 'スペシャリストにメッセージ']
     },
     chat: {
       none: 'チャットを選択',

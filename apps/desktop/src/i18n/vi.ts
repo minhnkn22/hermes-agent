@@ -112,11 +112,22 @@ export const vi = defineLocale({
       search: 'Tìm cuộc trò chuyện',
       assistant: 'Atum',
       assistantHint: 'Trợ lý của bạn trên máy này',
+      groupAssistant: 'Atum',
+      groupApps: 'Ứng dụng',
+      groupPeople: 'Mọi người',
+      signedOutTitle: 'Đăng nhập để xem chuyên gia',
+      signedOutBody: 'Các cuộc trò chuyện với chuyên gia Atum sẽ hiện ở đây sau khi bạn đăng nhập.',
+      signIn: 'Đăng nhập',
+      retry: 'Thử lại',
+      emptyChats: 'Chưa có cuộc trò chuyện nào khác',
       unread: count => `${count} tin chưa đọc`,
       results: count => `${count} kết quả`,
       emptySearch: 'Không tìm thấy cuộc trò chuyện nào',
       emptySearchHint: 'Thử từ khóa khác.',
       loadFailed: 'Không tải được danh sách trò chuyện'
+    },
+    empty: {
+      chips: ['Hỏi Atum một câu bất kỳ', 'Giao một việc trên máy này', 'Nhắn cho một chuyên gia']
     },
     chat: {
       none: 'Chọn một cuộc trò chuyện',

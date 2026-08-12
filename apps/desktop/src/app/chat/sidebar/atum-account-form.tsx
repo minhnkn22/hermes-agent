@@ -171,7 +171,7 @@ export function AtumAccountForm({
         )}
       </div>
       <Button
-        className={roomy ? 'h-11 w-full text-sm' : 'h-8 w-full text-xs'}
+        className={roomy ? 'h-11 w-full rounded-[var(--atum-r-control)] text-sm' : 'h-8 w-full text-xs'}
         disabled={pending}
         size={roomy ? 'default' : 'sm'}
         type="submit"

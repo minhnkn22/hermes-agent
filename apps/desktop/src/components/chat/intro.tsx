@@ -1,8 +1,12 @@
 import { type CSSProperties, useState } from 'react'
 
+import { useStore } from '@nanostores/react'
+
+import { requestComposerInsert } from '@/app/chat/composer/focus'
 import { BrandMark } from '@/components/brand-mark'
 import { useI18n } from '@/i18n'
 import { capitalize, normalize } from '@/lib/text'
+import { $atumShellEnabled } from '@/store/atum-shell'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
 
@@ -158,10 +162,42 @@ function resolveCopy(personality?: string, seed?: number): IntroCopy {
 
 export function Intro({ personality, seed }: IntroProps) {
   const { t } = useI18n()
+  const atumShell = useStore($atumShellEnabled)
   const [mountSeed] = useState(() => Math.floor(Math.random() * 100000))
   const copy = resolveCopy(personality, mountSeed + (seed ?? 0))
   const wordmark = t.intro.heading || 'ATUM'
   const body = t.intro.body || copy.body
+
+  // The Atum product shell gets its own branded empty state: brand mark,
+  // headline, body, and starter chips that drop a real prompt into the
+  // composer. No Nous/Hermes art, no portrait, no fit-text wordmark.
+  if (atumShell) {
+    return (
+      <div
+        className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center sm:px-6 lg:px-8"
+        data-atum-empty
+        data-slot="aui_intro"
+      >
+        <div className="flex w-full max-w-[420px] min-w-0 flex-col items-center">
+          <BrandMark className="size-11 rounded-[12px] opacity-90" />
+          <p className="mt-2.5 mb-1.5 text-[15px] font-semibold tracking-[-0.01em] text-(--atum-ink)">{wordmark}</p>
+          <p className="m-0 max-w-[34rem] text-[12.5px] leading-[1.45] text-(--atum-ink-muted)">{body}</p>
+          <div className="pointer-events-auto mt-3.5 flex flex-wrap items-center justify-center gap-2">
+            {t.atum.empty.chips.map(chip => (
+              <button
+                className="h-[30px] rounded-full bg-(--atum-hover) px-3 text-[12px] text-(--atum-ink-muted) transition-colors hover:bg-(--atum-pressed) hover:text-(--atum-ink)"
+                key={chip}
+                onClick={() => requestComposerInsert(chip)}
+                type="button"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div

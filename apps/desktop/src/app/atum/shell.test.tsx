@@ -23,6 +23,7 @@ vi.mock('@/store/atum-messaging', async () => {
     cancelAtumSignIn: vi.fn(),
     initializeAtumMessaging: vi.fn(async () => undefined),
     refreshAtumRoster: vi.fn(),
+    refreshAtumStatus: vi.fn(),
     signInToAtum: vi.fn(),
     signInToAtumWithPassword: vi.fn(),
     signOutOfAtum: vi.fn()
@@ -63,12 +64,49 @@ beforeEach(() => {
 })
 
 describe('AtumShellRoot — signed in', () => {
-  it('renders exactly one rail with four controls: account, chat, devices, settings', () => {
+  it('renders the rim first: full-width band with the workspace control', () => {
+    const { container } = renderShell()
+
+    const rim = container.querySelector('[data-atum-rim]')
+
+    expect(rim).toBeTruthy()
+    // The rim is the shell's first child, above the plate row.
+    expect(rim!.parentElement!.firstElementChild).toBe(rim)
+    expect(rim!.querySelectorAll('button')).toHaveLength(1)
+    expect(rim!.querySelector('[aria-label="Open workspace"]')).toBeTruthy()
+    // The brand lockup is the wordmark, not a Hermes noun.
+    expect(rim!.textContent).toContain('Atum')
+  })
+
+  it('never carries Hermes chrome in the rim — no session/profile/project/pin/split/model/approval surfaces', () => {
+    const { container } = renderShell()
+
+    const rim = container.querySelector('[data-atum-rim]')!
+
+    expect(rim.querySelector('[data-slot="titlebar"]')).toBeNull()
+    expect(rim.querySelector('[data-pane-tree]')).toBeNull()
+
+    const tagged = Array.from(rim.querySelectorAll('[data-testid]')).map(el => el.getAttribute('data-testid') ?? '')
+
+    for (const id of tagged) {
+      expect(id.toLowerCase()).not.toMatch(
+        /session|profile|project|worktree|model|approval|context-usage|gateway|pin|split/u
+      )
+    }
+
+    // Exactly the brand lockup plus the sanctioned control — nothing else
+    // interactive may sneak back in.
+    expect(rim.querySelectorAll('button, [role="button"]')).toHaveLength(1)
+  })
+
+  it('renders exactly one rail with account, chat, devices, and settings', () => {
     renderShell()
 
+    const rails = document.querySelectorAll('nav')
     const rail = screen.getByRole('navigation', { name: 'Main navigation' })
     const buttons = rail.querySelectorAll('button')
 
+    expect(rails).toHaveLength(1)
     expect(buttons).toHaveLength(4)
     expect(rail.querySelector('[aria-label="Account"]')).toBeTruthy()
     expect(rail.querySelector('[aria-label="Chats"]')).toBeTruthy()
@@ -93,16 +131,27 @@ describe('AtumShellRoot — signed in', () => {
     expect(container.querySelector('[data-pane-tree]')).toBeNull()
   })
 
-  it('shows the chat plate with a top rim of at most two controls', () => {
+  it('shows the chat plate with a conversation header of at most one control (compact roster toggle)', () => {
     const { container } = renderShell()
 
     const header = container.querySelector('.atum-chat-header')
 
     expect(header).toBeTruthy()
-    expect(header!.querySelectorAll('button').length).toBeLessThanOrEqual(2)
+    expect(header!.querySelectorAll('button').length).toBeLessThanOrEqual(1)
   })
 
-  it('uses exactly one backdrop-filtered surface — the chat header', () => {
+  it('keeps the workspace toggle in the rim, disabled but visible when the conversation offers no capability', () => {
+    const { container } = renderShell()
+
+    const rim = container.querySelector('[data-atum-rim]')!
+    const toggle = rim.querySelector('[aria-label="Open workspace"]')!
+
+    expect(toggle.getAttribute('aria-disabled')).toBe('true')
+    // The chat header no longer hosts it.
+    expect(container.querySelector('.atum-chat-header [aria-label="Open workspace"]')).toBeNull()
+  })
+
+  it('renders exactly one chat header veil inside the chat plate', () => {
     const { container } = renderShell()
 
     expect(container.querySelectorAll('.atum-chat-header')).toHaveLength(1)
@@ -115,14 +164,6 @@ describe('AtumShellRoot — signed in', () => {
     $previewTarget.set({ url: 'http://localhost:3000', kind: 'url' } as never)
     expect($workspaceOpen.get()).toBe(false)
     expect(screen.queryByRole('complementary', { name: 'Workspace' })).toBeNull()
-  })
-
-  it('disables the workspace toggle when the conversation offers no capability, but keeps it visible', () => {
-    renderShell()
-
-    const toggle = screen.getByRole('button', { name: 'Open workspace' })
-
-    expect(toggle.getAttribute('aria-disabled')).toBe('true')
   })
 })
 

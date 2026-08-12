@@ -86,7 +86,7 @@ export function AtumAuthView() {
             {account.providers.google && (
               <Button
                 aria-busy={signingIn && method === 'google'}
-                className="h-11 w-full text-sm"
+                className="h-11 w-full rounded-[var(--atum-r-control)] text-sm"
                 disabled={signingIn}
                 onClick={() => {
                   setMethod('google')

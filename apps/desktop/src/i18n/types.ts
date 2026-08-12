@@ -163,11 +163,22 @@ export interface Translations {
       search: string
       assistant: string
       assistantHint: string
+      groupAssistant: string
+      groupApps: string
+      groupPeople: string
+      signedOutTitle: string
+      signedOutBody: string
+      signIn: string
+      retry: string
+      emptyChats: string
       unread: (count: number) => string
       results: (count: number) => string
       emptySearch: string
       emptySearchHint: string
       loadFailed: string
+    }
+    empty: {
+      chips: [string, string, string]
     }
     chat: {
       none: string

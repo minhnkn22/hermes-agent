@@ -114,11 +114,22 @@ export const en: Translations = {
       search: 'Search chats',
       assistant: 'Atum',
       assistantHint: 'Your assistant on this computer',
+      groupAssistant: 'Atum',
+      groupApps: 'Apps',
+      groupPeople: 'People',
+      signedOutTitle: 'Sign in to see specialists',
+      signedOutBody: 'Your Atum specialist chats will appear here once you sign in.',
+      signIn: 'Sign in',
+      retry: 'Retry',
+      emptyChats: 'No other conversations yet',
       unread: count => `${count} unread`,
       results: count => `${count} results`,
       emptySearch: 'No chats found',
       emptySearchHint: 'Try another keyword.',
       loadFailed: "Couldn't load your chats"
+    },
+    empty: {
+      chips: ['Ask Atum anything', 'Hand off a task on this computer', 'Message a specialist']
     },
     chat: {
       none: 'Pick a chat',
