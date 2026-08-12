@@ -89,6 +89,7 @@ A later install rehearsal caught a second packaging-only defect: exercising the
 packaged backend after ad-hoc signing allowed Python to add and refresh `.pyc`
 files inside `Atum.app`, invalidating the bundle seal even though the backend
 itself started correctly. All desktop-managed Python environments now set
-`PYTHONDONTWRITEBYTECODE=1`, and both packaged-app verification harnesses set it
-explicitly. This keeps the bundled source and standard library byte-for-byte
+`PYTHONDONTWRITEBYTECODE=1`, and every packaged-app verification process sets it
+explicitly—including the audit's direct `hermes --version` probe as well as the
+launched app. This keeps the bundled source and standard library byte-for-byte
 immutable during first launch, package auditing, and normal dogfood use.

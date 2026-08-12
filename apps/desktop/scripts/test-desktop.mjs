@@ -347,6 +347,7 @@ function validateBundle() {
   run(runtimePython, ['-m', 'hermes_cli.main', '--version'], {
     env: {
       ...process.env,
+      PYTHONDONTWRITEBYTECODE: '1',
       PYTHONPATH: [runtimeSource, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
     }
   })
