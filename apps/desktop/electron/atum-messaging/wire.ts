@@ -34,6 +34,18 @@ export interface SyncPage {
   serverTime: string
 }
 
+const MAX_OPAQUE_SYNC_TOKEN_LENGTH = 8_192
+
+function opaqueSyncToken(value: unknown, label: string): string {
+  const parsed = string(value, label)
+
+  if (parsed.length > MAX_OPAQUE_SYNC_TOKEN_LENGTH) {
+    throw new Error(`invalid_response:${label}`)
+  }
+
+  return parsed
+}
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`invalid_response:${label}`)
@@ -72,6 +84,13 @@ export function parseDesktopError(value: unknown): DesktopErrorBody | null {
       typeof error.message_key !== 'string' ||
       typeof error.retryable !== 'boolean' ||
       typeof error.request_id !== 'string'
+    ) {
+      return null
+    }
+
+    if (
+      error.retry_after_ms !== undefined &&
+      (typeof error.retry_after_ms !== 'number' || !Number.isFinite(error.retry_after_ms))
     ) {
       return null
     }
@@ -149,7 +168,7 @@ export function parseCanonicalMessage(value: unknown): CanonicalMessage {
 
 export function parseSyncPage(value: unknown): SyncPage {
   const root = object(value, 'sync')
-  const nextCursor = string(root.next_cursor, 'sync.next_cursor')
+  const nextCursor = opaqueSyncToken(root.next_cursor, 'sync.next_cursor')
 
   const changes = array(root.changes, 'sync.changes').map((value, index): SyncChange => {
     const row = object(value, `sync.changes.${index}`)
@@ -165,7 +184,7 @@ export function parseSyncPage(value: unknown): SyncPage {
     }
 
     return {
-      changeId: string(row.change_id, `sync.changes.${index}.change_id`),
+      changeId: opaqueSyncToken(row.change_id, `sync.changes.${index}.change_id`),
       entity,
       operation,
       entityId: string(row.entity_id, `sync.changes.${index}.entity_id`),

@@ -340,13 +340,20 @@ test('advances read state monotonically and retains local work on projection res
   assert.equal(store.markRead('conversation-a', 'server-1'), false)
   assert.equal(store.markRead('conversation-a', 'server-2'), true)
   assert.equal(store.listConversations()[0]?.unreadCount, 0)
+  const third = message('server-3', 'conversation-a', '2026-08-12T03:00:03.000Z')
+  const fourth = message('server-4', 'conversation-a', '2026-08-12T03:00:04.000Z')
+  store.canonicalizeMessage({ message: third, incrementUnread: true })
+  store.canonicalizeMessage({ message: fourth, incrementUnread: true })
+  assert.equal(store.listConversations()[0]?.unreadCount, 2)
+  assert.equal(store.deleteCanonicalMessage('server-3'), true)
+  assert.equal(store.listConversations()[0]?.unreadCount, 1, 'delete recomputes unread rows after the read watermark')
   store.canonicalizeMessage({
     message: message('server-old', 'conversation-a', '2026-08-12T02:59:00.000Z'),
     incrementUnread: true
   })
   assert.equal(
     store.listConversations()[0]?.unreadCount,
-    0,
+    1,
     'older backfill does not become unread after a later read marker'
   )
 

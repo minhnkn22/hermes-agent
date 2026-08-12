@@ -10,6 +10,9 @@ export interface AtumMessagingRuntimeOptions {
   safeStorage: SafeStorageLike
   fetchImpl?: MessagingFetch
   refreshSession?: (session: MessagingAccountSession) => Promise<MessagingAccountSession | null>
+  requestTimeoutMs?: number
+  maxResponseBytes?: number
+  maxSyncPages?: number
 }
 
 /**
@@ -23,7 +26,10 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
   private sessionValue: MessagingAccountSession | null
 
   constructor(private readonly options: AtumMessagingRuntimeOptions) {
-    this.vault = new MessagingCredentialVault(join(options.userDataPath, 'atum-messaging', 'session.json'), options.safeStorage)
+    this.vault = new MessagingCredentialVault(
+      join(options.userDataPath, 'atum-messaging', 'session.json'),
+      options.safeStorage
+    )
 
     try {
       this.sessionValue = this.vault.load()
@@ -45,6 +51,10 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
 
         const refreshed = (await options.refreshSession?.(rejected)) ?? null
 
+        if (!this.sessionValue || this.sessionValue.tokens.accessToken !== rejected.tokens.accessToken) {
+          return this.sessionValue
+        }
+
         if (refreshed) {
           this.sessionValue = refreshed
           this.vault.save(refreshed)
@@ -54,10 +64,16 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
       }
     }
 
+    const http = new AtumMessagingHttpClient(tokenSource, options.fetchImpl, {
+      requestTimeoutMs: options.requestTimeoutMs,
+      maxResponseBytes: options.maxResponseBytes
+    })
+
     this.engine = new AtumMessagingSyncEngine({
       userDataPath: options.userDataPath,
-      http: new AtumMessagingHttpClient(tokenSource, options.fetchImpl),
+      http,
       session: () => this.sessionValue,
+      maxSyncPages: options.maxSyncPages,
       persistVerifiedSession: session => {
         this.sessionValue = session
         this.vault.save(session)
@@ -95,7 +111,8 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
     this.engine.saveDraft(conversationId, draft)
   send = (input: Parameters<MessagingClientBoundary['send']>[0]) => this.engine.send(input)
   retry = (clientMessageId: string) => this.engine.retry(clientMessageId)
-  markRead = (conversationId: string, throughMessageId: string) => this.engine.markRead(conversationId, throughMessageId)
+  markRead = (conversationId: string, throughMessageId: string) =>
+    this.engine.markRead(conversationId, throughMessageId)
   sync = () => this.engine.sync()
   realtimeHint = () => this.engine.realtimeHint()
 }

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
-import type { AtumMessagingHttpClient} from './http-client';
+import type { AtumMessagingHttpClient } from './http-client'
 import { MessagingHttpError } from './http-client'
 import { AtumMessagingStore } from './store'
 import type {
@@ -29,6 +29,16 @@ export interface MessagingEngineOptions {
   clearTimer?: (timer: ReturnType<typeof setTimeout>) => void
   retryBaseMs?: number
   pollMs?: number
+  maxSyncPages?: number
+}
+
+const DEFAULT_MAX_SYNC_PAGES = 100
+const MAX_SYNC_PAGES = 500
+
+class StaleMessagingLifecycle extends Error {
+  constructor() {
+    super('stale_messaging_lifecycle')
+  }
 }
 
 function nextDelay(attempt: number, base: number): number {
@@ -46,11 +56,13 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
   private readonly clearTimer: NonNullable<MessagingEngineOptions['clearTimer']>
   private readonly retryBaseMs: number
   private readonly pollMs: number
+  private readonly maxSyncPages: number
   private store: MessagingStoreBoundary | null = null
   private activeAccountId: string | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = true
-  private inFlight: Promise<MessagingSyncStatus> | null = null
+  private inFlight: { generation: number; promise: Promise<MessagingSyncStatus> } | null = null
+  private generation = 0
   private retryAttempt = 0
   private state: MessagingSyncStatus = {
     accountId: null,
@@ -63,15 +75,21 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
   }
 
   constructor(private readonly options: MessagingEngineOptions) {
-    this.openStore = options.openStore ?? ((accountId, databasePath) => new AtumMessagingStore({ accountId, databasePath }))
+    this.openStore =
+      options.openStore ?? ((accountId, databasePath) => new AtumMessagingStore({ accountId, databasePath }))
     this.now = options.now ?? (() => new Date())
     this.setTimer = options.setTimer ?? setTimeout
     this.clearTimer = options.clearTimer ?? clearTimeout
     this.retryBaseMs = options.retryBaseMs ?? 1_000
     this.pollMs = options.pollMs ?? 30_000
+    this.maxSyncPages = Math.max(
+      1,
+      Math.min(Math.trunc(options.maxSyncPages ?? DEFAULT_MAX_SYNC_PAGES), MAX_SYNC_PAGES)
+    )
   }
 
   async start(): Promise<MessagingSyncStatus> {
+    this.beginLifecycle()
     this.stopped = false
     this.ensureActiveStore()
 
@@ -86,11 +104,9 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
 
   stop(): void {
     this.stopped = true
-
-    if (this.timer) {
-      this.clearTimer(this.timer)
-      this.timer = null
-    }
+    this.generation += 1
+    this.options.http.abortAll()
+    this.cancelTimer()
 
     this.store?.close()
     this.store = null
@@ -98,6 +114,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
   }
 
   replaceSession(session: MessagingAccountSession | null): Promise<MessagingSyncStatus> {
+    this.beginLifecycle()
     this.stopped = false
     this.store?.close()
     this.store = null
@@ -144,7 +161,13 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     const queued = this.requireStore().queueSend({ ...input, now: input.now ?? this.now().toISOString() })
 
     if (this.state.connectivity === 'online') {
-      await this.drainOutbox()
+      try {
+        await this.drainOutbox()
+      } catch (error) {
+        if (!this.transitionAuthFailure(error)) {
+          throw error
+        }
+      }
     } else {
       this.scheduleRetry(this.retryBaseMs)
     }
@@ -156,7 +179,13 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     const mutation = this.requireStore().retryMutation(clientMessageId, this.now().toISOString())
 
     if (this.state.connectivity === 'online') {
-      await this.drainOutbox()
+      try {
+        await this.drainOutbox()
+      } catch (error) {
+        if (!this.transitionAuthFailure(error)) {
+          throw error
+        }
+      }
     } else {
       this.scheduleRetry(0)
     }
@@ -171,15 +200,25 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
   }
 
   sync(): Promise<MessagingSyncStatus> {
-    if (this.inFlight) {
-      return this.inFlight
+    if (this.stopped) {
+      return this.status()
     }
 
-    this.inFlight = this.performSync().finally(() => {
-      this.inFlight = null
+    const generation = this.generation
+
+    if (this.inFlight?.generation === generation) {
+      return this.inFlight.promise
+    }
+
+    const operation = this.performSync(generation).finally(() => {
+      if (this.inFlight?.promise === operation) {
+        this.inFlight = null
+      }
     })
 
-    return this.inFlight
+    this.inFlight = { generation, promise: operation }
+
+    return operation
   }
 
   /** Realtime is deliberately only a coalesced wake-up hint. */
@@ -187,7 +226,8 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     return this.sync()
   }
 
-  private async performSync(): Promise<MessagingSyncStatus> {
+  private async performSync(generation: number): Promise<MessagingSyncStatus> {
+    this.assertLifecycle(generation)
     this.ensureActiveStore()
 
     if (!this.store) {
@@ -200,6 +240,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
 
     try {
       const verified = await this.options.http.session()
+      this.assertLifecycle(generation)
       const selected = this.options.session()
 
       if (!selected) {
@@ -216,26 +257,41 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
         this.state.synchronized = false
       }
 
-      let cursor = this.store.getSyncCursor().cursor
+      const activeStore = this.requireStoreFor(generation)
+      let cursor = activeStore.getSyncCursor().cursor
       let firstPage = true
+      let pageCount = 0
 
       for (;;) {
-        const page = await this.options.http.sync(cursor)
-        await this.applyPage(page, firstPage)
+        if (pageCount >= this.maxSyncPages) {
+          throw new MessagingHttpError('sync_page_limit', 200, false, null, null, null)
+        }
 
-        if (!this.store.commitSyncCursor(cursor, page.nextCursor, this.now().toISOString())) {
+        const page = await this.options.http.sync(cursor)
+        this.assertStoreLifecycle(generation, activeStore)
+
+        if (page.hasMore && page.nextCursor === cursor) {
+          throw new MessagingHttpError('invalid_response', 200, false, null, null, null)
+        }
+
+        await this.applyPage(page, firstPage, generation, activeStore)
+        this.assertStoreLifecycle(generation, activeStore)
+
+        if (!activeStore.commitSyncCursor(cursor, page.nextCursor, this.now().toISOString())) {
           throw new Error('sync_cursor_race')
         }
 
         cursor = page.nextCursor
         firstPage = false
+        pageCount += 1
 
         if (!page.hasMore) {
           break
         }
       }
 
-      await this.drainOutbox()
+      await this.drainOutbox(generation)
+      this.assertStoreLifecycle(generation, activeStore)
       this.retryAttempt = 0
       this.state = {
         accountId: this.activeAccountId,
@@ -246,16 +302,25 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
         nextRetryAt: null,
         errorCode: null
       }
-      this.scheduleRetry(this.pollMs)
+      this.scheduleRetry(this.pollMs, generation)
     } catch (error) {
-      await this.handleSyncFailure(error)
+      if (error instanceof StaleMessagingLifecycle || !this.isCurrent(generation)) {
+        return this.status()
+      }
+
+      await this.handleSyncFailure(error, generation)
     }
 
     return this.status()
   }
 
-  private async applyPage(page: SyncPage, firstPage: boolean): Promise<void> {
-    const store = this.requireStore()
+  private async applyPage(
+    page: SyncPage,
+    firstPage: boolean,
+    generation: number,
+    store: MessagingStoreBoundary
+  ): Promise<void> {
+    this.assertStoreLifecycle(generation, store)
     const affected = new Set<string>()
 
     for (const change of page.changes) {
@@ -271,17 +336,22 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     // Ledger rows are watermarks and intentionally omit message bodies. Refresh
     // the authoritative allowlisted resources before committing the page cursor.
     const roster = await this.options.http.conversations()
+    this.assertStoreLifecycle(generation, store)
 
     for (const conversation of roster.conversations) {
       store.upsertConversation(conversation)
 
-      if (firstPage || page.changes.some(change => change.entity === 'conversation' || change.entity === 'participant')) {
+      if (
+        firstPage ||
+        page.changes.some(change => change.entity === 'conversation' || change.entity === 'participant')
+      ) {
         affected.add(conversation.id)
       }
     }
 
     for (const conversationId of [...affected].sort()) {
       const history = await this.options.http.messages(conversationId)
+      this.assertStoreLifecycle(generation, store)
 
       for (const message of [...history.messages].reverse()) {
         store.canonicalizeMessage({ message, incrementUnread: false, now: this.now().toISOString() })
@@ -296,14 +366,16 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     }
   }
 
-  private async drainOutbox(): Promise<void> {
-    const store = this.requireStore()
+  private async drainOutbox(generation = this.generation): Promise<void> {
+    const store = this.requireStoreFor(generation)
 
     for (const due of store.listDueMutations(this.now().toISOString(), 100)) {
+      this.assertStoreLifecycle(generation, store)
       const sending = store.markMutationSending(due.clientMessageId, this.now().toISOString())
 
       try {
         const acknowledged = await this.options.http.send(sending)
+        this.assertStoreLifecycle(generation, store)
         store.canonicalizeMessage({
           message: acknowledged.message,
           clientMessageId: sending.clientMessageId,
@@ -311,6 +383,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
           now: this.now().toISOString()
         })
       } catch (error) {
+        this.assertStoreLifecycle(generation, store)
         const failure = this.failure(error, sending.attemptCount)
         store.markMutationFailed(sending.clientMessageId, failure)
 
@@ -344,17 +417,21 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     }
   }
 
-  private async handleSyncFailure(error: unknown): Promise<void> {
+  private async handleSyncFailure(error: unknown, generation: number): Promise<void> {
+    this.assertLifecycle(generation)
+
     if (error instanceof MessagingHttpError && error.code === 'sync_cursor_expired' && error.details?.reset_required) {
       this.requireStore().resetProjection()
       this.state.synchronized = false
-      this.scheduleRetry(0)
+      this.scheduleRetry(0, generation)
       this.transition('reconnecting', error.code)
 
       return
     }
 
     if (error instanceof MessagingHttpError && error.status === 401) {
+      this.cancelTimer()
+      this.state.nextRetryAt = null
       this.transition('auth_expired', error.code)
 
       return
@@ -363,10 +440,20 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     this.retryAttempt += 1
     const cached = this.requireStore().listConversations(1).length > 0
     this.transition(cached ? 'offline_cached' : 'error', error instanceof Error ? error.message : 'internal_error')
-    this.scheduleRetry(nextDelay(this.retryAttempt, this.retryBaseMs))
+
+    if (this.isRetryable(error)) {
+      this.scheduleRetry(nextDelay(this.retryAttempt, this.retryBaseMs), generation)
+    } else {
+      this.cancelTimer()
+      this.state.nextRetryAt = null
+    }
   }
 
   private ensureActiveStore(): void {
+    if (this.stopped) {
+      return
+    }
+
     const session = this.options.session()
 
     if (!session) {
@@ -398,12 +485,32 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     return this.store
   }
 
+  private requireStoreFor(generation: number): MessagingStoreBoundary {
+    this.assertLifecycle(generation)
+    const store = this.requireStore()
+    this.assertStoreLifecycle(generation, store)
+
+    return store
+  }
+
   private transition(connectivity: MessagingSyncStatus['connectivity'], errorCode: string | null): void {
     this.state = { ...this.state, connectivity, errorCode }
   }
 
-  private scheduleRetry(delayMs: number): void {
-    if (this.stopped) {
+  private transitionAuthFailure(error: unknown): boolean {
+    if (!(error instanceof MessagingHttpError) || error.status !== 401) {
+      return false
+    }
+
+    this.cancelTimer()
+    this.state.nextRetryAt = null
+    this.transition('auth_expired', error.code)
+
+    return true
+  }
+
+  private scheduleRetry(delayMs: number, generation = this.generation): void {
+    if (!this.isCurrent(generation)) {
       return
     }
 
@@ -415,8 +522,52 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     this.state.nextRetryAt = new Date(this.now().getTime() + delay).toISOString()
     this.timer = this.setTimer(() => {
       this.timer = null
+
+      if (!this.isCurrent(generation)) {
+        return
+      }
+
       void this.sync()
     }, delay)
+  }
+
+  private beginLifecycle(): void {
+    this.generation += 1
+    this.options.http.abortAll()
+    this.cancelTimer()
+  }
+
+  private cancelTimer(): void {
+    if (this.timer) {
+      this.clearTimer(this.timer)
+      this.timer = null
+    }
+  }
+
+  private isCurrent(generation: number): boolean {
+    return !this.stopped && generation === this.generation
+  }
+
+  private assertLifecycle(generation: number): void {
+    if (!this.isCurrent(generation)) {
+      throw new StaleMessagingLifecycle()
+    }
+  }
+
+  private assertStoreLifecycle(generation: number, store: MessagingStoreBoundary): void {
+    this.assertLifecycle(generation)
+
+    if (this.store !== store || this.activeAccountId !== store.accountId) {
+      throw new StaleMessagingLifecycle()
+    }
+  }
+
+  private isRetryable(error: unknown): boolean {
+    if (error instanceof MessagingHttpError) {
+      return error.retryable || error.status === 0 || error.status >= 500
+    }
+
+    return true
   }
 }
 

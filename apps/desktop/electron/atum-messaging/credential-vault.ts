@@ -28,6 +28,8 @@ function normalizeBaseUrl(value: string): string {
 
   parsed.hash = ''
   parsed.search = ''
+  parsed.username = ''
+  parsed.password = ''
   parsed.pathname = parsed.pathname.replace(/\/+$/, '')
 
   return parsed.toString().replace(/\/$/, '')

@@ -612,11 +612,62 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
       return false
     }
 
-    const result = this.database
-      .prepare('DELETE FROM messaging_messages WHERE account_id = ? AND canonical_id = ?')
-      .run(this.accountId, messageId)
+    return transaction(this.database, () => {
+      const conversationId = String(row.conversation_id)
 
-    return result.changes === 1
+      const result = this.database
+        .prepare('DELETE FROM messaging_messages WHERE account_id = ? AND canonical_id = ?')
+        .run(this.accountId, messageId)
+
+      if (result.changes !== 1) {
+        return false
+      }
+
+      const readState = this.database
+        .prepare(
+          `
+          SELECT last_read_sort_at, last_read_message_id FROM messaging_read_state
+          WHERE account_id = ? AND conversation_id = ?
+        `
+        )
+        .get(this.accountId, conversationId) as SqlRow | undefined
+
+      if (readState) {
+        const unread = this.database
+          .prepare(
+            `
+            SELECT count(*) AS count FROM messaging_messages
+            WHERE account_id = ? AND conversation_id = ? AND canonical_id IS NOT NULL
+              AND (sort_at > ? OR (sort_at = ? AND canonical_id > ?))
+          `
+          )
+          .get(
+            this.accountId,
+            conversationId,
+            String(readState.last_read_sort_at),
+            String(readState.last_read_sort_at),
+            String(readState.last_read_message_id)
+          ) as SqlRow
+
+        this.database
+          .prepare('UPDATE messaging_conversations SET unread_count = ? WHERE account_id = ? AND id = ?')
+          .run(Number(unread.count), this.accountId, conversationId)
+      } else {
+        // Initial history is projected as read and has no local read watermark.
+        // In that state, preserve zero and only remove one already-counted row.
+        this.database
+          .prepare(
+            `
+            UPDATE messaging_conversations
+            SET unread_count = max(0, unread_count - 1)
+            WHERE account_id = ? AND id = ?
+          `
+          )
+          .run(this.accountId, conversationId)
+      }
+
+      return true
+    })
   }
 
   markRead(conversationId: string, throughMessageId: string, now = new Date().toISOString()): boolean {
