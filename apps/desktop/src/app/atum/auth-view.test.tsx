@@ -47,10 +47,17 @@ describe('AtumAuthView', () => {
     expect(container.querySelector('.atum-plate-chat')).toBeNull()
   })
 
-  it('focuses the heading on mount', () => {
+  it('focuses the identifier on mount so typing works immediately', () => {
     render(<AtumAuthView />)
 
-    expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
+    expect(globalThis.document.activeElement).toBe(screen.getByRole('textbox', { name: /Username/ }))
+  })
+
+  it('focuses the heading only when there is no editable credential field', () => {
+    $atumAccountStatus.set({ ...signedOut, providers: { google: true, password: false } })
+    render(<AtumAuthView />)
+
+    expect(globalThis.document.activeElement).toBe(screen.getByRole('heading', { level: 1 }))
   })
 
   it('offers Google first, then the identifier/password fallback', () => {
@@ -121,7 +128,7 @@ describe('AtumAuthView', () => {
     const alert = screen.getByRole('alert')
 
     expect(alert.textContent).toBe(expected)
-    expect(document.activeElement).toBe(alert)
+    expect(globalThis.document.activeElement).toBe(alert)
   })
 
   it('switches to the expired story without losing the user work', () => {

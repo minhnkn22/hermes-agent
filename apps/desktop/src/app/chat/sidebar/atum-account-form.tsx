@@ -45,13 +45,19 @@ export function AtumAccountForm({
   const identifierRef = useRef<HTMLInputElement>(null)
   const passwordRef = useRef<HTMLInputElement>(null)
   const roomy = appearance === 'atum'
+
   const fieldClass = roomy
-    ? 'h-11 w-full rounded-[10px] border border-(--ui-border) bg-(--ui-control-background) px-3 text-sm outline-none focus-visible:border-primary/60'
+    ? 'h-11 w-full rounded-[var(--atum-r-control)] border border-(--atum-line-strong) bg-(--atum-sunk) px-3 text-sm text-(--atum-ink) outline-none placeholder:text-(--atum-ink-faint) focus-visible:border-(--atum-focus)'
     : 'h-8 w-full rounded-md border border-(--ui-border) bg-(--ui-control-background) px-2 text-xs outline-none focus-visible:border-primary/60'
+
   const labelClass = cn(
-    'block font-medium text-(--ui-text-secondary)',
-    roomy ? 'text-xs' : 'text-[0.6875rem]'
+    'block font-medium',
+    roomy ? 'text-xs text-(--atum-ink-soft)' : 'text-[0.6875rem] text-(--ui-text-secondary)'
   )
+
+  const hintClass = roomy
+    ? 'text-xs leading-5 text-(--atum-ink-soft)'
+    : 'text-[0.6875rem] leading-4 text-(--ui-text-tertiary)'
 
   useEffect(() => {
     if (autoFocus) {
@@ -70,7 +76,9 @@ export function AtumAccountForm({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (pending) {return}
+    if (pending) {
+      return
+    }
 
     const nextErrors = {
       ...(!identifier.trim() && { identifier: copy.identifierRequired }),
@@ -102,7 +110,7 @@ export function AtumAccountForm({
         <label className={labelClass} htmlFor="atum-identifier">
           {copy.identifier}
         </label>
-        <p className="text-[0.6875rem] leading-4 text-(--ui-text-tertiary)" id="atum-identifier-hint">
+        <p className={hintClass} id="atum-identifier-hint">
           {copy.identifierHint}
         </p>
         <input
@@ -117,7 +125,9 @@ export function AtumAccountForm({
           onChange={event => {
             setIdentifier(event.target.value)
 
-            if (fieldErrors.identifier) {setFieldErrors(previous => ({ ...previous, identifier: undefined }))}
+            if (fieldErrors.identifier) {
+              setFieldErrors(previous => ({ ...previous, identifier: undefined }))
+            }
           }}
           placeholder={copy.identifierPlaceholder}
           ref={identifierRef}
@@ -146,7 +156,9 @@ export function AtumAccountForm({
           onChange={event => {
             setPassword(event.target.value)
 
-            if (fieldErrors.password) {setFieldErrors(previous => ({ ...previous, password: undefined }))}
+            if (fieldErrors.password) {
+              setFieldErrors(previous => ({ ...previous, password: undefined }))
+            }
           }}
           ref={passwordRef}
           type="password"

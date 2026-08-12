@@ -1915,6 +1915,16 @@ text-* variant utilities. */ .btn-arc {
   --atum-dur-slow: 300ms;
 }
 
+/* The packaged BrowserWindow supplies the actual NSVisualEffectView. Clear the
+   document paint only while the Atum product shell is mounted so its warm
+   translucent desk and plates can refract the native macOS material. Legacy
+   Hermes remains fully opaque when the fallback shell is selected. */
+html:has(.atum-shell),
+body:has(.atum-shell),
+#root:has(.atum-shell) {
+  background: transparent;
+}
+
 /* Dark ramp derived from `atumTheme.darkColors` (themes/presets.ts) — the same
    warm dark palette, not a second one. */
 .dark .atum-shell {
@@ -1952,6 +1962,11 @@ text-* variant utilities. */ .btn-arc {
   box-shadow: var(--atum-shadow-panel), var(--atum-sheen);
   backdrop-filter: blur(28px) saturate(145%);
   contain: layout paint;
+}
+
+.atum-auth-plate {
+  border-color: var(--atum-line-strong);
+  box-shadow: var(--atum-shadow-chat), var(--atum-sheen);
 }
 
 .atum-plate-chat {

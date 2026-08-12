@@ -6,12 +6,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/i18n'
 import { authFailureKind } from '@/lib/atum-auth'
-import {
-  $atumAccountStatus,
-  cancelAtumSignIn,
-  signInToAtum,
-  signInToAtumWithPassword
-} from '@/store/atum-messaging'
+import { $atumAccountStatus, cancelAtumSignIn, signInToAtum, signInToAtumWithPassword } from '@/store/atum-messaging'
 
 /**
  * The Atum sign-in gate — a full-window surface, not a card floating over the
@@ -44,11 +39,14 @@ export function AtumAuthView() {
           ? t.dm.signInProviderDown
           : null
 
-  // The gate owns the window on arrival, so the heading is the entry point for
-  // screen readers and keyboard users alike.
+  // Let the credential field own focus whenever it exists so the first typed
+  // character is never lost. The heading needs programmatic focus only in a
+  // provider-only/unavailable state with no editable entry point.
   useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
+    if (!account.providers.password) {
+      headingRef.current?.focus()
+    }
+  }, [account.providers.password])
 
   // A failure is the one thing that must interrupt: move focus to the band so
   // the reason is read before the user retypes.
@@ -70,7 +68,7 @@ export function AtumAuthView() {
         }
       }}
     >
-      <main className="atum-plate w-[400px] max-w-full p-8 [-webkit-app-region:no-drag]">
+      <main className="atum-auth-plate atum-plate w-[400px] max-w-full p-8 [-webkit-app-region:no-drag]">
         <BrandMark className="size-14 rounded-[var(--atum-r-tile)]" />
 
         <h1
@@ -125,7 +123,7 @@ export function AtumAuthView() {
             {account.providers.password && (
               <AtumAccountForm
                 appearance="atum"
-                autoFocus={!account.providers.google}
+                autoFocus
                 copy={{
                   identifier: t.dm.identifier,
                   identifierHint: t.dm.identifierHint,
@@ -156,7 +154,7 @@ export function AtumAuthView() {
           </div>
         )}
 
-        <p className="mt-6 text-[11px] leading-4 text-(--atum-ink-faint)">{t.atum.auth.terms}</p>
+        <p className="mt-6 text-xs leading-5 text-(--atum-ink-soft)">{t.atum.auth.terms}</p>
       </main>
     </div>
   )

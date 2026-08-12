@@ -78,7 +78,20 @@ Hermes plugins, providers, skills, browser/computer tools, contributions, and
 the isolated Atum engine remain intact.
 
 Targeted packaged-app design review: Opus job
-`d5aa8329-896f-49ed-b6cf-c9494115e6ad` (result pending at this checkpoint).
+`d5aa8329-896f-49ed-b6cf-c9494115e6ad`. The machine restarted before the job
+could emit its final message, so the supervisor records `supervisor_shutdown`,
+but its retained 9,413-byte partial result was complete enough to give a
+`DO NOT SHIP` verdict with concrete findings. P0 titlebar chrome and focus theft
+were accepted. The P1 body-vibrancy, card elevation, mark contrast, form-token,
+and text-contrast findings were also accepted. Password reveal/recovery/signup
+remain explicitly deferred for the closed pre-provisioned dogfood cohort.
+
+The follow-up changes let the password identifier field own initial focus,
+focus the heading only when no editable credential path exists, clear the
+document paint over the native NSVisualEffectView only while `.atum-shell` is
+mounted, elevate the auth plate, map the roomy credential form to `--atum-*`
+tokens, raise hint/legal copy to 12px high-contrast text, and render a thicker
+light mark on the dark brand tile. The legacy Hermes fallback remains opaque.
 
 Focused verification after these corrections:
 
@@ -89,3 +102,23 @@ Focused verification after these corrections:
 - `npx vitest run scripts/generate-mac-icon.test.mjs`: 6 passed.
 - `node scripts/generate-mac-icon.mjs --check`: passed.
 - `git diff --check`: passed.
+
+Post-review verification:
+
+- `npm run typecheck`: passed.
+- focused Atum UI: 56 passed.
+- `npm run test:ui`: 262 files, 2,215 passed, one existing skip.
+- targeted ESLint: zero errors after import/spacing correction.
+- Kimi K3 assembly review job `9d83a51c-ab4a-4cbe-8df9-b231b4a349fa`
+  submitted with no turn ceiling; result pending at this checkpoint.
+
+The rounded-icon package was rebuilt from `d399158fb`, installed atomically at
+`/Applications/Atum.app`, and opened successfully. The previous app remains
+recoverable at `/Applications/Atum.app.pre-rounded-icon-20260812-2116`. The
+installed ICNS SHA-256 matched the generated source exactly
+(`e12b12b4674599b76fec245f34b5961c6ebf31520621982f55aa9b91784f82ac`).
+After touching the bundle and restarting Dock, direct screen capture confirmed
+the icon is a normal rounded tile with transparent corners and optical size
+matching neighboring apps; it is neither the original nested white tile nor the
+intermediate hard black square. The installed auth window also confirmed that
+only the macOS traffic lights remain in the top rim.
