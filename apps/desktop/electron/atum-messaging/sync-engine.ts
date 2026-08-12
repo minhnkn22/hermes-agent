@@ -194,9 +194,26 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
   }
 
   async markRead(conversationId: string, throughMessageId: string): Promise<boolean> {
-    await this.options.http.markRead(conversationId, throughMessageId, randomUUID())
+    const store = this.requireStore()
+    const marked = store.markRead(conversationId, throughMessageId, this.now().toISOString())
 
-    return this.requireStore().markRead(conversationId, throughMessageId, this.now().toISOString())
+    try {
+      await this.options.http.markRead(conversationId, throughMessageId, randomUUID())
+    } catch (error) {
+      if (!this.transitionAuthFailure(error)) {
+        this.retryAttempt += 1
+        this.transition(
+          store.listConversations(1).length > 0 ? 'offline_cached' : 'error',
+          error instanceof Error ? error.message : 'internal_error'
+        )
+
+        if (this.isRetryable(error)) {
+          this.scheduleRetry(nextDelay(this.retryAttempt, this.retryBaseMs))
+        }
+      }
+    }
+
+    return marked
   }
 
   sync(): Promise<MessagingSyncStatus> {
@@ -259,6 +276,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
 
       const activeStore = this.requireStoreFor(generation)
       let cursor = activeStore.getSyncCursor().cursor
+      const needsInitialBackfill = cursor === null
       let firstPage = true
       let pageCount = 0
 
@@ -274,7 +292,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
           throw new MessagingHttpError('invalid_response', 200, false, null, null, null)
         }
 
-        await this.applyPage(page, firstPage, generation, activeStore)
+        await this.applyPage(page, needsInitialBackfill && firstPage, generation, activeStore)
         this.assertStoreLifecycle(generation, activeStore)
 
         if (!activeStore.commitSyncCursor(cursor, page.nextCursor, this.now().toISOString())) {
@@ -341,10 +359,7 @@ export class AtumMessagingSyncEngine implements MessagingClientBoundary {
     for (const conversation of roster.conversations) {
       store.upsertConversation(conversation)
 
-      if (
-        firstPage ||
-        page.changes.some(change => change.entity === 'conversation' || change.entity === 'participant')
-      ) {
+      if (firstPage) {
         affected.add(conversation.id)
       }
     }

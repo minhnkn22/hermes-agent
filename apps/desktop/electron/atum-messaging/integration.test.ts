@@ -10,7 +10,7 @@ import { afterEach, test } from 'vitest'
 import { normalizeBaseUrl, type SafeStorageLike } from './credential-vault'
 import { AtumMessagingRuntime } from './runtime'
 import { AtumMessagingStore } from './store'
-import type { MessagingAccountSession } from './types'
+import type { CanonicalMessage, MessagingAccountSession } from './types'
 
 const ACCOUNT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const ACCOUNT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -101,6 +101,7 @@ interface FakeState {
   sendFailure?: boolean
   sendRetryAfterMs?: number
   sendAuthFailure?: boolean
+  readFailure?: boolean
   hangSessionTokens?: Set<string>
   oversizedSessionBytes?: number
   syncAlwaysHasMore?: boolean
@@ -263,6 +264,19 @@ async function fakeServer(state: FakeState): Promise<string> {
     }
 
     if (url.pathname.endsWith('/read')) {
+      if (state.readFailure) {
+        send(503, {
+          error: {
+            code: 'temporarily_unavailable',
+            message_key: 'messaging.error.temporarily_unavailable',
+            retryable: true,
+            request_id: 'req_read'
+          }
+        })
+
+        return
+      }
+
       send(200, { read_state: {}, replayed: false })
 
       return
@@ -364,6 +378,80 @@ test('real HTTP bytes perform initial backfill without trusting the session curs
   const rows = await runtime.messages(CONVERSATION_A)
   assert.equal(rows.filter(row => row.clientMessageId === CLIENT_A || row.id === `server-${CLIENT_A}`).length, 1)
   assert.equal(rows.find(row => row.id === `server-${CLIENT_A}`)?.optimistic, false)
+})
+
+test('an ordinary incremental poll with no changes does not refetch full message history', async () => {
+  const fake = state()
+  const baseUrl = await fakeServer(fake)
+  const runtime = new AtumMessagingRuntime({ userDataPath: tempUserData(), safeStorage })
+  runtimes.push(runtime)
+  await runtime.installSession(session(baseUrl))
+
+  const historyRequestsAfterBackfill = fake.requestLog.filter(
+    request => request.method === 'GET' && /\/conversations\/[^/]+\/messages(?:\?|$)/.test(request.path)
+  ).length
+
+  fake.syncChanges = []
+  await runtime.sync()
+
+  assert.equal(historyRequestsAfterBackfill, 1)
+  assert.equal(
+    fake.requestLog.filter(
+      request => request.method === 'GET' && /\/conversations\/[^/]+\/messages(?:\?|$)/.test(request.path)
+    ).length,
+    historyRequestsAfterBackfill
+  )
+})
+
+test('mark-read advances local unread state even when the hosted write is offline', async () => {
+  const fake = state()
+  const baseUrl = await fakeServer(fake)
+  const userDataPath = tempUserData()
+  const initial = new AtumMessagingRuntime({ userDataPath, safeStorage })
+  runtimes.push(initial)
+  await initial.installSession(session(baseUrl))
+  initial.stop()
+
+  const store = new AtumMessagingStore({
+    accountId: ACCOUNT_A,
+    databasePath: join(userDataPath, 'atum-messaging', 'messaging.sqlite3')
+  })
+
+  const unreadId = '55555555-5555-4555-8555-555555555555'
+
+  const unread: CanonicalMessage = {
+    id: unreadId,
+    conversationId: CONVERSATION_A,
+    sender: { type: 'user', id: ACCOUNT_B },
+    content: 'Tin chưa đọc',
+    kind: 'text',
+    attachments: [],
+    replyToMessageId: null,
+    forwardedFrom: null,
+    reactions: [],
+    version: 1,
+    createdAt: '2026-08-12T03:00:03.000Z',
+    editedAt: null,
+    recalledAt: null,
+    delivery: 'sent'
+  }
+
+  store.canonicalizeMessage({
+    message: unread,
+    incrementUnread: true
+  })
+  assert.equal(store.listConversations()[0]?.unreadCount, 1)
+  store.close()
+
+  fake.syncChanges = []
+  const runtime = new AtumMessagingRuntime({ userDataPath, safeStorage })
+  runtimes.push(runtime)
+  await runtime.start()
+  fake.readFailure = true
+
+  assert.equal(await runtime.markRead(CONVERSATION_A, unreadId), true)
+  assert.equal((await runtime.roster())[0]?.unreadCount, 0)
+  assert.equal((await runtime.status()).connectivity, 'offline_cached')
 })
 
 test('401 refresh is owned by main and replays the rejected request exactly once', async () => {

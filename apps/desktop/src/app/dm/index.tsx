@@ -14,7 +14,8 @@ import {
   initializeAtumMessaging,
   refreshAtumStatus,
   retryAtumMessage,
-  setAtumActiveConversation
+  setAtumActiveConversation,
+  signInToAtum
 } from '@/store/atum-messaging'
 
 import { DmComposer } from './dm-composer'
@@ -48,6 +49,13 @@ function statusPresentation(
   return { label: null, tone: 'muted' }
 }
 
+export function canComposeAtum(accountState: string, connectivity: string): boolean {
+  return (
+    (accountState === 'signed_in' || accountState === 'refreshing') &&
+    (connectivity === 'online' || connectivity === 'offline_cached' || connectivity === 'reconnecting')
+  )
+}
+
 export function AtumDmView() {
   const { conversationId = '' } = useParams()
   const { t } = useI18n()
@@ -66,9 +74,17 @@ export function AtumDmView() {
     error: t.dm.errorGeneric
   })
 
-  const canCompose =
-    account.state === 'signed_in' &&
-    (connectivity === 'online' || connectivity === 'offline_cached' || connectivity === 'reconnecting')
+  const canCompose = canComposeAtum(account.state, connectivity)
+
+  const reauthenticate = () => {
+    if (account.providers.google) {
+      void signInToAtum()
+
+      return
+    }
+
+    document.getElementById('atum-identifier')?.focus()
+  }
 
   useEffect(() => {
     void initializeAtumMessaging()
@@ -86,7 +102,9 @@ export function AtumDmView() {
       {(account.state === 'expired' || connectivity === 'auth_expired') && (
         <div className="flex items-center justify-between gap-4 border-b border-destructive/25 bg-destructive/8 px-5 py-2 text-xs">
           <span>{t.dm.authExpired}</span>
-          <span className="text-(--ui-text-tertiary)">{t.dm.authExpiredAction}</span>
+          <Button onClick={reauthenticate} size="sm" variant="outline">
+            {t.dm.authExpiredAction}
+          </Button>
         </div>
       )}
       {(account.state === 'error' || connectivity === 'error') && (

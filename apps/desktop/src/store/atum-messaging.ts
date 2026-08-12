@@ -1,5 +1,6 @@
 import { atom, computed } from 'nanostores'
 
+import type { Locale } from '@/i18n'
 import { atumAccountClient, type AtumAccountStatus } from '@/lib/atum-account-client'
 import {
   atumMessagingClient,
@@ -24,7 +25,7 @@ export const $atumDrafts = atom<Record<string, string>>({})
 export const $atumConnectivity = computed($atumStatus, status => status?.connectivity ?? 'loading')
 export const $atumIsAuthenticated = computed(
   [$atumAccountStatus, $atumStatus],
-  (account, status) => account.state === 'signed_in' && Boolean(status?.accountId)
+  (account, status) => (account.state === 'signed_in' || account.state === 'refreshing') && Boolean(status?.accountId)
 )
 export const $atumSortedRoster = computed($atumRoster, roster =>
   [...roster].sort((left, right) =>
@@ -66,35 +67,48 @@ function clearAccountScopedState(): void {
   $atumActiveConversationId.set(null)
 }
 
+function currentAccountScopeId(): string | null {
+  return $atumStatus.get()?.accountId ?? $atumAccountStatus.get().account?.id ?? null
+}
+
+function applyAccountStatus(next: AtumAccountStatus, options: { preserveSignedOut?: boolean } = {}): void {
+  const previousScopeId = currentAccountScopeId()
+  const nextId = next.account?.id ?? null
+  const explicitlySignedOut = next.state === 'signed_out' || next.state === 'unconfigured'
+  const switchedIdentity = Boolean(previousScopeId && nextId && previousScopeId !== nextId)
+
+  // Expiry, refresh, and transient auth failures are not account-boundary
+  // transitions. Keep that account's encrypted SQLite projection and drafts so
+  // reauthentication is a recoverable pause rather than destructive logout.
+  if (switchedIdentity || (previousScopeId && explicitlySignedOut && !options.preserveSignedOut)) {
+    clearAccountScopedState()
+  }
+
+  $atumAccountStatus.set(next)
+}
+
 function errorCode(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'atum_messaging_error'
 }
 
 export async function refreshAtumAccountStatus(): Promise<AtumAccountStatus> {
-  const previousId = $atumAccountStatus.get().account?.id ?? null
-
   try {
     const next = await atumAccountClient().status()
-    const nextId = next.account?.id ?? null
-
-    if (previousId !== nextId || next.state === 'signed_out' || next.state === 'expired') {
-      clearAccountScopedState()
-    }
-
-    $atumAccountStatus.set(next)
+    applyAccountStatus(next)
 
     return next
   } catch (error) {
+    const previous = $atumAccountStatus.get()
+
     const next: AtumAccountStatus = {
       state: 'error',
-      configured: true,
-      account: null,
+      configured: previous.configured,
+      account: previous.account,
       errorCode: errorCode(error),
-      providers: $atumAccountStatus.get().providers
+      providers: previous.providers
     }
 
-    clearAccountScopedState()
-    $atumAccountStatus.set(next)
+    applyAccountStatus(next)
 
     return next
   }
@@ -162,7 +176,13 @@ export async function loadAtumMessages(conversationId: string): Promise<AtumMess
     const lastCanonical = [...messages].reverse().find(message => message.id)
 
     if (lastCanonical?.id) {
-      void atumMessagingClient().markRead(conversationId, lastCanonical.id)
+      try {
+        await atumMessagingClient().markRead(conversationId, lastCanonical.id)
+      } catch (error) {
+        if (epoch === accountEpoch) {
+          $atumStatus.set(errorStatus(errorCode(error)))
+        }
+      }
     }
 
     return messages
@@ -187,11 +207,27 @@ export function setAtumDraft(conversationId: string, text: string): void {
   $atumDrafts.set({ ...$atumDrafts.get(), [conversationId]: text })
 }
 
-export async function persistAtumDraft(conversationId: string): Promise<void> {
-  await atumMessagingClient().saveDraft(conversationId, { text: $atumDrafts.get()[conversationId] ?? '' })
+export async function persistAtumDraft(conversationId: string): Promise<boolean> {
+  const epoch = accountEpoch
+
+  try {
+    await atumMessagingClient().saveDraft(conversationId, { text: $atumDrafts.get()[conversationId] ?? '' })
+
+    return epoch === accountEpoch
+  } catch (error) {
+    if (epoch === accountEpoch) {
+      $atumStatus.set(errorStatus(errorCode(error)))
+    }
+
+    return false
+  }
 }
 
-export async function sendAtumMessage(conversationId: string, rawText: string, locale: string): Promise<void> {
+export function hostedAtumLocale(locale: Locale | string): 'vi' | 'en' {
+  return locale === 'vi' ? 'vi' : 'en'
+}
+
+export async function sendAtumMessage(conversationId: string, rawText: string, locale: Locale | string): Promise<void> {
   const content = rawText.trim()
 
   if (!content) {
@@ -227,10 +263,15 @@ export async function sendAtumMessage(conversationId: string, rawText: string, l
     [conversationId]: [...($atumMessages.get()[conversationId] ?? []), optimistic]
   })
   setAtumDraft(conversationId, '')
-  void atumMessagingClient().saveDraft(conversationId, { text: '' })
+  void persistAtumDraft(conversationId)
 
   try {
-    await atumMessagingClient().send({ conversationId, clientMessageId, content, locale })
+    await atumMessagingClient().send({
+      conversationId,
+      clientMessageId,
+      content,
+      locale: hostedAtumLocale(locale)
+    })
 
     if (epoch === accountEpoch) {
       await loadAtumMessages(conversationId)
@@ -290,15 +331,41 @@ export async function retryAtumMessage(clientMessageId: string): Promise<void> {
 }
 
 export async function pollAtumSync(): Promise<void> {
-  const account = $atumAccountStatus.get()
+  const account = await refreshAtumAccountStatus()
 
-  if (account.state !== 'signed_in') {
+  if (account.state !== 'signed_in' && account.state !== 'refreshing') {
+    if (account.state === 'expired') {
+      const previous = $atumStatus.get()
+
+      $atumStatus.set({
+        accountId: previous?.accountId ?? account.account?.id ?? null,
+        connectivity: 'auth_expired',
+        synchronized: false,
+        cursor: previous?.cursor ?? null,
+        lastSuccessfulSyncAt: previous?.lastSuccessfulSyncAt ?? null,
+        nextRetryAt: null,
+        errorCode: account.errorCode ?? 'account_session_expired'
+      })
+    }
+
     return
   }
 
   const epoch = accountEpoch
 
   try {
+    const current = await atumMessagingClient().status()
+
+    if (epoch !== accountEpoch) {
+      return
+    }
+
+    $atumStatus.set(current)
+
+    if (!shouldPollAtumSync(current)) {
+      return
+    }
+
     const status = await atumMessagingClient().sync()
 
     if (epoch !== accountEpoch) {
@@ -318,6 +385,20 @@ export async function pollAtumSync(): Promise<void> {
       $atumStatus.set(errorStatus(errorCode(error)))
     }
   }
+}
+
+export function shouldPollAtumSync(status: AtumMessagingSyncStatus, now = Date.now()): boolean {
+  if (status.connectivity === 'auth_expired' || (status.connectivity === 'error' && !status.nextRetryAt)) {
+    return false
+  }
+
+  if (!status.nextRetryAt) {
+    return true
+  }
+
+  const retryAt = Date.parse(status.nextRetryAt)
+
+  return Number.isFinite(retryAt) && retryAt <= now
 }
 
 function schedulePoll(): void {
@@ -367,20 +448,19 @@ export async function signInToAtum(): Promise<void> {
 
   try {
     const status = await atumAccountClient().signIn()
-    clearAccountScopedState()
-    $atumAccountStatus.set(status)
+    applyAccountStatus(status, { preserveSignedOut: true })
 
     if (status.state === 'signed_in') {
       await Promise.all([refreshAtumStatus(), refreshAtumRoster()])
     }
   } catch (error) {
-    clearAccountScopedState()
-    $atumAccountStatus.set({
+    const previous = $atumAccountStatus.get()
+    applyAccountStatus({
       state: 'error',
-      configured: true,
-      account: null,
+      configured: previous.configured,
+      account: previous.account,
       errorCode: errorCode(error),
-      providers: $atumAccountStatus.get().providers
+      providers: previous.providers
     })
   }
 }
@@ -390,26 +470,25 @@ export async function signInToAtumWithPassword(credentials: { identifier: string
 
   try {
     const status = await atumAccountClient().signInWithPassword(credentials)
-    clearAccountScopedState()
-    $atumAccountStatus.set(status)
+    applyAccountStatus(status, { preserveSignedOut: true })
 
     if (status.state === 'signed_in') {
       await Promise.all([refreshAtumStatus(), refreshAtumRoster()])
     }
   } catch (error) {
-    clearAccountScopedState()
-    $atumAccountStatus.set({
+    const previous = $atumAccountStatus.get()
+    applyAccountStatus({
       state: 'error',
-      configured: true,
-      account: null,
+      configured: previous.configured,
+      account: previous.account,
       errorCode: errorCode(error),
-      providers: $atumAccountStatus.get().providers
+      providers: previous.providers
     })
   }
 }
 
 export async function cancelAtumSignIn(): Promise<void> {
-  $atumAccountStatus.set(await atumAccountClient().cancel())
+  applyAccountStatus(await atumAccountClient().cancel(), { preserveSignedOut: true })
 }
 
 export async function signOutOfAtum(): Promise<void> {
