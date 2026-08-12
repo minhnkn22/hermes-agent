@@ -1,17 +1,13 @@
 /**
  * after-pack.mjs — electron-builder afterPack hook.
  *
- * Stamps the Hermes icon + identity onto the packed Windows Hermes.exe via
- * rcedit (delegated to set-exe-identity.mjs). This runs for EVERY packed build
- * — first install, `hermes desktop`, the installer's --update rebuild, and a
- * dev's manual `npm run pack` — so the branded exe can never silently revert
- * to the stock "Electron" icon/name (the bug when the stamp lived only in
- * install.ps1, which the update path doesn't use).
+ * Final target-specific package staging:
  *
- * Windows-only: rcedit edits PE resources, irrelevant on macOS/Linux where the
- * app identity comes from the bundle Info.plist / desktop entry. Best-effort:
- * a stamp failure must never fail an otherwise-good build (worst case is the
- * stock icon, not a broken app), so we log and resolve rather than throw.
+ * - macOS gets the pinned, relocatable Python + Hermes payload under
+ *   Contents/Resources/runtime before electron-builder signs the bundle.
+ * - Windows gets its Hermes icon + identity stamped via rcedit. That cosmetic
+ *   stamp remains best-effort; runtime staging fails closed because omitting it
+ *   would produce an app that cannot start on a clean Mac.
  *
  * electron-builder passes a context with:
  *   - electronPlatformName: 'win32' | 'darwin' | 'linux'
@@ -20,10 +16,21 @@
  */
 
 import path from 'node:path'
+import { Arch } from 'electron-builder'
 
 import { stampExeIdentity } from './set-exe-identity.mjs'
+import { stageBundledRuntime } from './stage-bundled-runtime.mjs'
 
 export default async function afterPack(context) {
+  if (context.electronPlatformName === 'darwin') {
+    const productName = context.packager?.appInfo?.productFilename || 'Hermes'
+    const arch = typeof context.arch === 'number' ? Arch[context.arch] : process.arch
+    const runtimeRoot = path.join(context.appOutDir, `${productName}.app`, 'Contents', 'Resources', 'runtime')
+
+    stageBundledRuntime({ targetRoot: runtimeRoot, platform: 'darwin', arch })
+    return
+  }
+
   if (context.electronPlatformName !== 'win32') {
     return
   }

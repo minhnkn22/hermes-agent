@@ -39,6 +39,7 @@ import { waitForDashboardPortAnnouncement } from './backend-ready'
 import { shouldLatchBackendStartFailure } from './backend-start-failure'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
+import { resolveBundledHermesRuntime } from './bundled-runtime'
 import { applyConnectionChange, resolveTerminalConnection } from './connection-apply'
 import {
   authModeFromStatus,
@@ -3477,7 +3478,26 @@ function resolveHermesBackend(backendArgs) {
     }
   }
 
-  // 3. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
+  // 3. Packaged macOS runtime -- Atum/Hermes distributions stage a pinned,
+  //    relocatable Python + git-archived Hermes tree under Resources/runtime.
+  //    Validate the actual import seam before trusting it; a partial or
+  //    damaged payload simply falls through to the historical managed install
+  //    and bootstrap rungs below, so source/dev and repair behavior stay intact.
+  const bundledBackend = resolveBundledHermesRuntime({
+    isPackaged: IS_PACKAGED,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    backendArgs,
+    hermesHome: HERMES_HOME,
+    currentEnv: process.env,
+    probeRuntime: (python, options) => canImportHermesCli(python, options)
+  })
+
+  if (bundledBackend) {
+    return bundledBackend
+  }
+
+  // 4. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
   //    %LOCALAPPDATA%\hermes\hermes-agent (Windows) or ~/.hermes/hermes-agent.
   //    The bootstrap marker means install.ps1 stages finished and the user
   //    completed initial configuration; we trust the install and go straight
@@ -3487,7 +3507,7 @@ function resolveHermesBackend(backendArgs) {
     return createActiveBackend(backendArgs)
   }
 
-  // 4. Existing `hermes` on PATH -- installed via install.ps1 / install.sh from
+  // 5. Existing `hermes` on PATH -- installed via install.ps1 / install.sh from
   //    a previous tool-only setup, or pip-installed system-wide. Use it but
   //    do NOT write a bootstrap marker; the user did this themselves and we
   //    don't want to take ownership of an install we didn't perform.
@@ -3530,7 +3550,7 @@ function resolveHermesBackend(backendArgs) {
       // via findOnPath but explodes on spawn -- the user then sees a
       // dead backend instead of the first-launch installer. The cheap
       // `--version` probe (see backend-probes.ts) catches that case
-      // and lets the resolver fall through to step 6 / bootstrap.
+      // and lets the resolver fall through to the final bootstrap rung.
       const shellForProbe = isCommandScript(hermesCommand)
 
       // HERMES_DESKTOP_HERMES is an explicit deployment override (used by
@@ -3557,7 +3577,7 @@ function resolveHermesBackend(backendArgs) {
     }
   }
 
-  // 5. Last-ditch: pip-installed hermes_cli module via system Python.
+  // 6. Last-ditch: pip-installed hermes_cli module via system Python.
   //    Same rationale as #4 -- the user installed this; we use it but don't
   //    take ownership.
   const python = findSystemPython()
@@ -3569,7 +3589,7 @@ function resolveHermesBackend(backendArgs) {
     // a python.org install from prior unrelated work. Returning that
     // backend hands the spawn step a guaranteed ModuleNotFoundError.
     // Verify the import works before trusting the candidate; on
-    // failure, fall through to step 6 so the bootstrap runner pulls
+    // failure, fall through to the final rung so the bootstrap runner pulls
     // a uv-managed 3.11 into %LOCALAPPDATA%\hermes\hermes-agent\venv.
     if (canImportHermesCli(python)) {
       return {
@@ -3586,7 +3606,7 @@ function resolveHermesBackend(backendArgs) {
     rememberLog(`Ignoring system Python ${python}: hermes_cli is not importable; falling through to bootstrap.`)
   }
 
-  // 6. Nothing usable yet -- signal the bootstrap runner that we need to
+  // 7. Nothing usable yet -- signal the bootstrap runner that we need to
   //    clone+install. Phase 1D's bootstrap-runner consumes this sentinel
   //    and drives install.ps1 stages with a progress UI. Until 1D lands,
   //    callers see the sentinel and surface it as a user-facing error
