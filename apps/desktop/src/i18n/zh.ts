@@ -94,6 +94,65 @@ export const zh: Translations = {
     unavailable: '此版本尚不支持登录。'
   },
 
+  atum: {
+    nav: {
+      aria: '主导航',
+      chat: '对话',
+      devices: '电脑',
+      devicesSoon: '电脑 — 即将推出',
+      settings: '设置',
+      account: '账户'
+    },
+    account: {
+      menu: '账户菜单',
+      signedOut: '未登录',
+      language: '语言',
+      theme: '外观'
+    },
+    roster: {
+      title: '对话',
+      search: '搜索对话',
+      assistant: 'Atum',
+      assistantHint: '你这台电脑上的助手',
+      unread: count => `${count} 条未读`,
+      results: count => `${count} 条结果`,
+      emptySearch: '未找到对话',
+      emptySearchHint: '换个关键词试试。',
+      loadFailed: '无法加载对话列表'
+    },
+    chat: {
+      none: '选择一个对话',
+      noneHint: '在左侧选择一个对话即可开始。',
+      openRoster: '显示对话列表',
+      closeRoster: '隐藏对话列表'
+    },
+    workspace: {
+      title: '工作区',
+      open: '打开工作区',
+      close: '关闭工作区',
+      none: '此对话暂时没有可操作的内容',
+      resize: '调整宽度',
+      tabView: '查看',
+      tabFiles: '文件',
+      tabDetails: '详情',
+      empty: '暂无内容',
+      detailsConversation: '对话',
+      detailsParticipants: '成员',
+      detailsUpdated: '最近活动'
+    },
+    auth: {
+      title: '欢迎使用 Atum',
+      expiredTitle: '请重新登录以继续',
+      expiredBody: '登录已过期。你的对话仍然保留。',
+      terms: '继续即表示你同意 Atum 的条款。'
+    },
+    offline: {
+      banner: '离线 — 显示已保存的内容',
+      reconnecting: '正在重新连接…',
+      reconnected: '已重新连接'
+    }
+  },
+
   fileMenu: {
     revealFinder: '在访达中显示',
     revealExplorer: '在文件资源管理器中显示',

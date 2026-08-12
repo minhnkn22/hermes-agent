@@ -106,6 +106,69 @@ destructive, warning, or success colors.
 Never hardcode `border-gray-*`, `bg-white`, `text-black`, etc. The white tile in
 `BrandMark` is the one sanctioned literal (the mark needs a fixed backdrop).
 
+## The Atum product shell
+
+`$atumShellEnabled` (`src/store/atum-shell.ts`, default on) selects the product
+chrome. Both shells mount **inside** `ContribWiring`, so contributions,
+keybinds, overlays, dialogs, notifications, the command palette, and boot
+surfaces are identical either way — only the chrome differs. Setting the flag
+false restores the legacy Hermes chrome (titlebar tool clusters, pane tree,
+statusbar) verbatim.
+
+Structure (`src/app/atum/`): a bare **52px rail** on the desk, then three
+floating plates — **roster 274px**, **chat flex-1**, **workspace 360–640px
+collapsible** — inside `gap-2.5 p-2.5`. The 10px gutter *is* the drag region;
+there is no titlebar and no statusbar to simplify.
+
+- **The rail has exactly four controls**: account tile, chat, devices, settings.
+  Devices is `aria-disabled` with no `onClick` and no pairing UI — a capability
+  we do not have is shown honestly, not faked.
+- **The chat rim has at most two controls** — roster toggle (compact only) and
+  the workspace toggle. Model, approval mode, context usage, gateway, pin,
+  split, and settings live in the account menu, Settings, and ⌘K.
+- **The chat body is `WiredPane part="chatRoutes"`** — the same transcript, tool
+  cards, and approvals the Hermes shell renders. Never fork a second one.
+- **Workspace tabs are derived from live capability** (`workspace-tabs.ts`): a
+  tab whose capability is absent is not rendered, never rendered-and-disabled.
+  When zero qualify, the rim toggle is the one disabled affordance.
+- **Sign-in is a full-window gate** (`atum/auth-view.tsx`, route
+  `ATUM_AUTH_ROUTE = '/sign-in'`). Credentials are never collected in a rail.
+- **The roster is Atum-only**: one local assistant conversation plus hosted Atum
+  DMs. Hermes sessions, profiles, projects, worktrees, pins, and cron are not
+  product nouns and must not appear there.
+
+### Atum tokens & material recipes
+
+Scoped to `.atum-shell` in `src/styles.css` (desktop themes write CSS vars from
+`themes/presets.ts`, so there is no skin selector to hang these off), with a
+`.dark .atum-shell` ramp derived from `atumTheme.darkColors`.
+
+| Token family | Members |
+| --- | --- |
+| surfaces | `--atum-desk`, `--atum-panel`, `--atum-card`, `--atum-chat`, `--atum-chat-veil`, `--atum-sunk` |
+| ink | `--atum-ink`, `-deep`, `-strong`, `-soft`, `-muted`, `-faint` |
+| hairline / interaction | `--atum-line`, `-strong`, `--atum-hover`, `--atum-pressed`, `--atum-focus`, `--atum-sheen` |
+| radii | `--atum-r-surface` (16px), `-composer`, `-card`, `-row`, `-control`, `-sm`, `-tile` |
+| elevation | `--atum-shadow-panel`, `-chat`, `-row`, `-tile` |
+| motion | `--atum-ease`, `--atum-dur-fast`, `--atum-dur`, `--atum-dur-slow` |
+
+Three material classes; call sites pass nothing else:
+
+```
+.atum-plate       roster / workspace plate
+.atum-plate-chat  the chat plate — MORE elevation, which is what makes chat
+                  read as the product centre
+.atum-chat-header the ONE translucent veil in the shell
+```
+
+**Liquid glass, honestly.** Electron cannot claim `NSVisualEffectView` from CSS
+and this system does not pretend to. It is exactly three pure-CSS effects:
+depth by elevation (not divider borders), **one** `backdrop-filter`
+(`.atum-chat-header`, pinned and non-moving so it never repaints on scroll), and
+a soft specular hairline on plate top edges. Do not add a second
+`backdrop-filter`, animate blur, or reach for BrowserWindow `vibrancy` — real
+vibrancy is a main-process change with its own spec.
+
 ## Buttons — one component
 
 `src/components/ui/button.tsx` is the single source. Pick a `variant` + `size`;

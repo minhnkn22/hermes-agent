@@ -190,6 +190,10 @@ export const ChatRoutesSurface = memo(function ChatRoutesSurface({
       <Route element={null} path="cron" />
       <Route element={null} path="profiles" />
       <Route element={null} path="settings" />
+      {/* The Atum auth gate owns the whole window (AtumShellRoot renders it
+          instead of the shell), so the workspace pane must render nothing —
+          not fall through to the `*` redirect, which would bounce the route. */}
+      <Route element={null} path="sign-in" />
       <Route element={null} path="starmap" />
       {/* Registry-contributed pages (core features + plugins) render in the
           workspace pane like any built-in view — behind the same blast wall

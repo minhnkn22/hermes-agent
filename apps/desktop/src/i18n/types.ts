@@ -139,6 +139,69 @@ export interface Translations {
     unavailable: string
   }
 
+  /** The Atum product shell (rail / roster / chat rim / workspace / auth gate).
+   *  Separate from `dm` on purpose: `dm` is the hosted-messaging vocabulary,
+   *  `atum` is the shell's own. Shared strings are reused from `dm`, not
+   *  duplicated here. */
+  atum: {
+    nav: {
+      aria: string
+      chat: string
+      devices: string
+      devicesSoon: string
+      settings: string
+      account: string
+    }
+    account: {
+      menu: string
+      signedOut: string
+      language: string
+      theme: string
+    }
+    roster: {
+      title: string
+      search: string
+      assistant: string
+      assistantHint: string
+      unread: (count: number) => string
+      results: (count: number) => string
+      emptySearch: string
+      emptySearchHint: string
+      loadFailed: string
+    }
+    chat: {
+      none: string
+      noneHint: string
+      openRoster: string
+      closeRoster: string
+    }
+    workspace: {
+      title: string
+      open: string
+      close: string
+      none: string
+      resize: string
+      tabView: string
+      tabFiles: string
+      tabDetails: string
+      empty: string
+      detailsConversation: string
+      detailsParticipants: string
+      detailsUpdated: string
+    }
+    auth: {
+      title: string
+      expiredTitle: string
+      expiredBody: string
+      terms: string
+    }
+    offline: {
+      banner: string
+      reconnecting: string
+      reconnected: string
+    }
+  }
+
   fileMenu: {
     revealFinder: string
     revealExplorer: string

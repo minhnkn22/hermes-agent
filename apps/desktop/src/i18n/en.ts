@@ -94,6 +94,65 @@ export const en: Translations = {
     unavailable: "Sign-in isn't available in this build."
   },
 
+  atum: {
+    nav: {
+      aria: 'Main navigation',
+      chat: 'Chats',
+      devices: 'Computer',
+      devicesSoon: 'Computer — coming soon',
+      settings: 'Settings',
+      account: 'Account'
+    },
+    account: {
+      menu: 'Account menu',
+      signedOut: 'Signed out',
+      language: 'Language',
+      theme: 'Appearance'
+    },
+    roster: {
+      title: 'Chats',
+      search: 'Search chats',
+      assistant: 'Atum',
+      assistantHint: 'Your assistant on this computer',
+      unread: count => `${count} unread`,
+      results: count => `${count} results`,
+      emptySearch: 'No chats found',
+      emptySearchHint: 'Try another keyword.',
+      loadFailed: "Couldn't load your chats"
+    },
+    chat: {
+      none: 'Pick a chat',
+      noneHint: 'Choose a chat on the left to get started.',
+      openRoster: 'Show chats',
+      closeRoster: 'Hide chats'
+    },
+    workspace: {
+      title: 'Workspace',
+      open: 'Open workspace',
+      close: 'Close workspace',
+      none: 'This chat has nothing to work on yet',
+      resize: 'Resize workspace',
+      tabView: 'View',
+      tabFiles: 'Files',
+      tabDetails: 'Details',
+      empty: 'Nothing to show yet',
+      detailsConversation: 'Conversation',
+      detailsParticipants: 'Participants',
+      detailsUpdated: 'Last activity'
+    },
+    auth: {
+      title: 'Welcome to Atum',
+      expiredTitle: 'Sign in again to continue',
+      expiredBody: 'Your session expired. Your chats are still here.',
+      terms: 'By continuing you agree to the Atum Terms.'
+    },
+    offline: {
+      banner: 'Offline — showing saved content',
+      reconnecting: 'Reconnecting…',
+      reconnected: 'Back online'
+    }
+  },
+
   fileMenu: {
     revealFinder: 'Reveal in Finder',
     revealExplorer: 'Reveal in File Explorer',

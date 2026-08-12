@@ -1851,3 +1851,118 @@ text-* variant utilities. */ .btn-arc {
     opacity: 0.4;
   }
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Atum product shell — tokens + material recipes
+   ───────────────────────────────────────────────────────────────────────────
+   Scoped to `.atum-shell` (the shell root) rather than a skin attribute: the
+   desktop applies themes by writing CSS vars from `themes/presets.ts`, so
+   there is no `[data-skin]` selector to hang these off. Scoping to the root
+   also guarantees the legacy Hermes chrome is byte-for-byte unaffected.
+
+   "Liquid glass" here is exactly three pure-CSS effects and nothing else:
+     1. depth by elevation, not borders — `--atum-shadow-chat` sits above
+        `--atum-shadow-panel`, and no divider borders run between regions;
+     2. ONE translucent veil — `.atum-chat-header`, the only backdrop-filter in
+        the shell (pinned and non-moving, so it never repaints during scroll);
+     3. a soft specular hairline on plate top edges (`--atum-sheen`).
+   Real window vibrancy would be a main-process change and is deliberately not
+   claimed from CSS. */
+.atum-shell {
+  /* surfaces */
+  --atum-desk: #e7e5e0;
+  --atum-panel: #efeeea;
+  --atum-card: #faf9f7;
+  --atum-chat: #f6f5f2;
+  --atum-chat-veil: rgb(246 245 242 / 86%);
+  --atum-sunk: #f1f0ec;
+
+  /* ink */
+  --atum-ink: #1c1b19;
+  --atum-ink-deep: #141311;
+  --atum-ink-strong: #1f1e1b;
+  --atum-ink-soft: #63625d;
+  --atum-ink-muted: #8f8d87;
+  --atum-ink-faint: #a3a19b;
+
+  /* hairlines & interaction */
+  --atum-line: rgb(0 0 0 / 5%);
+  --atum-line-strong: rgb(0 0 0 / 10%);
+  --atum-hover: rgb(0 0 0 / 4.5%);
+  --atum-pressed: rgb(0 0 0 / 7%);
+  --atum-focus: rgb(28 27 25 / 28%);
+  --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 18%, transparent);
+
+  /* radii */
+  --atum-r-surface: 16px;
+  --atum-r-composer: 18px;
+  --atum-r-card: 13px;
+  --atum-r-row: 12px;
+  --atum-r-control: 10px;
+  --atum-r-sm: 9px;
+  --atum-r-tile: 9px;
+
+  /* elevation */
+  --atum-shadow-panel: 0 1px 2px rgb(0 0 0 / 3.5%);
+  --atum-shadow-chat: 0 1px 2px rgb(0 0 0 / 5%), 0 18px 40px -30px rgb(0 0 0 / 40%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 5%), 0 6px 16px -12px rgb(0 0 0 / 26%);
+  --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 18%);
+
+  /* motion */
+  --atum-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --atum-dur-fast: 150ms;
+  --atum-dur: 200ms;
+  --atum-dur-slow: 300ms;
+}
+
+/* Dark ramp derived from `atumTheme.darkColors` (themes/presets.ts) — the same
+   warm dark palette, not a second one. */
+.dark .atum-shell {
+  --atum-desk: #100f0e;
+  --atum-panel: #1a1815;
+  --atum-card: #211e1a;
+  --atum-chat: #1c1a17;
+  --atum-chat-veil: rgb(28 26 23 / 86%);
+  --atum-sunk: #161512;
+
+  --atum-ink: #f2ece1;
+  --atum-ink-deep: #0c0b0a;
+  --atum-ink-strong: #fbf6ec;
+  --atum-ink-soft: #c3bbaf;
+  --atum-ink-muted: #afa69a;
+  --atum-ink-faint: #857d72;
+
+  --atum-line: rgb(255 255 255 / 6%);
+  --atum-line-strong: rgb(255 255 255 / 12%);
+  --atum-hover: rgb(255 255 255 / 5%);
+  --atum-pressed: rgb(255 255 255 / 9%);
+  --atum-focus: rgb(242 236 225 / 32%);
+  --atum-sheen: inset 0.0625rem 0 0 color-mix(in srgb, white 8%, transparent);
+
+  --atum-shadow-panel: 0 1px 2px rgb(0 0 0 / 30%);
+  --atum-shadow-chat: 0 1px 2px rgb(0 0 0 / 38%), 0 18px 40px -30px rgb(0 0 0 / 80%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 35%), 0 6px 16px -12px rgb(0 0 0 / 60%);
+  --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 50%);
+}
+
+.atum-plate {
+  border: 1px solid var(--atum-line);
+  border-radius: var(--atum-r-surface);
+  background: var(--atum-panel);
+  box-shadow: var(--atum-shadow-panel), var(--atum-sheen);
+  contain: layout paint;
+}
+
+.atum-plate-chat {
+  border: 1px solid var(--atum-line);
+  border-radius: var(--atum-r-surface);
+  background: var(--atum-chat);
+  box-shadow: var(--atum-shadow-chat), var(--atum-sheen);
+  contain: layout paint;
+}
+
+.atum-chat-header {
+  background: var(--atum-chat-veil);
+  border-bottom: 1px solid var(--atum-line);
+  backdrop-filter: blur(20px) saturate(180%);
+}

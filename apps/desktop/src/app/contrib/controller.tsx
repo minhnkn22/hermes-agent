@@ -39,6 +39,7 @@ import { sessionTitle as storedSessionTitle } from '@/lib/chat-runtime'
 import { LayoutDashboard } from '@/lib/icons'
 import { type KeybindContribution, KEYBINDS_AREA } from '@/lib/keybinds/actions'
 import { Codecs, persistentAtom } from '@/lib/persisted'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import {
   $fileBrowserOpen,
   $panesFlipped,
@@ -55,6 +56,7 @@ import { $filePreviewTarget, $previewTarget, closeRightRail } from '@/store/prev
 import { $reviewOpen, closeReview, REVIEW_PANE_ID } from '@/store/review'
 import { $currentCwd, $selectedStoredSessionId, $sessions, sessionMatchesStoredId } from '@/store/session'
 
+import { AtumShellRoot } from '../atum/shell'
 import type { SessionDragPayload } from '../chat/composer/inline-refs'
 import { watchRouteTiles } from '../chat/route-tile'
 import { startSessionDrag } from '../chat/session-drag'
@@ -623,6 +625,11 @@ function TitlebarSlot({ area, className, style }: TitlebarSlotProps) {
 
 export function ContribController() {
   const sidebarOpen = useStore($sidebarOpen)
+  // The Atum product shell replaces the chrome ONLY — it mounts inside
+  // ContribWiring, so contributions, keybinds, overlays, dialogs, the command
+  // palette, notifications, and boot surfaces are identical either way. With
+  // the flag off the legacy Hermes chrome renders verbatim.
+  const atumShell = useStore($atumShellEnabled)
 
   return (
     <SidebarProvider
@@ -631,8 +638,17 @@ export function ContribController() {
       open={sidebarOpen}
       style={{ '--sidebar-width': '100%' } as CSSProperties}
     >
-      <ContribWiring>
-        <div
+      <ContribWiring>{atumShell ? <AtumShellRoot /> : <LegacyHermesChrome />}</ContribWiring>
+    </SidebarProvider>
+  )
+}
+
+/** The Hermes shell chrome: 34px titlebar with contribution slots, the pane
+ *  tree, and the real statusbar. Unchanged — moved verbatim out of
+ *  `ContribController` so the Atum shell could branch beside it. */
+function LegacyHermesChrome() {
+  return (
+    <div
           className="flex h-screen min-h-0 w-screen flex-col bg-(--ui-bg-chrome) text-(--ui-text-primary)"
           style={{ '--titlebar-height': '0px' } as CSSProperties}
         >
@@ -691,9 +707,7 @@ export function ContribController() {
           {/* The REAL statusbar (model pill, command center, agents, …) with
               statusBar.left/right contributions merged in. */}
           <WiredPane part="statusbar" />
-        </div>
-      </ContribWiring>
-    </SidebarProvider>
+    </div>
   )
 }
 
