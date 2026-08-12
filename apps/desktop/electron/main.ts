@@ -8518,19 +8518,6 @@ function createWindow() {
     }
   })
 
-  // Electron 40 can omit `ready-to-show` for the packaged, split-chunk
-  // renderer even after the renderer process and backend are healthy. Never
-  // leave a successfully launched dogfood app invisible: retain the themed
-  // first-paint path above, with a bounded fallback that simply reveals the
-  // same window if the event did not arrive.
-  setTimeout(() => {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      rememberLog('[window] ready-to-show fallback revealed the main window')
-      mainWindow.show()
-      schedulePersistWindowState()
-    }
-  }, 1_500)
-
   // Under Playright testing, instantly show the window.
   // `ready-to-show` doesn't fire in some testing envs.
   if (process.env.TEST_WORKER_INDEX !== undefined) {
@@ -8655,6 +8642,18 @@ function createWindow() {
   } else {
     mainWindow.loadURL(pathToFileURL(resolveRendererIndex()).toString())
   }
+
+  // Electron 40 can omit `ready-to-show` for the packaged, split-chunk
+  // renderer even after the renderer process and backend are healthy. Start
+  // the fallback only after navigation has been scheduled: an earlier timer
+  // can be starved while loadURL synchronously initializes the renderer.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      rememberLog('[window] ready-to-show fallback revealed the main window')
+      mainWindow.show()
+      schedulePersistWindowState()
+    }
+  }, 1_500)
 
   // Start the Python backend NOW, in parallel with the renderer load — not on
   // did-finish-load. The backend cold boot (spawn → port announce → /api/status)

@@ -24,7 +24,9 @@ Electron 40 did not emit `ready-to-show`; the healthy renderer and backend
 remained hidden. `createWindow()` now retains the preferred first-paint event
 and adds a 1.5-second reveal fallback, so a successful dogfood launch cannot
 become an invisible app. The timer remains referenced: Electron's native GUI
-loop does not by itself keep an unreferenced Node timer scheduled.
+loop does not by itself keep an unreferenced Node timer scheduled. It is
+created after `loadURL()` is scheduled so synchronous renderer initialization
+cannot starve it before navigation begins.
 
 The old ad-hoc app's encrypted account session also blocked in macOS Keychain
 after the code identity changed. It was moved—not deleted—to
