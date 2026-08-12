@@ -8518,6 +8518,19 @@ function createWindow() {
     }
   })
 
+  // Electron 40 can omit `ready-to-show` for the packaged, split-chunk
+  // renderer even after the renderer process and backend are healthy. Never
+  // leave a successfully launched dogfood app invisible: retain the themed
+  // first-paint path above, with a bounded fallback that simply reveals the
+  // same window if the event did not arrive.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      rememberLog('[window] ready-to-show fallback revealed the main window')
+      mainWindow.show()
+      schedulePersistWindowState()
+    }
+  }, 1_500).unref?.()
+
   // Under Playright testing, instantly show the window.
   // `ready-to-show` doesn't fire in some testing envs.
   if (process.env.TEST_WORKER_INDEX !== undefined) {

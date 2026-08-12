@@ -19,6 +19,12 @@ Electron main/preload bundling, and the full Hermes runtime remain enabled.
 This is an explicit dogfood reliability tradeoff until the Rolldown/Shiki
 single-chunk helper-elision defect is fixed upstream.
 
+The corrected split renderer launched without a console exception, but
+Electron 40 did not emit `ready-to-show`; the healthy renderer and backend
+remained hidden. `createWindow()` now retains the preferred first-paint event
+and adds a 1.5-second reveal fallback, so a successful dogfood launch cannot
+become an invisible app.
+
 The old ad-hoc app's encrypted account session also blocked in macOS Keychain
 after the code identity changed. It was moved—not deleted—to
 `~/Library/Application Support/Atum/atum-messaging/session.pre-liquid-glass-20260812.json`.
