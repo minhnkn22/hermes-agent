@@ -3036,12 +3036,33 @@ function Install-Desktop {
     }
     Pop-Location
 
-    # 3. Sanity-check the produced binary. Probe both arches so this works
-    # on x64 and arm64 build machines.
-    $exeCandidates = @(
-        "$desktopDir\release\win-unpacked\Hermes.exe",
-        "$desktopDir\release\win-arm64-unpacked\Hermes.exe"
-    )
+    # 3. Sanity-check the produced binary. Derive the branded executable from
+    # package.json and retain Hermes.exe as a legacy fallback. Probe both arches
+    # so this works on x64 and arm64 build machines.
+    $desktopProductName = "Hermes"
+    $desktopExecutableName = "Hermes"
+    try {
+        $desktopPackage = Get-Content (Join-Path $desktopDir "package.json") -Raw | ConvertFrom-Json
+        if ($desktopPackage.build.productName) {
+            $desktopProductName = [string]$desktopPackage.build.productName
+        } elseif ($desktopPackage.productName) {
+            $desktopProductName = [string]$desktopPackage.productName
+        }
+        if ($desktopPackage.build.executableName) {
+            $desktopExecutableName = [string]$desktopPackage.build.executableName
+        } else {
+            $desktopExecutableName = $desktopProductName
+        }
+    } catch {
+        Write-Warn "Could not read desktop product metadata; using legacy Hermes names"
+    }
+    $executableNames = @($desktopExecutableName, "Hermes") | Select-Object -Unique
+    $unpackedDirectories = @("win-unpacked", "win-arm64-unpacked")
+    $exeCandidates = foreach ($directory in $unpackedDirectories) {
+        foreach ($name in $executableNames) {
+            Join-Path $desktopDir "release\$directory\$name.exe"
+        }
+    }
     $found = $false
     $desktopExe = $null
     foreach ($cand in $exeCandidates) {
@@ -3053,7 +3074,7 @@ function Install-Desktop {
         }
     }
     if (-not $found) {
-        throw "Desktop build completed but no Hermes.exe was found under $desktopDir\release\*-unpacked\"
+        throw "Desktop build completed but no $desktopExecutableName.exe (or legacy Hermes.exe) was found under $desktopDir\release\*-unpacked\"
     }
 
     # 3b. The Hermes icon + identity are stamped onto Hermes.exe by the
@@ -3087,11 +3108,14 @@ function Install-Desktop {
     #    which would cost minutes each time. The packed exe is the consumer --
     #    launching it directly is instant, and updates flow through the
     #    installer's --update path (which rebuilds once, then relaunches).
-    New-DesktopShortcuts -TargetExe $desktopExe
+    New-DesktopShortcuts -TargetExe $desktopExe -ProductName $desktopProductName
 }
 
 function New-DesktopShortcuts {
-    param([Parameter(Mandatory = $true)][string]$TargetExe)
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetExe,
+        [string]$ProductName = "Hermes"
+    )
 
     # Best-effort: a shortcut failure must never fail an otherwise-good install.
     try {
@@ -3113,8 +3137,8 @@ function New-DesktopShortcuts {
         }
 
         $targets = @(
-            (Join-Path ([Environment]::GetFolderPath('Programs')) 'Hermes.lnk'),
-            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Hermes.lnk')
+            (Join-Path ([Environment]::GetFolderPath('Programs')) "$ProductName.lnk"),
+            (Join-Path ([Environment]::GetFolderPath('Desktop')) "$ProductName.lnk")
         )
 
         foreach ($lnkPath in $targets) {
@@ -3127,7 +3151,7 @@ function New-DesktopShortcuts {
                 $sc.TargetPath = $TargetExe
                 $sc.WorkingDirectory = $workDir
                 $sc.IconLocation = $iconLocation
-                $sc.Description = 'Hermes Agent'
+                $sc.Description = "$ProductName Agent"
                 $sc.Save()
                 Write-Success "Shortcut created: $lnkPath"
             } catch {

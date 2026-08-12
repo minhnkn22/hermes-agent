@@ -77,6 +77,32 @@ and targeted reviewer follow-up are recorded in the next checkpoint after the
 review fixes are committed, because the clean-source packaging guard is
 deliberately impossible to satisfy from an uncommitted worktree.
 
+The targeted Kimi follow-up
+`36e7ef57-f287-4eb6-83ad-d90948de5cd4` exhausted its provider quota after
+reading the relevant paths but before producing a verdict. The permitted
+provider-failure fallback, Opus job
+`b7c08d3f-8376-45ff-aaf5-e37551788d1b`, returned `SHIP WITH FIXES`: all three
+macOS dogfood blockers were resolved, but `scripts/install.ps1` still assumed
+the Windows binary was named `Hermes.exe`. That remaining lifecycle path now
+derives `productName` and `executableName` from the package manifest, retains
+the legacy Hermes executable fallback, and creates branded shortcuts. The
+packaged GUI uninstaller and Electron self-uninstall path now also recognize
+Atum locations while retaining legacy Hermes cleanup.
+
+Focused verification after the fallback review:
+
+```text
+Atum branding/lifecycle Node tests: 4/4
+Electron desktop-uninstall tests: 19/19
+Python GUI command/uninstall + PowerShell ASCII tests: 81/81
+git diff --check: clean
+```
+
+The Rust bootstrap installer remains inspection-only on this host because
+`cargo` and `rustc` are absent. The real bundled-app verifier is deliberately
+macOS-only and currently an explicit package gate rather than part of the
+ordinary source-test command.
+
 ## Distribution boundary
 
 This private dogfood build is ad-hoc signed. A public downloadable build still

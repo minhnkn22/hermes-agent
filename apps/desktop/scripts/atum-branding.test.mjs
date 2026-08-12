@@ -31,3 +31,14 @@ test('window title and native fallback name are Atum', () => {
   assert.match(read('index.html'), /<title>Atum<\/title>/)
   assert.match(read('electron/main.ts'), /HERMES_DESKTOP_APP_NAME \|\| 'Atum'/)
 })
+
+test('Windows installer and uninstall lifecycle derive or recognize the Atum product identity', () => {
+  const installPs1 = fs.readFileSync(path.resolve(desktopRoot, '..', '..', 'scripts', 'install.ps1'), 'utf8')
+  const guiUninstall = fs.readFileSync(path.resolve(desktopRoot, '..', '..', 'hermes_cli', 'gui_uninstall.py'), 'utf8')
+
+  assert.match(installPs1, /desktopPackage\.build\.executableName/)
+  assert.match(installPs1, /\$desktopExecutableName, "Hermes"/)
+  assert.match(installPs1, /"\$ProductName\.lnk"/)
+  assert.match(guiUninstall, /Applications\/Atum\.app/)
+  assert.match(guiUninstall, /Programs" \/ "Atum"/)
+})
