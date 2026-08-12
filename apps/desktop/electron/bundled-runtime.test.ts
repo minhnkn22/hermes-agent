@@ -48,7 +48,7 @@ test('bundled runtime is the packaged macOS backend when its real launch seam va
   })
 
   assert.equal(backend?.command, layout.python)
-  assert.deepEqual(backend?.args, ['-m', 'hermes_cli.main', 'serve', '--isolated'])
+  assert.deepEqual(backend?.args, ['-B', '-m', 'hermes_cli.main', 'serve', '--isolated'])
   assert.equal(backend?.root, layout.sourceRoot)
   assert.equal(backend?.bootstrap, false)
   assert.equal(backend?.bundled, true)

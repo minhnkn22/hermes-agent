@@ -10,6 +10,8 @@ The exact-head Atum dogfood package launched and successfully used the bundled H
 
 The staging probe also explicitly sets `PYTHONDONTWRITEBYTECODE=1`; otherwise the probe itself would recreate a small cache after cleanup.
 
+The packaged interpreter is additionally launched with Python's `-B` flag, including the staging probe. This makes the cache prohibition an explicit interpreter argument even when the app is launched through Finder/Electron, rather than depending solely on inherited environment handling.
+
 The package remains ad-hoc signed for local dogfood. Developer ID signing and notarization are distribution work, not part of this local seal correction.
 
 ## Verification

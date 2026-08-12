@@ -139,7 +139,10 @@ function resolveBundledHermesRuntime(options: ResolveBundledRuntimeOptions) {
     kind: 'python',
     label: `bundled Hermes ${manifest.hermes?.commit?.slice(0, 12)} (Python ${manifest.python?.version})`,
     command: layout.python,
-    args: ['-m', 'hermes_cli.main', ...backendArgs],
+    // `-B` is the interpreter-level immutable-bundle guarantee. Keep the env
+    // variable as defense in depth, but do not rely on environment handling
+    // alone when Finder/Electron launches the packaged runtime.
+    args: ['-B', '-m', 'hermes_cli.main', ...backendArgs],
     env,
     root: layout.sourceRoot,
     bootstrap: false,

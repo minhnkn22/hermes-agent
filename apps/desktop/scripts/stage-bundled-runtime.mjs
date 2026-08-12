@@ -252,7 +252,7 @@ function probeStagedRuntime({ pythonRoot, sourceRoot, expectedArch }) {
     "print(json.dumps({'python': platform.python_version(), 'machine': platform.machine(), 'executable': sys.executable}))"
   ].join('; ')
 
-  const output = run(python, ['-c', probe], {
+  const output = run(python, ['-B', '-c', probe], {
     capture: true,
     env: {
       ...process.env,
