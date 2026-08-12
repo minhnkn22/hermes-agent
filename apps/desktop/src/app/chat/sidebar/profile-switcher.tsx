@@ -29,7 +29,7 @@ import { ColorSwatches } from '@/components/ui/color-swatches'
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tip, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { getProfileSoul, updateProfileSoul } from '@/hermes'
@@ -128,6 +128,7 @@ export function ProfileRail() {
   const [pendingAlias, setPendingAlias] = useState<null | ProfileInfo>(null)
   const [pendingDelete, setPendingDelete] = useState<null | ProfileInfo>(null)
   const [pendingSoul, setPendingSoul] = useState<null | string>(null)
+  const [switcherOpen, setSwitcherOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Too many profiles for the square strip → collapse to the select. Declared
@@ -172,6 +173,22 @@ export function ProfileRail() {
   )
 
   const multiProfile = profiles.length > 1
+
+  const activeProfile = profiles.find(profile => normalizeProfileKey(profile.name) === activeKey) ?? defaultProfile
+
+  const activeDisplayName = isAll
+    ? p.allProfiles
+    : activeProfile
+      ? profileDisplayName(activeProfile.name, aliases)
+      : p.title
+
+  const activeColor = activeProfile ? resolveProfileColor(activeProfile.name, colors) : null
+  const activeInitial = activeDisplayName.replace(/[^a-z0-9]/gi, '').charAt(0) || 'A'
+
+  const selectAndClose = (name: string) => {
+    selectProfile(name)
+    setSwitcherOpen(false)
+  }
 
   // distance constraint: a small drag reorders, a tap still selects the profile.
   const sensors = useSensors(
@@ -234,94 +251,118 @@ export function ProfileRail() {
   }, [createRequest])
 
   return (
-    <div aria-label="Profiles" className="flex items-center gap-0.5" data-slot="profile-rail" role="tablist">
-      {/* In a multi-agent workspace this is the default agent selector. The
-          sidebar remains grouped across every profile; selecting an agent only
-          changes where new work runs. */}
-      {multiProfile &&
-        (defaultProfile ? (
-          <ProfilePill
-            active={onDefault}
-            glyph="home"
-            label={p.switchToProfile(defaultProfile.name)}
-            onSelect={() => selectProfile(defaultProfile.name)}
-          />
-        ) : (
-          <ProfilePill active={isAll} glyph="layers" label={p.allProfiles} onSelect={() => setShowAllProfiles(true)} />
-        ))}
-
-      {/* Single-profile: the active default's home icon next to the create +. */}
-      {!multiProfile && defaultProfile && (
-        <ProfilePill
-          active
-          glyph="home"
-          label={defaultProfile.name}
-          onSelect={() => selectProfile(defaultProfile.name)}
-        />
-      )}
-
-      {condensed ? (
-        // Condensed path: one compact dropdown instead of N squares. No drag
-        // reorder, no long-press recolor, no per-square context menu — Manage
-        // covers rename/delete at this scale.
-        <div className="flex min-w-0 flex-1 items-center gap-1">
-          <ProfileDropdown
-            activeKey={activeKey}
-            aliases={aliases}
-            colors={colors}
-            onSelect={selectProfile}
-            profiles={named}
-          />
-          <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
-        </div>
-      ) : (
-        <div
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          ref={scrollRef}
-        >
-          {multiProfile && (
-            <DndContext
-              collisionDetection={closestCenter}
-              modifiers={[stepThroughCells]}
-              onDragEnd={handleDragEnd}
-              onDragOver={handleDragOver}
-              onDragStart={handleDragStart}
-              sensors={sensors}
+    <div
+      aria-label={p.title}
+      className="flex h-9 min-w-0 items-center gap-1 rounded-lg px-1"
+      data-slot="profile-rail"
+      role="group"
+    >
+      {multiProfile ? (
+        <Popover onOpenChange={setSwitcherOpen} open={switcherOpen}>
+          <PopoverTrigger asChild>
+            <button
+              aria-expanded={switcherOpen}
+              aria-haspopup="listbox"
+              className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 text-left text-sm font-medium text-(--ui-text-secondary) hover:bg-(--ui-control-hover-background) hover:text-foreground"
+              data-slot="profile-switcher-trigger"
+              type="button"
             >
-              <SortableContext items={named.map(profile => profile.name)} strategy={horizontalListSortingStrategy}>
-                {/* relative → the strip is the dragged square's offsetParent, so the
-                    clamp modifier bounds drags to the occupied cells (not the +). */}
-                <div className="relative flex items-center gap-1">
-                  {named.map(profile => (
-                    <ProfileSquare
-                      active={normalizeProfileKey(profile.name) === activeKey}
-                      color={resolveProfileColor(profile.name, colors)}
-                      displayName={profileDisplayName(profile.name, aliases)}
-                      key={profile.name}
-                      label={profile.name}
-                      onDelete={() => setPendingDelete(profile)}
-                      onEditAlias={() => setPendingAlias(profile)}
-                      onEditSoul={() => setPendingSoul(profile.name)}
-                      onPin={() => toggleProfilePinned(profile.name)}
-                      onRecolor={color => setProfileColor(profile.name, color)}
-                      onRename={() => setPendingRename(profile)}
-                      onSelect={() => selectProfile(profile.name)}
-                      pinned={pins.includes(normalizeProfileKey(profile.name))}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
+              <ProfileIdentityAvatar color={activeColor} initial={activeInitial} />
+              <span className="min-w-0 flex-1 truncate">{activeDisplayName}</span>
+              <Codicon
+                aria-hidden="true"
+                className={cn('shrink-0 text-(--ui-text-tertiary) transition-transform', switcherOpen && 'rotate-180')}
+                name="chevron-down"
+                size="0.875rem"
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-[min(21rem,calc(100vw-1rem))]" side="bottom">
+            <div aria-label={p.title} className="flex items-center gap-1" role="tablist">
+              {defaultProfile ? (
+                <ProfilePill
+                  active={onDefault}
+                  glyph="home"
+                  label={p.switchToProfile(defaultProfile.name)}
+                  onSelect={() => selectAndClose(defaultProfile.name)}
+                />
+              ) : (
+                <ProfilePill
+                  active={isAll}
+                  glyph="layers"
+                  label={p.allProfiles}
+                  onSelect={() => {
+                    setShowAllProfiles(true)
+                    setSwitcherOpen(false)
+                  }}
+                />
+              )}
 
-          <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
+              {condensed ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <ProfileDropdown
+                    activeKey={activeKey}
+                    aliases={aliases}
+                    colors={colors}
+                    onSelect={selectAndClose}
+                    profiles={named}
+                  />
+                  <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
+                </div>
+              ) : (
+                <div
+                  className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  ref={scrollRef}
+                >
+                  <DndContext
+                    collisionDetection={closestCenter}
+                    modifiers={[stepThroughCells]}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={handleDragOver}
+                    onDragStart={handleDragStart}
+                    sensors={sensors}
+                  >
+                    <SortableContext
+                      items={named.map(profile => profile.name)}
+                      strategy={horizontalListSortingStrategy}
+                    >
+                      <div className="relative flex items-center gap-1">
+                        {named.map(profile => (
+                          <ProfileSquare
+                            active={normalizeProfileKey(profile.name) === activeKey}
+                            color={resolveProfileColor(profile.name, colors)}
+                            displayName={profileDisplayName(profile.name, aliases)}
+                            key={profile.name}
+                            label={profile.name}
+                            onDelete={() => setPendingDelete(profile)}
+                            onEditAlias={() => setPendingAlias(profile)}
+                            onEditSoul={() => setPendingSoul(profile.name)}
+                            onPin={() => toggleProfilePinned(profile.name)}
+                            onRecolor={color => setProfileColor(profile.name, color)}
+                            onRename={() => setPendingRename(profile)}
+                            onSelect={() => selectAndClose(profile.name)}
+                            pinned={pins.includes(normalizeProfileKey(profile.name))}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                  <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />
+                </div>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      ) : (
+        <div className="flex h-8 min-w-0 flex-1 items-center gap-2 px-1.5" data-slot="profile-static-header">
+          <ProfileIdentityAvatar color={activeColor} initial={activeInitial} />
+          <span className="min-w-0 flex-1 truncate text-sm font-medium text-(--ui-text-secondary)">
+            {activeDisplayName}
+          </span>
         </div>
       )}
 
-      {/* Always reachable, even with only the default profile: the manage
-          overlay is the only place to edit a profile's SOUL.md, and a
-          single-profile user must be able to edit the default's persona
-          without first creating a throwaway second profile. */}
+      {!multiProfile && <AddProfileButton label={p.newProfile} onClick={() => setCreateOpen(true)} />}
       <ProfilePill active={false} glyph="ellipsis" label={p.manageProfiles} onSelect={() => navigate(PROFILES_ROUTE)} />
 
       {/* Land in the new profile on a fresh chat (selectProfile triggers the
@@ -357,6 +398,20 @@ export function ProfileRail() {
 
       <EditSoulDialog onClose={() => setPendingSoul(null)} profileName={pendingSoul} />
     </div>
+  )
+}
+
+function ProfileIdentityAvatar({ color, initial }: { color: null | string; initial: string }) {
+  const hue = color ?? 'var(--ui-accent)'
+
+  return (
+    <span
+      aria-hidden="true"
+      className="grid size-6 shrink-0 place-items-center rounded-[5px] text-[0.625rem] font-semibold uppercase leading-none"
+      style={{ backgroundColor: profileColorSoft(hue, 22), color: hue }}
+    >
+      {initial}
+    </span>
   )
 }
 

@@ -311,13 +311,14 @@ export function SidebarSessionsSection({
       />
     ))
 
-    const flatRows = sessionsDraggable && onReorderSessions ? (
-      <ReorderableList ids={sessions.map(session => session.id)} onReorder={onReorderSessions} sensors={dndSensors}>
-        {displayEntries.map(({ branchStem, session }) => renderRow(session, true, branchStem))}
-      </ReorderableList>
-    ) : (
-      displayEntries.map(({ branchStem, session }) => renderRow(session, false, branchStem))
-    )
+    const flatRows =
+      sessionsDraggable && onReorderSessions ? (
+        <ReorderableList ids={sessions.map(session => session.id)} onReorder={onReorderSessions} sensors={dndSensors}>
+          {displayEntries.map(({ branchStem, session }) => renderRow(session, true, branchStem))}
+        </ReorderableList>
+      ) : (
+        displayEntries.map(({ branchStem, session }) => renderRow(session, false, branchStem))
+      )
 
     inner = (
       <>
@@ -377,7 +378,7 @@ export function SidebarSessionsSection({
         open={sectionOpen}
       />
       {sectionOpen && (
-        <SidebarGroupContent className={resolvedContentClassName}>
+        <SidebarGroupContent className={resolvedContentClassName} role="list">
           {inner}
           {footer}
         </SidebarGroupContent>

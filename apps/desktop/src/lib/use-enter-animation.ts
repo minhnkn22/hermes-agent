@@ -1,5 +1,7 @@
 import { useCallback, useRef } from 'react'
 
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
+
 /**
  * One-shot enter animation via the Web Animations API.
  *
@@ -69,7 +71,7 @@ export function useEnterAnimation(enabled: boolean, animationKey?: string): (el:
       return
     }
 
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (prefersReducedMotion()) {
       return
     }
 

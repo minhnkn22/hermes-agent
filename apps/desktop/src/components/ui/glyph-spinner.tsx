@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import spinners, { type BrailleSpinnerName as SpinnerName } from 'unicode-animations'
 
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
 
 export type { SpinnerName }
@@ -43,13 +44,19 @@ interface GlyphSpinnerProps {
 export function GlyphSpinner({ ariaLabel = 'Loading', className, spinner = 'braille' }: GlyphSpinnerProps) {
   const spin = FRAMES_BY_NAME[spinner] ?? FRAMES_BY_NAME.braille!
   const [frame, setFrame] = useState(0)
+  const reduceMotion = useReducedMotion()
 
   useEffect(() => {
     setFrame(0)
+
+    if (reduceMotion) {
+      return
+    }
+
     const id = window.setInterval(() => setFrame(f => (f + 1) % spin.frames.length), spin.interval)
 
     return () => window.clearInterval(id)
-  }, [spin])
+  }, [reduceMotion, spin])
 
   return (
     <span
@@ -57,7 +64,7 @@ export function GlyphSpinner({ ariaLabel = 'Loading', className, spinner = 'brai
       className={cn('inline-flex items-center justify-center font-mono leading-none tabular-nums', className)}
       role="status"
     >
-      {spin.frames[frame]}
+      {reduceMotion ? <span aria-hidden="true" className="size-1.5 rounded-full bg-current" /> : spin.frames[frame]}
     </span>
   )
 }

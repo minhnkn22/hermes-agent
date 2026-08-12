@@ -1,12 +1,13 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { Button } from '@/components/ui/button'
 import { BrandMark } from '@/components/brand-mark'
+import { Button } from '@/components/ui/button'
 import { Codicon } from '@/components/ui/codicon'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { getGlobalModelOptions } from '@/hermes'
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { useI18n } from '@/i18n'
 import { Check, ChevronDown, ChevronLeft, KeyRound, Loader2 } from '@/lib/icons'
 import { isProviderSetupErrorMessage } from '@/lib/provider-setup-errors'
@@ -213,7 +214,7 @@ export function DesktopOnboardingOverlay({
       return
     }
 
-    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    const reduce = prefersReducedMotion()
 
     if (reduce) {
       confirmOnboardingModel(ctx)
@@ -397,6 +398,9 @@ function Header() {
       <BrandMark className="size-10" />
       <div className="min-w-0">
         <h2 className="text-[0.9375rem] font-semibold tracking-tight">{t.onboarding.headerTitle}</h2>
+        {t.onboarding.headerSub && (
+          <p className="mt-0.5 text-xs font-medium text-(--ui-text-secondary)">{t.onboarding.headerSub}</p>
+        )}
         <p className="mt-1 max-w-[34rem] text-[0.8125rem] leading-5 text-(--ui-text-tertiary)">
           {t.onboarding.headerDesc}
         </p>

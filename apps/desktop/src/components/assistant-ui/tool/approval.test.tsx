@@ -71,8 +71,26 @@ describe('PendingToolApproval', () => {
     setRequest('chmod -R 777 /tmp/x')
     render(<PendingToolApproval part={part('terminal')} />)
 
-    expect(screen.getByRole('button', { name: /Run/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Reject/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Allow once/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Deny/ })).toBeTruthy()
+  })
+
+  it('announces the approval, focuses its first action, and returns focus on close', async () => {
+    const composer = document.createElement('button')
+    composer.textContent = 'Composer'
+    document.body.append(composer)
+    composer.focus()
+    setRequest('chmod -R 777 /tmp/x')
+
+    const view = render(<PendingToolApproval part={part('terminal')} />)
+    const dialog = screen.getByRole('alertdialog', { name: 'Atum wants to run this command' })
+
+    expect(dialog).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /Allow once/ })))
+
+    view.unmount()
+    expect(document.activeElement).toBe(composer)
+    composer.remove()
   })
 
   it('sends approval.respond {choice: "once"} and clears the request on Run', async () => {
@@ -80,7 +98,7 @@ describe('PendingToolApproval', () => {
     setRequest()
     render(<PendingToolApproval part={part('terminal')} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Run/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Allow once/ }))
 
     await waitFor(() => {
       expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'once', session_id: 'sess-1' })
@@ -106,7 +124,7 @@ describe('PendingToolApproval', () => {
     setRequest()
     render(<PendingToolApproval part={part('terminal')} />)
 
-    fireEvent.click(screen.getByRole('button', { name: /Reject/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Deny/ }))
 
     await waitFor(() => {
       expect(request).toHaveBeenCalledWith('approval.respond', { choice: 'deny', session_id: 'sess-1' })
@@ -120,7 +138,7 @@ describe('PendingToolApproval', () => {
     fireEvent.keyDown(screen.getByRole('button', { name: /More approval options/ }), { key: 'Enter' })
 
     expect(await screen.findByRole('menuitem', { name: /Always allow/ })).toBeTruthy()
-    expect(screen.getByRole('menuitem', { name: /Allow this session/ })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: /Allow for this session/ })).toBeTruthy()
   })
 
   it('hides "Always allow" when the backend disallows a permanent allow', async () => {
@@ -131,7 +149,7 @@ describe('PendingToolApproval', () => {
     fireEvent.keyDown(screen.getByRole('button', { name: /More approval options/ }), { key: 'Enter' })
 
     // The session + reject options still render, but never the permanent allow.
-    expect(await screen.findByRole('menuitem', { name: /Allow this session/ })).toBeTruthy()
+    expect(await screen.findByRole('menuitem', { name: /Allow for this session/ })).toBeTruthy()
     expect(screen.queryByRole('menuitem', { name: /Always allow/ })).toBeNull()
   })
 
@@ -139,10 +157,10 @@ describe('PendingToolApproval', () => {
     setRequest('rm -rf /tmp/x', true, { smartDenied: true })
     render(<PendingToolApproval part={part('terminal')} />)
 
-    expect(screen.getByRole('button', { name: /Run/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Reject/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Allow once/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Deny/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /More approval options/ })).toBeNull()
-    expect(screen.queryByText(/Allow this session/)).toBeNull()
+    expect(screen.queryByText(/Allow for this session/)).toBeNull()
     expect(screen.queryByText(/Always allow/)).toBeNull()
   })
 
@@ -150,8 +168,8 @@ describe('PendingToolApproval', () => {
     setRequest('rm -rf /tmp/x', true, { choices: ['once', 'deny'] })
     render(<PendingToolApproval part={part('terminal')} />)
 
-    expect(screen.getByRole('button', { name: /Run/ })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Reject/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Allow once/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Deny/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /More approval options/ })).toBeNull()
   })
 
@@ -161,8 +179,8 @@ describe('PendingToolApproval', () => {
     const fallback = container.querySelector('[data-slot="tool-approval-fallback"]')
 
     expect(fallback).not.toBeNull()
-    expect(within(fallback as HTMLElement).getByRole('button', { name: /Run/ })).toBeTruthy()
-    expect(within(fallback as HTMLElement).getByRole('button', { name: /Reject/ })).toBeTruthy()
+    expect(within(fallback as HTMLElement).getByRole('button', { name: /Allow once/ })).toBeTruthy()
+    expect(within(fallback as HTMLElement).getByRole('button', { name: /Deny/ })).toBeTruthy()
   })
 
   it('hides the floating fallback once the inline approval bar is mounted', async () => {

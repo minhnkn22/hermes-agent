@@ -155,11 +155,11 @@ import { CONTEXT_SPLIT_KIT, SplitSubmenu } from './split-submenu'
 const NON_SESSION_INITIAL_ROWS = 3
 const NON_SESSION_LOAD_STEP = 10
 
-const SIDEBAR_NAV: SidebarNavItem[] = [
+export const SIDEBAR_NAV: SidebarNavItem[] = [
   {
     id: 'new-session',
     label: '',
-    icon: props => <Codicon name="robot" {...props} />,
+    icon: props => <Codicon name="add" {...props} />,
     action: 'new-session',
     keybindActionId: 'session.new'
   },
@@ -173,7 +173,7 @@ const SIDEBAR_NAV: SidebarNavItem[] = [
   {
     id: 'messaging',
     label: '',
-    icon: props => <Codicon name="comment" {...props} />,
+    icon: props => <Codicon name="radio-tower" {...props} />,
     route: MESSAGING_ROUTE,
     keybindActionId: 'nav.messaging'
   },
@@ -1175,6 +1175,7 @@ export function ChatSidebar({
 
   return (
     <Sidebar
+      aria-label={s.navAria}
       className={cn(
         // Visibility is the layout tree's job (a hidden zone is display:none;
         // the narrow overlay renders the live instance) — the sidebar always
@@ -1184,9 +1185,13 @@ export function ChatSidebar({
         'border-(--sidebar-edge-border) bg-(--ui-sidebar-surface-background) opacity-100'
       )}
       collapsible="none"
+      role="navigation"
     >
       <SidebarContent className="gap-0 overflow-hidden bg-transparent px-2.5">
-        <SidebarGroup className="shrink-0 p-0 pb-2 pt-[calc(var(--titlebar-height)+0.375rem)]">
+        <div className="shrink-0 pt-[calc(var(--titlebar-height)+0.375rem)]">
+          <ProfileRail />
+        </div>
+        <SidebarGroup className="shrink-0 p-0 pb-2 pt-1">
           <SidebarGroupContent>
             <SidebarMenu className="gap-px">
               {[...SIDEBAR_NAV, ...contributedNav].map(item => {
@@ -1203,6 +1208,7 @@ export function ChatSidebar({
 
                 const button = (
                   <SidebarMenuButton
+                    aria-current={active ? 'page' : undefined}
                     aria-disabled={!isInteractive}
                     className={cn(
                       // no-drag: these rows sit directly under the titlebar's
@@ -1577,11 +1583,7 @@ export function ChatSidebar({
           </div>
         )}
 
-        {!showSessionSections && <SidebarBlankState onNewProject={openProjectCreate} />}
-
-        <div className="shrink-0 px-0.5 pb-1 pt-0.5">
-          <ProfileRail />
-        </div>
+        {!showSessionSections && <SidebarBlankState onNewSession={() => onNewSessionInWorkspace(null)} />}
       </SidebarContent>
       <ProjectDialog />
       <RenameProfileDialog

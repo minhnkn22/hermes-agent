@@ -1,6 +1,7 @@
 import { useAuiState } from '@assistant-ui/react'
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { triggerHaptic } from '@/lib/haptics'
 import { cn } from '@/lib/utils'
 
@@ -80,7 +81,7 @@ function jumpScroll(viewport: HTMLElement, top: number, duration = 170): void {
   const start = viewport.scrollTop
   const delta = top - start
 
-  if (Math.abs(delta) < 2) {
+  if (prefersReducedMotion() || duration <= 0 || Math.abs(delta) < 2) {
     viewport.scrollTop = top
 
     return
