@@ -34,6 +34,7 @@ import { $voicePlayback } from '@/store/voice-playback'
 
 interface MessageActionProps {
   messageId: string
+  errored?: boolean
   /** Lazy accessor — reads the live message text at action time. Passing the
    *  text itself as a prop forces the whole footer to re-render on every
    *  streaming delta flush (the text changes ~30×/s), which profiling showed
@@ -57,6 +58,7 @@ export const AssistantMessage: FC<{
   // StreamStallIndicator leaf — not the footer/preview/root subtree.
   const messageStatus = useAuiState(s => s.message.status?.type)
   const isRunning = messageStatus === 'running'
+  const isErrored = useAuiState(s => s.message.status?.type === 'incomplete' && s.message.status.reason === 'error')
   const isPlaceholder = useAuiState(s => s.message.status?.type === 'running' && s.message.content.length === 0)
   const hasVisibleText = useAuiState(s => contentHasVisibleText(s.message.content))
   // Sealed mid-turn commentary keeps its text but not the footer, so a
@@ -85,6 +87,7 @@ export const AssistantMessage: FC<{
 
   return (
     <MessagePrimitive.Root
+      aria-busy={isRunning || undefined}
       className="group flex w-full min-w-0 max-w-full flex-col gap-0 self-start overflow-hidden"
       data-role="assistant"
       data-slot="aui_assistant-message-root"
@@ -110,7 +113,10 @@ export const AssistantMessage: FC<{
             className="mt-1.5 flex items-start gap-1.5 text-[0.78rem] leading-5 text-[color-mix(in_srgb,var(--dt-destructive)_78%,var(--ui-text-secondary))]"
             role="alert"
           >
-            <ErrorPrimitive.Message className="min-w-0 flex-1" />
+            <div className="min-w-0 flex-1">
+              <p>{t.errors.turnFailed ?? t.errors.genericFailure}</p>
+              <ErrorPrimitive.Message className="block text-[0.7rem] text-(--ui-text-tertiary)" />
+            </div>
             {onDismissError && (
               <TooltipIconButton
                 className="-my-0.5 shrink-0 text-current opacity-70 hover:opacity-100"
@@ -124,21 +130,31 @@ export const AssistantMessage: FC<{
           </ErrorPrimitive.Root>
         </MessagePrimitive.Error>
       </div>
-      {hasVisibleText && !isInterim && (
-        <AssistantFooter getMessageText={getMessageText} messageId={messageId} onBranchInNewChat={onBranchInNewChat} />
+      {(hasVisibleText || isErrored) && !isInterim && (
+        <AssistantFooter
+          errored={isErrored}
+          getMessageText={getMessageText}
+          messageId={messageId}
+          onBranchInNewChat={onBranchInNewChat}
+        />
       )}
     </MessagePrimitive.Root>
   )
 }
 
-const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText, onBranchInNewChat }) => {
+const AssistantActionBar: FC<MessageActionProps> = ({
+  errored = false,
+  messageId,
+  getMessageText,
+  onBranchInNewChat
+}) => {
   const { t } = useI18n()
   const copy = t.assistant.thread
 
   return (
     <div className="relative flex w-full shrink-0 justify-end">
       <ActionBarPrimitive.Root
-        className={
+        className={cn(
           // NOTE: intentionally NOT `hideWhenRunning`. That prop unmounts the
           // bar while the thread streams, which collapses every completed
           // assistant message's footer by this bar's height and shifts the
@@ -146,8 +162,9 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
           // invisible by default (opacity-0 + pointer-events-none, reveals on
           // hover), so keeping it mounted reserves stable layout height with
           // no visual change during streaming.
-          'relative flex flex-row items-center justify-end gap-1.5 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100'
-        }
+          'relative flex flex-row items-center justify-end gap-1.5 py-1.5 opacity-0 pointer-events-none group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100',
+          errored && 'pointer-events-auto opacity-100'
+        )}
         data-slot="aui_msg-actions"
       >
         <MessageAge />
@@ -163,7 +180,10 @@ const AssistantActionBar: FC<MessageActionProps> = ({ messageId, getMessageText,
         <CopyButton appearance="icon" buttonSize="icon" label={copy.copy} text={getMessageText} />
         <ReadAloudButton getText={getMessageText} messageId={messageId} />
         <ActionBarPrimitive.Reload asChild>
-          <TooltipIconButton onClick={() => triggerHaptic('submit')} tooltip={copy.refresh}>
+          <TooltipIconButton
+            onClick={() => triggerHaptic('submit')}
+            tooltip={errored ? (t.assistant.retry ?? copy.refresh) : copy.refresh}
+          >
             <RefreshCwIcon className="size-3.5" />
           </TooltipIconButton>
         </ActionBarPrimitive.Reload>

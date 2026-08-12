@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { Loader2 } from '@/lib/icons'
 import { cn } from '@/lib/utils'
 
@@ -39,7 +40,7 @@ function useDecoded(text: string): string {
   const [out, setOut] = useState(text)
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (prefersReducedMotion()) {
       setOut(text)
 
       return

@@ -1,5 +1,6 @@
 import { type CSSProperties, useState } from 'react'
 
+import { BrandMark } from '@/components/brand-mark'
 import { useI18n } from '@/i18n'
 import { capitalize, normalize } from '@/lib/text'
 
@@ -167,16 +168,15 @@ export function Intro({ personality, seed }: IntroProps) {
       className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center text-muted-foreground sm:px-6 lg:px-8"
       data-slot="aui_intro"
     >
-      <div className="w-full min-w-0">
+      <div className="flex w-full min-w-0 flex-col items-center">
+        <BrandMark className="mb-4 size-12" />
         <p
-          aria-label={wordmark}
-          className="fit-text mx-auto mb-1 w-[calc(100%-1rem)] font-['Collapse'] font-bold uppercase leading-[0.9] tracking-[0.08em] text-midground mix-blend-plus-lighter dark:text-foreground/90"
-          style={{ '--fit-min': '2.75rem' } as CSSProperties}
+          className="fit-text mx-auto mb-2 w-[calc(100%-1rem)] font-semibold leading-[1.05] tracking-[0.06em] text-(--ui-text-secondary)"
+          style={{ '--fit-min': '2.25rem' } as CSSProperties}
         >
           <span>
             <span>{wordmark}</span>
           </span>
-          <span aria-hidden="true">{wordmark}</span>
         </p>
 
         <p className="m-0 text-center leading-normal tracking-tight">{body}</p>

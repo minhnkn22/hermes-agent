@@ -1,7 +1,7 @@
 'use client'
 
 import { useStore } from '@nanostores/react'
-import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useSessionView } from '@/app/chat/session-view'
 import { Button } from '@/components/ui/button'
@@ -105,6 +105,7 @@ const isMac = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navi
 const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline' }> = ({ request, surface }) => {
   const { t } = useI18n()
   const copy = t.assistant.approval
+  const toolCopy = t.assistant.tool
   const gateway = useStore($gateway)
   const [submitting, setSubmitting] = useState<ApprovalChoice | null>(null)
   // "Always allow" persists the pattern to ~/.hermes/config.yaml permanently, so
@@ -123,6 +124,27 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
   const allowAlways = choices ? choices.includes('always') : allowPermanent
   const hasMoreOptions = allowSession || allowAlways
   const hasCommand = request.command.trim().length > 0
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (surface !== 'inline') {
+      return
+    }
+
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+    const focusId = requestAnimationFrame(() => {
+      rootRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    })
+
+    return () => {
+      cancelAnimationFrame(focusId)
+
+      if (previous?.isConnected) {
+        previous.focus()
+      }
+    }
+  }, [surface])
 
   const respond = useCallback(
     async (choice: ApprovalChoice) => {
@@ -181,8 +203,11 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
 
   return (
     <div
+      aria-label={toolCopy.approvalTitle ?? copy.jumpToApproval}
       className={cn(surface === 'inline' ? 'mt-1 ps-5' : 'mt-2')}
       data-slot={surface === 'inline' ? 'tool-approval-inline' : 'tool-approval-actions'}
+      ref={rootRef}
+      role="alertdialog"
     >
       <div className="flex items-center gap-2.5">
         <div className="inline-flex h-6 items-stretch overflow-hidden rounded-md border border-primary/25 bg-primary/10 text-primary">
@@ -193,7 +218,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
             size="xs"
             variant="ghost"
           >
-            {submitting === 'once' ? <Loader2 className="size-3 animate-spin" /> : copy.run}
+            {submitting === 'once' ? <Loader2 className="size-3 animate-spin" /> : (toolCopy.approveOnce ?? copy.run)}
             {submitting !== 'once' && <span className="text-[0.625rem] text-primary/60">{isMac ? '⌘⏎' : 'Ctrl⏎'}</span>}
           </Button>
           {hasMoreOptions && <span aria-hidden className="w-px self-stretch bg-primary/20" />}
@@ -212,7 +237,9 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="min-w-44">
                 {allowSession && (
-                  <DropdownMenuItem onSelect={() => void respond('session')}>{copy.allowSession}</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => void respond('session')}>
+                    {toolCopy.approveSession ?? copy.allowSession}
+                  </DropdownMenuItem>
                 )}
                 {allowAlways && (
                   <DropdownMenuItem
@@ -223,11 +250,11 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
                       setTimeout(() => setConfirmAlways(true), 0)
                     }}
                   >
-                    {copy.alwaysAllowMenu}
+                    {toolCopy.approveAlways ?? copy.alwaysAllowMenu}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onSelect={() => void respond('deny')} variant="destructive">
-                  {copy.reject}
+                  {toolCopy.deny ?? copy.reject}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -241,7 +268,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
           size="xs"
           variant="ghost"
         >
-          {submitting === 'deny' ? <Loader2 className="size-3 animate-spin" /> : copy.reject}
+          {submitting === 'deny' ? <Loader2 className="size-3 animate-spin" /> : (toolCopy.deny ?? copy.reject)}
           {submitting !== 'deny' && <span className="text-[0.625rem] opacity-55">Esc</span>}
         </Button>
 
@@ -290,7 +317,7 @@ const ApprovalBar: FC<{ request: ApprovalRequest; surface: 'floating' | 'inline'
               size="sm"
               variant="destructive"
             >
-              {copy.alwaysAllow}
+              {toolCopy.approveAlways ?? copy.alwaysAllow}
             </Button>
           </DialogFooter>
         </DialogContent>

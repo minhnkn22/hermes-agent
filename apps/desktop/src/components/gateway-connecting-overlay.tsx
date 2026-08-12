@@ -1,9 +1,13 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useRef, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import { DecodeText } from '@/components/ui/decode-text'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
+import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { $desktopBoot } from '@/store/boot'
+import { requestGatewayReconnect } from '@/store/gateway-reconnect'
 import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $gatewayState } from '@/store/session'
 
@@ -35,16 +39,13 @@ function forcedPreview(): boolean {
   }
 }
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
-}
-
 export function GatewayConnectingOverlay() {
+  const { t } = useI18n()
   const gatewayState = useStore($gatewayState)
   const boot = useStore($desktopBoot)
   const gatewaySwitching = useStore($gatewaySwitching)
   const [previewing] = useState(forcedPreview)
-  const reduce = prefersReducedMotion()
+  const reduce = useReducedMotion()
   // Under reduced motion, skip the multi-phase exit choreography (text-out →
   // hold → overlay fade) and jump straight to gone so the overlay unmounts
   // the instant the gateway opens. E2E screenshots rely on this to avoid
@@ -123,6 +124,27 @@ export function GatewayConnectingOverlay() {
   // Boot failed — BootFailureOverlay owns the screen; don't linger behind it.
   if (boot.error && !previewing) {
     return null
+  }
+
+  const postBootOffline =
+    coldBootDoneRef.current && !gatewaySwitching && (gatewayState === 'closed' || gatewayState === 'error')
+
+  if (postBootOffline && !previewing) {
+    return (
+      <div
+        aria-live="polite"
+        className="pointer-events-none fixed inset-x-0 top-[calc(var(--titlebar-height)+0.5rem)] z-[1100] flex justify-center px-3"
+        data-slot="gateway-offline-recovery"
+        role="status"
+      >
+        <div className="pointer-events-auto flex max-w-xl items-center gap-3 rounded-full border border-(--ui-stroke-secondary) bg-(--ui-bg-elevated) px-3 py-1.5 text-xs text-(--ui-text-secondary) shadow-sm">
+          <span>{t.errors.offline ?? t.composer.placeholderReconnecting}</span>
+          <Button onClick={requestGatewayReconnect} size="xs" variant="ghost">
+            {t.common.retry}
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   // Real connect: once the fade finishes, get out of the way for good.

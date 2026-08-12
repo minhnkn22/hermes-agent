@@ -23,6 +23,7 @@ import {
   setPrimaryGateway,
   touchSecondaryGateways
 } from '@/store/gateway'
+import { GATEWAY_RECONNECT_REQUEST_EVENT } from '@/store/gateway-reconnect'
 import { $gatewaySwitching, wipeSessionListsForGatewaySwitch } from '@/store/gateway-switch'
 import { notify, notifyError } from '@/store/notifications'
 import { $activeGatewayProfile, normalizeProfileKey, touchActiveGatewayBackend } from '@/store/profile'
@@ -410,6 +411,7 @@ export function useGatewayBoot({
     }
 
     window.addEventListener('online', onOnline)
+    window.addEventListener(GATEWAY_RECONNECT_REQUEST_EVENT, reconnectNow)
     document.addEventListener('visibilitychange', onVisible)
 
     // Keep live pool backends alive while this window is open (the main process
@@ -580,6 +582,7 @@ export function useGatewayBoot({
       offAttention()
       offActiveProfile()
       window.removeEventListener('online', onOnline)
+      window.removeEventListener(GATEWAY_RECONNECT_REQUEST_EVENT, reconnectNow)
       document.removeEventListener('visibilitychange', onVisible)
       offPowerResume?.()
       offConnectionApplied?.()

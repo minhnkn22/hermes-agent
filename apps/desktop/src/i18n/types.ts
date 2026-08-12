@@ -1372,6 +1372,8 @@ export interface Translations {
   }
 
   sidebar: {
+    navAria?: string
+    emptyRoster?: string
     nav: Record<string, string>
     searchAria: string
     searchPlaceholder: string
@@ -1459,6 +1461,7 @@ export interface Translations {
     loadMore: string
     loadCount: (step: number) => string
     row: {
+      sessionIdle?: string
       pin: string
       unpin: string
       copyId: string
@@ -1711,6 +1714,7 @@ export interface Translations {
 
   onboarding: {
     headerTitle: string
+    headerSub?: string
     headerDesc: string
     preparingInstall: string
     starting: string
@@ -2091,6 +2095,8 @@ export interface Translations {
   }
 
   assistant: {
+    retry?: string
+    copy?: string
     thread: {
       loadingSession: string
       showEarlier: string
@@ -2152,6 +2158,11 @@ export interface Translations {
       lateAnswerHint: string
     }
     tool: {
+      approvalTitle?: string
+      approveOnce?: string
+      approveSession?: string
+      approveAlways?: string
+      deny?: string
       code: string
       copyCode: string
       renderingImage: string
@@ -2286,6 +2297,8 @@ export interface Translations {
   }
 
   errors: {
+    offline?: string
+    turnFailed?: string
     genericFailure: string
     boundaryTitle: string
     boundaryDesc: string

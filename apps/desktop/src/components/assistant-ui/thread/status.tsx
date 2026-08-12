@@ -6,6 +6,7 @@ import { useElapsedSeconds } from '@/components/chat/activity-timer'
 import { ActivityTimerText } from '@/components/chat/activity-timer-text'
 import { Codicon } from '@/components/ui/codicon'
 import { Loader } from '@/components/ui/loader'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { $backgroundResume } from '@/store/background-delegation'
@@ -70,6 +71,7 @@ export const ResponseLoadingIndicator: FC = () => {
   const timerKey = useActiveTurnTimerKey()
   const elapsed = useElapsedSeconds(true, timerKey)
   const compacting = useStore($compactionActive)
+  const reduceMotion = useReducedMotion()
 
   return (
     <StatusRow
@@ -77,7 +79,13 @@ export const ResponseLoadingIndicator: FC = () => {
       data-slot="aui_response-loading"
       label={compacting ? COMPACTION_LABEL : t.assistant.thread.loadingResponse}
     >
-      <span aria-hidden="true" className="dither inline-block size-3 rounded-[2px] text-midground/80 animate-pulse" />
+      <span
+        aria-hidden="true"
+        className={cn(
+          'inline-block size-3 text-midground/80',
+          reduceMotion ? 'rounded-full bg-current' : 'dither rounded-[2px] animate-pulse'
+        )}
+      />
       {compacting && <CompactionHint />}
       <ActivityTimerText seconds={elapsed} />
     </StatusRow>

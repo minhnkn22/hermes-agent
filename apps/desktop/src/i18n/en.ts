@@ -1652,6 +1652,8 @@ export const en: Translations = {
   },
 
   sidebar: {
+    navAria: 'Main navigation',
+    emptyRoster: 'No conversations yet',
     nav: {
       'new-session': 'New session',
       skills: 'Capabilities',
@@ -1747,6 +1749,7 @@ export const en: Translations = {
     loadMore: 'Load more',
     loadCount: step => `Load ${step} more`,
     row: {
+      sessionIdle: 'Idle',
       pin: 'Pin',
       unpin: 'Unpin',
       copyId: 'Copy ID',
@@ -2071,6 +2074,7 @@ export const en: Translations = {
 
   onboarding: {
     headerTitle: "Let's get you setup with Hermes Agent",
+    headerSub: 'AI superapp for getting things done',
     headerDesc: 'Connect a model provider to start chatting. Most options take one click.',
     preparingInstall: 'Hermes is finishing install. This usually takes under a minute on first run.',
     starting: 'Starting Hermes…',
@@ -2477,6 +2481,8 @@ export const en: Translations = {
   },
 
   assistant: {
+    retry: 'Retry',
+    copy: 'Copy',
     thread: {
       loadingSession: 'Loading session',
       showEarlier: 'Show earlier messages',
@@ -2543,6 +2549,11 @@ export const en: Translations = {
       lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.'
     },
     tool: {
+      approvalTitle: 'Atum wants to run this command',
+      approveOnce: 'Allow once',
+      approveSession: 'Allow for this session',
+      approveAlways: 'Always allow',
+      deny: 'Deny',
       code: 'Code',
       copyCode: 'Copy code',
       renderingImage: 'Rendering image',
@@ -2714,6 +2725,8 @@ export const en: Translations = {
   },
 
   errors: {
+    offline: 'Connection lost. Atum will reconnect automatically.',
+    turnFailed: 'Could not send. Select Retry.',
     genericFailure: 'Something went wrong',
     boundaryTitle: 'Something broke in the interface',
     boundaryDesc: 'The view hit an unexpected error. Your chats and settings are safe.',

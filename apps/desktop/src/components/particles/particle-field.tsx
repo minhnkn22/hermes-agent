@@ -2,6 +2,7 @@ import './particle-field.css'
 
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
 
 /**
@@ -108,9 +109,6 @@ function spawn(cfg: ParticleFieldConfig, colors: readonly string[]): Particle {
     swayDelayMs: -Math.round(Math.random() * swayDurationMs)
   }
 }
-
-const prefersReducedMotion = () =>
-  typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
 
 export interface ParticleFieldProps {
   emitter: ParticleEmitter
