@@ -124,6 +124,7 @@ import {
 } from '../../routes'
 import type { SidebarNavItem } from '../../types'
 
+import { AtumSection } from './atum-section'
 import { countLabel } from './chrome'
 import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
@@ -1288,6 +1289,8 @@ export function ChatSidebar({
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        <AtumSection />
 
         {showSessionSections && (
           <div className="shrink-0 px-2 pb-1 pt-1">

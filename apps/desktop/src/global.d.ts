@@ -1,5 +1,6 @@
 import type { GatewayWsUrlResult } from '@hermes/shared'
 
+import type { AtumAccountClient } from './lib/atum-account-client'
 import type { AtumMessagingClient } from './lib/atum-messaging-client'
 import type {
   PetOverlayBounds,
@@ -83,6 +84,8 @@ declare global {
         set: (name: string | null) => Promise<DesktopActiveProfile>
       }
       messaging: AtumMessagingClient
+      /** Native system-browser account flow. Credentials never enter the renderer. */
+      account?: AtumAccountClient
       api: <T>(request: HermesApiRequest) => Promise<T>
       notify: (payload: HermesNotification) => Promise<boolean>
       requestMicrophoneAccess: () => Promise<boolean>
