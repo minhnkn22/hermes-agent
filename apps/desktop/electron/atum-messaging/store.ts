@@ -69,6 +69,12 @@ function assertIdentifier(name: string, value: string): void {
   }
 }
 
+function assertOpaqueSyncToken(name: string, value: string): void {
+  if (!value || value.length > 8192) {
+    throw new Error(`${name} must be a non-empty opaque sync token no longer than 8192 characters`)
+  }
+}
+
 function conversationFromRow(row: SqlRow): MessagingConversation {
   return {
     id: String(row.id),
@@ -530,17 +536,18 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
           )
           .get(this.accountId, message.conversationId, input.clientMessageId) as SqlRow | undefined
 
-        this.database
+        const transition = this.database
           .prepare(
             `
             UPDATE messaging_pending_mutations
             SET state = 'sent', next_attempt_at = NULL, last_error_code = NULL, updated_at = ?
             WHERE account_id = ? AND conversation_id = ? AND client_message_id = ?
+              AND state != 'sent'
           `
           )
           .run(timestamp, this.accountId, message.conversationId, input.clientMessageId)
 
-        if (mutation?.draft_revision !== null && mutation?.draft_revision !== undefined) {
+        if (transition.changes === 1 && mutation?.draft_revision !== null && mutation?.draft_revision !== undefined) {
           this.database
             .prepare(
               `
@@ -652,7 +659,7 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
   }
 
   commitSyncCursor(expectedCursor: string | null, nextCursor: string, now = new Date().toISOString()): boolean {
-    assertIdentifier('nextCursor', nextCursor)
+    assertOpaqueSyncToken('nextCursor', nextCursor)
 
     return transaction(this.database, () => {
       const current = this.getSyncCursor().cursor
@@ -675,7 +682,7 @@ export class AtumMessagingStore implements MessagingStoreBoundary {
   }
 
   recordSyncChange(changeId: string, now = new Date().toISOString()): boolean {
-    assertIdentifier('changeId', changeId)
+    assertOpaqueSyncToken('changeId', changeId)
 
     const result = this.database
       .prepare(

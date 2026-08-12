@@ -145,39 +145,11 @@ export function applyMessagingMigrations(
     ) STRICT;
   `)
 
-  const rows = database
-    .prepare('SELECT version, name, checksum FROM messaging_schema_migrations ORDER BY version')
-    .all() as Array<{ version: number; name: string; checksum: string }>
-
   const knownByVersion = new Map(MESSAGING_MIGRATIONS.map(migration => [migration.version, migration]))
-
-  for (const row of rows) {
-    const known = knownByVersion.get(row.version)
-
-    if (!known || known.name !== row.name || checksum(known) !== row.checksum) {
-      throw new Error(`Unknown or modified messaging migration at version ${row.version}`)
-    }
-  }
-
-  const currentVersion = rows.at(-1)?.version ?? 0
-
-  const pragmaVersion = Number((database.prepare('PRAGMA user_version').get() as { user_version: number }).user_version)
-
-  if (pragmaVersion !== currentVersion) {
-    throw new Error(`Messaging schema history is inconsistent: PRAGMA=${pragmaVersion}, history=${currentVersion}`)
-  }
-
-  if (currentVersion > targetVersion) {
-    throw new Error(`Messaging schema ${currentVersion} is newer than supported target ${targetVersion}`)
-  }
 
   if (targetVersion !== 0 && !MESSAGING_MIGRATIONS.some(migration => migration.version === targetVersion)) {
     throw new Error(`Unknown messaging migration target: ${targetVersion}`)
   }
-
-  const pending = MESSAGING_MIGRATIONS.filter(
-    migration => migration.version > currentVersion && migration.version <= targetVersion
-  )
 
   const insert = database.prepare(`
     INSERT INTO messaging_schema_migrations(version, name, checksum, applied_at)
@@ -187,6 +159,39 @@ export function applyMessagingMigrations(
   database.exec('BEGIN IMMEDIATE')
 
   try {
+    // Read migration history only after taking the write lock. A second process
+    // opening the same fresh account database must observe the first opener's
+    // completed migration instead of replaying a stale pending list.
+    const rows = database
+      .prepare('SELECT version, name, checksum FROM messaging_schema_migrations ORDER BY version')
+      .all() as Array<{ version: number; name: string; checksum: string }>
+
+    for (const row of rows) {
+      const known = knownByVersion.get(row.version)
+
+      if (!known || known.name !== row.name || checksum(known) !== row.checksum) {
+        throw new Error(`Unknown or modified messaging migration at version ${row.version}`)
+      }
+    }
+
+    const currentVersion = rows.at(-1)?.version ?? 0
+
+    const pragmaVersion = Number(
+      (database.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+    )
+
+    if (pragmaVersion !== currentVersion) {
+      throw new Error(`Messaging schema history is inconsistent: PRAGMA=${pragmaVersion}, history=${currentVersion}`)
+    }
+
+    if (currentVersion > targetVersion) {
+      throw new Error(`Messaging schema ${currentVersion} is newer than supported target ${targetVersion}`)
+    }
+
+    const pending = MESSAGING_MIGRATIONS.filter(
+      migration => migration.version > currentVersion && migration.version <= targetVersion
+    )
+
     for (const migration of pending) {
       database.exec(migration.sql)
       insert.run(migration.version, migration.name, checksum(migration), new Date().toISOString())

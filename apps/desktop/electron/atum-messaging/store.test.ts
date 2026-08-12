@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { DatabaseSync } from 'node:sqlite'
+import { pathToFileURL } from 'node:url'
 
 import { afterEach, test } from 'vitest'
 
@@ -81,6 +83,83 @@ test('migrates deterministically from v1 and rejects modified migration history'
   )
 })
 
+test('reopens a freshly migrated account database without replaying schema creation', () => {
+  const path = databasePath()
+  const first = new AtumMessagingStore({ accountId: 'account-a', databasePath: path })
+  first.close()
+  const second = new AtumMessagingStore({ accountId: 'account-a', databasePath: path })
+  second.close()
+
+  const database = new DatabaseSync(path)
+  assert.equal(
+    (database.prepare('SELECT count(*) AS count FROM messaging_schema_migrations').get() as { count: number }).count,
+    MESSAGING_MIGRATIONS.length
+  )
+  database.close()
+})
+
+test('serializes concurrent first-open migrations before reading history', async () => {
+  const path = databasePath()
+  const directory = join(path, '..')
+  const migrationModule = pathToFileURL(join(__dirname, 'migrations.ts')).href
+
+  const script = `
+    import { existsSync, writeFileSync } from 'node:fs';
+    import { DatabaseSync } from 'node:sqlite';
+    import { applyMessagingMigrations } from ${JSON.stringify(migrationModule)};
+    const [path, ownReady, peerReady] = process.argv.slice(1);
+    const database = new DatabaseSync(path);
+    database.exec('PRAGMA busy_timeout = 5000');
+    const exec = database.exec.bind(database);
+    database.exec = sql => {
+      if (sql === 'BEGIN IMMEDIATE') {
+        writeFileSync(ownReady, 'ready');
+        const deadline = Date.now() + 5000;
+        while (!existsSync(peerReady) && Date.now() < deadline) {}
+        if (!existsSync(peerReady)) throw new Error('migration test barrier timed out');
+      }
+      return exec(sql);
+    };
+    applyMessagingMigrations(database);
+    database.close();
+  `
+
+  const run = (name: string, peer: string) =>
+    new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        process.execPath,
+        ['--experimental-strip-types', '--input-type=module', '-e', script, path, name, peer],
+        { cwd: directory, stdio: ['ignore', 'ignore', 'pipe'] }
+      )
+
+      let stderr = ''
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', chunk => {
+        stderr += chunk
+      })
+      child.once('error', reject)
+      child.once('exit', code => {
+        if (code === 0) {
+          resolve()
+        } else {
+          reject(new Error(`migration child exited ${code}: ${stderr}`))
+        }
+      })
+    })
+
+  await Promise.all([
+    run(join(directory, 'a.ready'), join(directory, 'b.ready')),
+    run(join(directory, 'b.ready'), join(directory, 'a.ready'))
+  ])
+
+  const database = new DatabaseSync(path)
+  assert.equal(
+    (database.prepare('SELECT count(*) AS count FROM messaging_schema_migrations').get() as { count: number }).count,
+    MESSAGING_MIGRATIONS.length
+  )
+  database.close()
+})
+
 test('partitions conversations, drafts, cursors, and change de-duplication by account', () => {
   const path = databasePath()
   const accountA = new AtumMessagingStore({ accountId: 'account-a', databasePath: path })
@@ -104,6 +183,11 @@ test('partitions conversations, drafts, cursors, and change de-duplication by ac
   assert.equal(accountA.recordSyncChange('change-1'), true)
   assert.equal(accountA.recordSyncChange('change-1'), false)
   assert.equal(accountB.recordSyncChange('change-1'), true)
+
+  const longOpaqueToken = `opaque.${'x'.repeat(2048)}`
+  assert.equal(accountB.commitSyncCursor(null, longOpaqueToken), true)
+  assert.equal(accountB.getSyncCursor().cursor, longOpaqueToken)
+  assert.equal(accountB.recordSyncChange(longOpaqueToken), true)
 
   accountA.close()
   accountB.close()
@@ -215,6 +299,13 @@ test('canonicalizes acknowledgements, collapses duplicate echoes, and preserves 
     clientMessageId: 'client-2'
   })
   assert.equal(store.getDraft('conversation-a'), null)
+
+  store.saveDraft('conversation-a', { text: 'Typed after the first acknowledgement' })
+  store.canonicalizeMessage({
+    message: message('server-2', 'conversation-a', '2026-08-12T03:00:05.000Z', 'Clear me after ack'),
+    clientMessageId: 'client-2'
+  })
+  assert.equal(store.getDraft('conversation-a')?.text, 'Typed after the first acknowledgement')
 
   store.canonicalizeMessage({
     message: canonical,

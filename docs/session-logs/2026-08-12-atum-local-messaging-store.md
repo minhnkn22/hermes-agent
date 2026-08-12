@@ -88,3 +88,31 @@ Results:
 `ALLOW_NO_DOCS_LOG=1` is required only because an existing repository commit hook is inherited by a
 test's temporary Git repository; without the flag, that unrelated fixture commit is blocked before
 the code under test runs.
+
+## Assembly review corrections
+
+Kimi job `2e1e3187-b031-40e2-9585-4b7c3b339444` reviewed the assembled WS3a/P0 diff and returned
+`SHIP WITH FIXES`. The review found one data-loss path: after an HTTP acknowledgement cleared the
+queued draft, a duplicate realtime acknowledgement could clear a newly typed draft whose revision
+number had restarted. Canonicalization now clears the captured draft revision only when the pending
+mutation actually transitions into `sent`; duplicate acknowledgements remain idempotent.
+
+The same checkpoint moved migration-history inspection behind `BEGIN IMMEDIATE`, so concurrent
+first-open processes re-read the winner's committed schema rather than replaying stale migrations.
+A two-process barrier regression exercises the race. Hosted sync cursors and change identifiers now
+use a dedicated non-empty 8,192-character opaque-token bound instead of the 256-character entity-ID
+bound. A real 2,055-character token crosses both cursor and change de-duplication paths in tests.
+
+Focused post-review verification from `apps/desktop`:
+
+```bash
+npx vitest run electron/atum-messaging/store.test.ts
+npm run typecheck
+npx eslint electron/atum-messaging/store.ts electron/atum-messaging/migrations.ts electron/atum-messaging/store.test.ts
+git diff --check
+```
+
+Post-review results: focused store 8/8; full Electron project 64 files passed and 1 intentionally
+skipped, with 715 tests passed and 2 skipped; TypeScript typecheck, targeted ESLint, Prettier check,
+and `git diff --check` passed. The 10,000-message benchmark measured 0.588 ms p95 in the full-suite
+rerun.
