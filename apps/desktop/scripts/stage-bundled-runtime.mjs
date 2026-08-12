@@ -142,6 +142,34 @@ function rewriteInternalAbsoluteSymlinks(root, copiedFrom) {
   return rewritten
 }
 
+function removeBytecodeCaches(root) {
+  let removed = 0
+
+  const visit = directory => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name)
+
+      if (entry.isDirectory()) {
+        if (entry.name === '__pycache__') {
+          rmSync(entryPath, { recursive: true, force: true })
+          removed += 1
+          continue
+        }
+        visit(entryPath)
+        continue
+      }
+
+      if (entry.isFile() && (entry.name.endsWith('.pyc') || entry.name.endsWith('.pyo'))) {
+        rmSync(entryPath, { force: true })
+        removed += 1
+      }
+    }
+  }
+
+  visit(root)
+  return removed
+}
+
 function installPython({ uv, scratchRoot, destination, pythonInstallKey }) {
   const installRoot = join(scratchRoot, 'python-install')
   run(uv, [
@@ -278,6 +306,12 @@ export function stageBundledRuntime({
       pythonPlatform: targetSpec.pythonPlatform
     })
     archiveHermesSource({ repoRoot, commit, destination: sourceRoot, scratchRoot })
+    // uv compiles bytecode using the temporary staging prefix. Relocating those
+    // caches into Atum.app makes Python refresh a small subset on first launch,
+    // which mutates the sealed bundle even though the managed backend itself
+    // runs with PYTHONDONTWRITEBYTECODE=1. Ship source-only Python modules; the
+    // first launch remains cache-free and the app signature stays valid.
+    removeBytecodeCaches(pythonRoot)
     probeStagedRuntime({ pythonRoot, sourceRoot, expectedArch: arch })
 
     const manifest = {
@@ -316,7 +350,13 @@ export function stageBundledRuntime({
   }
 }
 
-export { assertCleanPackageSource, assertSafeRuntimeTarget, rewriteInternalAbsoluteSymlinks, targetConfig }
+export {
+  assertCleanPackageSource,
+  assertSafeRuntimeTarget,
+  removeBytecodeCaches,
+  rewriteInternalAbsoluteSymlinks,
+  targetConfig
+}
 
 if (isMain(import.meta.url)) {
   const targetRoot = process.argv[2]

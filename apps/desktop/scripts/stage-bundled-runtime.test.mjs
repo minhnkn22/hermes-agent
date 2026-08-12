@@ -9,6 +9,7 @@ import {
   assertCleanPackageSource,
   assertSafeRuntimeTarget,
   BUNDLED_PYTHON_VERSION,
+  removeBytecodeCaches,
   rewriteInternalAbsoluteSymlinks,
   targetConfig
 } from './stage-bundled-runtime.mjs'
@@ -38,7 +39,10 @@ test('staging cleanup is constrained to an explicitly named runtime build direct
 
 test('packaging refuses tracked dirty state unless the development override is explicit', () => {
   assert.equal(assertCleanPackageSource('', false), false)
-  assert.throws(() => assertCleanPackageSource(' M apps/desktop/electron/main.ts', false), /split renderer\/backend tree/)
+  assert.throws(
+    () => assertCleanPackageSource(' M apps/desktop/electron/main.ts', false),
+    /split renderer\/backend tree/
+  )
   assert.equal(assertCleanPackageSource(' M apps/desktop/electron/main.ts', true), true)
 })
 
@@ -59,5 +63,20 @@ test('copied Python aliases are rewritten from staging absolutes to relocatable 
     fs.realpathSync(path.join(bundledRoot, 'bin', 'python3')),
     fs.realpathSync(path.join(bundledRoot, 'bin', 'python3.11'))
   )
+  fs.rmSync(scratch, { recursive: true })
+})
+
+test('packaged runtime removes relocatable bytecode caches before signing', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'atum-runtime-bytecode-'))
+  fs.mkdirSync(path.join(scratch, 'lib', '__pycache__'), { recursive: true })
+  fs.mkdirSync(path.join(scratch, 'site-packages'), { recursive: true })
+  fs.writeFileSync(path.join(scratch, 'lib', '__pycache__', 'argparse.cpython-311.pyc'), 'compiled')
+  fs.writeFileSync(path.join(scratch, 'site-packages', 'legacy.pyo'), 'compiled')
+  fs.writeFileSync(path.join(scratch, 'site-packages', 'module.py'), 'source')
+
+  assert.equal(removeBytecodeCaches(scratch), 2)
+  assert.equal(fs.existsSync(path.join(scratch, 'lib', '__pycache__')), false)
+  assert.equal(fs.existsSync(path.join(scratch, 'site-packages', 'legacy.pyo')), false)
+  assert.equal(fs.readFileSync(path.join(scratch, 'site-packages', 'module.py'), 'utf8'), 'source')
   fs.rmSync(scratch, { recursive: true })
 })
