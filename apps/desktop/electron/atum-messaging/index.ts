@@ -1,6 +1,14 @@
+export {
+  AtumAccountAuthController,
+  resolveAtumAccountConfig,
+  SupabaseAtumAccountClient
+} from './account-auth'
+export type { AtumAccountAuthStatus, AtumAccountConfig } from './account-auth'
+export { registerAtumAccountIpc } from './account-ipc'
 export { AtumMessagingHttpClient, MessagingHttpError } from './http-client'
 export { registerAtumMessagingIpc } from './ipc'
 export { applyMessagingMigrations, MESSAGING_MIGRATIONS } from './migrations'
+export { resolveAtumPublicAccountConfig } from './public-config'
 export { AtumMessagingRuntime } from './runtime'
 export { AtumMessagingStore, openAtumMessagingStore } from './store'
 export { AtumMessagingSyncEngine } from './sync-engine'

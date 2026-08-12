@@ -103,6 +103,11 @@ export class AtumMessagingRuntime implements MessagingClientBoundary {
     return this.engine.replaceSession(null)
   }
 
+  /** Sanitized account metadata for the account controller; tokens stay private. */
+  accountProfile() {
+    return this.sessionValue ? { ...this.sessionValue.user } : null
+  }
+
   status = () => this.engine.status()
   roster = (limit?: number) => this.engine.roster(limit)
   messages = (conversationId: string, limit?: number) => this.engine.messages(conversationId, limit)

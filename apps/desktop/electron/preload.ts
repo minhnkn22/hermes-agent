@@ -59,6 +59,12 @@ contextBridge.exposeInMainWorld('hermesDesktop', {
     get: () => ipcRenderer.invoke('hermes:profile:get'),
     set: name => ipcRenderer.invoke('hermes:profile:set', name)
   },
+  account: {
+    status: () => ipcRenderer.invoke('atum:account:status'),
+    signIn: () => ipcRenderer.invoke('atum:account:sign-in'),
+    cancel: () => ipcRenderer.invoke('atum:account:cancel'),
+    signOut: () => ipcRenderer.invoke('atum:account:sign-out')
+  },
   messaging: {
     status: () => ipcRenderer.invoke('atum:messaging:status'),
     roster: limit => ipcRenderer.invoke('atum:messaging:roster', limit),

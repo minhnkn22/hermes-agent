@@ -30,7 +30,14 @@ import {
 } from 'electron'
 import nodePty from 'node-pty'
 
-import { AtumMessagingRuntime, registerAtumMessagingIpc } from './atum-messaging'
+import {
+  AtumAccountAuthController,
+  AtumMessagingRuntime,
+  registerAtumAccountIpc,
+  registerAtumMessagingIpc,
+  resolveAtumPublicAccountConfig,
+  SupabaseAtumAccountClient
+} from './atum-messaging'
 import { stopBackendChild as stopBackendChildImpl } from './backend-child'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
@@ -977,6 +984,7 @@ function registerMediaProtocol() {
 
 let mainWindow = null
 let atumMessagingRuntime: AtumMessagingRuntime | null = null
+let atumAccountController: AtumAccountAuthController | null = null
 const backendConnectionState = createBackendConnectionState<ReturnType<typeof spawn>, any>()
 const remoteLiveness = new RemoteLivenessTracker()
 const remoteRevalidation = new RemoteRevalidationCoordinator()
@@ -10657,10 +10665,39 @@ app.whenReady().then(() => {
   // Messaging owns its bearer credentials + SQLite projection entirely in
   // main. The account-login lane installs a verified session through the
   // runtime's main-only seam; no token or database capability crosses preload.
+  let atumAccountClient: SupabaseAtumAccountClient | null = null
+
+  try {
+    const accountConfig = resolveAtumPublicAccountConfig({
+      environment: {
+        hostedBaseUrl: process.env.ATUM_PLATFORM_URL,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+        supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      },
+      packagedPath: process.resourcesPath ? path.join(process.resourcesPath, 'atum-public-config.json') : null
+    })
+
+    if (accountConfig) {
+      atumAccountClient = new SupabaseAtumAccountClient(accountConfig, {
+        fetchImpl: electronNet.fetch,
+        openExternal: url => shell.openExternal(url)
+      })
+    }
+  } catch (error) {
+    rememberLog(`[atum-account] invalid configuration: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
   atumMessagingRuntime = new AtumMessagingRuntime({
     userDataPath: app.getPath('userData'),
-    safeStorage
+    safeStorage,
+    refreshSession: session =>
+      atumAccountController?.refresh(session) ?? atumAccountClient?.refresh(session) ?? Promise.resolve(null)
   })
+  atumAccountController = new AtumAccountAuthController({
+    runtime: atumMessagingRuntime,
+    client: atumAccountClient
+  })
+  registerAtumAccountIpc(ipcMain, atumAccountController)
   registerAtumMessagingIpc(ipcMain, atumMessagingRuntime)
   void atumMessagingRuntime.start()
   ensureWslWindowsFonts()
@@ -10712,6 +10749,7 @@ function configureSpellChecker() {
 }
 
 app.on('before-quit', event => {
+  atumAccountController?.stop()
   atumMessagingRuntime?.stop()
 
   if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
