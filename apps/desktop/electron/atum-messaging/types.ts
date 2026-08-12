@@ -112,13 +112,55 @@ export interface MessagingStoreBoundary {
   queueSend(input: QueueSendInput): PendingMutation
   markMutationSending(clientMessageId: string, now?: string): PendingMutation
   markMutationFailed(clientMessageId: string, failure: MutationFailure): PendingMutation
+  retryMutation(clientMessageId: string, now?: string): PendingMutation
   listDueMutations(now?: string, limit?: number): PendingMutation[]
   canonicalizeMessage(input: CanonicalizeMessageInput): StoredMessage
+  deleteCanonicalMessage(messageId: string): boolean
   markRead(conversationId: string, throughMessageId: string, now?: string): boolean
   getSyncCursor(): SyncCursor
   commitSyncCursor(expectedCursor: string | null, nextCursor: string, now?: string): boolean
   recordSyncChange(changeId: string, now?: string): boolean
   resetProjection(): void
+}
+
+export interface MessagingUser {
+  id: string
+  displayName: string | null
+  handle: string | null
+}
+
+export interface MessagingSyncStatus {
+  accountId: string | null
+  connectivity: ConnectivityState
+  synchronized: boolean
+  cursor: string | null
+  lastSuccessfulSyncAt: string | null
+  nextRetryAt: string | null
+  errorCode: string | null
+}
+
+export interface MessagingSessionTokens {
+  accessToken: string
+  refreshToken: string | null
+  expiresAt: number | null
+}
+
+export interface MessagingAccountSession {
+  baseUrl: string
+  user: MessagingUser
+  tokens: MessagingSessionTokens
+}
+
+export interface MessagingClientBoundary {
+  status(): Promise<MessagingSyncStatus>
+  roster(limit?: number): Promise<MessagingConversation[]>
+  messages(conversationId: string, limit?: number): Promise<StoredMessage[]>
+  draft(conversationId: string): Promise<ConversationDraft | null>
+  saveDraft(conversationId: string, draft: SaveDraftInput): Promise<ConversationDraft>
+  send(input: QueueSendInput): Promise<PendingMutation>
+  retry(clientMessageId: string): Promise<PendingMutation>
+  markRead(conversationId: string, throughMessageId: string): Promise<boolean>
+  sync(): Promise<MessagingSyncStatus>
 }
 
 export interface OpenMessagingStoreOptions {

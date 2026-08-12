@@ -30,6 +30,7 @@ import {
 } from 'electron'
 import nodePty from 'node-pty'
 
+import { AtumMessagingRuntime, registerAtumMessagingIpc } from './atum-messaging'
 import { stopBackendChild as stopBackendChildImpl } from './backend-child'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
@@ -975,6 +976,7 @@ function registerMediaProtocol() {
 }
 
 let mainWindow = null
+let atumMessagingRuntime: AtumMessagingRuntime | null = null
 const backendConnectionState = createBackendConnectionState<ReturnType<typeof spawn>, any>()
 const remoteLiveness = new RemoteLivenessTracker()
 const remoteRevalidation = new RemoteRevalidationCoordinator()
@@ -10652,6 +10654,15 @@ app.whenReady().then(() => {
   registerMediaProtocol()
   installEmbedReferer()
   registerDeepLinkProtocol()
+  // Messaging owns its bearer credentials + SQLite projection entirely in
+  // main. The account-login lane installs a verified session through the
+  // runtime's main-only seam; no token or database capability crosses preload.
+  atumMessagingRuntime = new AtumMessagingRuntime({
+    userDataPath: app.getPath('userData'),
+    safeStorage
+  })
+  registerAtumMessagingIpc(ipcMain, atumMessagingRuntime)
+  void atumMessagingRuntime.start()
   ensureWslWindowsFonts()
   configureSpellChecker()
   registerPowerResumeListeners()
@@ -10701,6 +10712,8 @@ function configureSpellChecker() {
 }
 
 app.on('before-quit', event => {
+  atumMessagingRuntime?.stop()
+
   if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
     event.preventDefault()
     sshBootstrapCoordinator.cancelAll()
