@@ -8529,7 +8529,7 @@ function createWindow() {
       mainWindow.show()
       schedulePersistWindowState()
     }
-  }, 1_500).unref?.()
+  }, 1_500)
 
   // Under Playright testing, instantly show the window.
   // `ready-to-show` doesn't fire in some testing envs.
