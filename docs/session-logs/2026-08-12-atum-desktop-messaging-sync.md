@@ -61,6 +61,43 @@ npx eslint electron/atum-messaging src/lib/atum-messaging-client.ts \
 git diff --check
 ```
 
-Result: typecheck passed; 13/13 focused tests passed; changed-path lint and diff check passed.
-The final checkpoint will rerun the full Electron suite after consuming the independently reviewed
-store corrections from the assembly branch.
+After consuming independently reviewed store correction `f87e2d99e` (recorded locally as
+`641d9f55a`), the final result was:
+
+- Typecheck passed.
+- Focused messaging suite: 15/15 passed across store, real-byte integration, and IPC tests.
+- Full Electron project: 722 passed, 2 skipped across 66 passing files and one intentionally skipped
+  file. The command uses `ALLOW_NO_DOCS_LOG=1` because existing git-review fixtures create temporary
+  commits without documentation and otherwise trigger the developer machine's global commit hook.
+- Changed-path ESLint passed with no warnings or errors.
+- Exact-base diff check passed against `000ac333e004c796ec12f2dda49e1cae95012901`.
+
+Commands:
+
+```bash
+cd apps/desktop
+npm run typecheck
+npx vitest run --project electron \
+  electron/atum-messaging/store.test.ts \
+  electron/atum-messaging/integration.test.ts \
+  electron/atum-messaging/ipc.test.ts
+ALLOW_NO_DOCS_LOG=1 npm run test:desktop:platforms
+npx eslint electron/atum-messaging src/lib/atum-messaging-client.ts \
+  electron/main.ts electron/preload.ts src/global.d.ts
+git diff --check 000ac333e004c796ec12f2dda49e1cae95012901..HEAD
+```
+
+## Exact integration limits
+
+- This lane owns storage, authenticated HTTP, sync/outbox lifecycle, and the renderer-safe model
+  bridge. It does not acquire a Supabase session. The account-login lane must call the runtime's
+  main-only `installSession` seam and provide the real refresh implementation. The assembled main
+  process currently has neither, so a clean install honestly reports `auth_expired` rather than
+  exposing a token input to the renderer.
+- The engine polls authoritative HTTP and exposes a coalesced main-process `realtimeHint` seam. It
+  does not add a Supabase Realtime dependency or subscription in this lane.
+- Initial roster and per-conversation history fetch the first bounded 100 rows. Deep pagination,
+  search, media, reactions, edit/recall/forward, conversation creation/state, and offline read
+  mutation replay remain later messaging lanes.
+- No visual messaging surface was added. `atumMessagingClient()` is the typed model seam for WS4.
+- No hosted system was contacted or mutated; every network assertion used a loopback fake server.
