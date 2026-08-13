@@ -24,7 +24,7 @@ export type AtumRosterKind = 'assistant' | 'app' | 'direct'
 const APP_PRESENTATION = {
   moon: {
     accent: 'var(--atum-app-moon)',
-    avatarUrl: '/specialists/moon-avatar.png',
+    avatarUrl: './specialists/moon-avatar.png',
     name: 'Moon',
     order: 1,
     role: { vi: 'Chuyên gia chiêm tinh', en: 'Astrology specialist' },
@@ -32,7 +32,7 @@ const APP_PRESENTATION = {
   },
   andy: {
     accent: 'var(--atum-app-andy)',
-    avatarUrl: '/specialists/andy-avatar.svg',
+    avatarUrl: './specialists/andy-avatar.svg',
     name: 'Andy',
     order: 2,
     role: { vi: 'Người đồng hành tinh thần', en: 'Mental & emotional guide' },
@@ -48,7 +48,7 @@ const APP_PRESENTATION = {
   },
   taylor: {
     accent: 'var(--atum-app-taylor)',
-    avatarUrl: '/specialists/taylor-avatar.svg',
+    avatarUrl: './specialists/taylor-avatar.svg',
     name: 'Taylor',
     order: 4,
     role: { vi: 'Chuyên gia nghiên cứu tài chính', en: 'Financial research specialist' },

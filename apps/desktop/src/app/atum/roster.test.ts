@@ -125,7 +125,7 @@ describe('buildAtumRoster', () => {
 
     expect(roster[1]).toMatchObject({
       role: 'Kế toán trưởng',
-      avatarUrl: '/specialists/moon-avatar.png',
+      avatarUrl: './specialists/moon-avatar.png',
       presence: 'online',
       preview: 'Chào Minh',
       verified: true

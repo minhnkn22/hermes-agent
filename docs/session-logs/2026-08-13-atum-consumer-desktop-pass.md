@@ -80,6 +80,12 @@ suite: 269 UI files / 2,273 passed / 1 existing skip; Electron 74 files passed /
 the temporary Git-fixture `ALLOW_NO_DOCS_LOG=1` bypass did not represent product
 failures. Exact-source package, install, and visual evidence are recorded below.
 
+The first packaged screenshot exposed a boundary the jsdom tests cannot model:
+absolute `/specialists/*` URLs resolve against the filesystem root under
+Electron's `file://` renderer and produced broken images even though the assets
+were present. The catalog now uses package-relative `./specialists/*` URLs; the
+package was rebuilt from the follow-up commit and visually rechecked.
+
 ## Follow-ups deliberately not faked in this pass
 
 - Profile email/phone editing needs a hosted account projection and write API,
