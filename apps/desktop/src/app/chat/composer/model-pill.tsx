@@ -9,8 +9,9 @@ import { GlyphSpinner } from '@/components/ui/glyph-spinner'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { ChevronDown } from '@/lib/icons'
-import { formatModelStatusLabel } from '@/lib/model-status-label'
+import { displayModelName, formatModelStatusLabel } from '@/lib/model-status-label'
 import { cn } from '@/lib/utils'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { $currentModelSource, setModelPickerOpen } from '@/store/session'
 
 import type { ChatBarState } from './types'
@@ -48,6 +49,7 @@ export function ModelPill({
   const fastMode = useStore(view.$fast)
   const reasoningEffort = useStore(view.$reasoningEffort)
   const modelSource = useStore($currentModelSource)
+  const atumShellEnabled = useStore($atumShellEnabled)
   const runtimeId = useStore(view.$runtimeId)
   const [open, setOpen] = useState(false)
 
@@ -68,11 +70,15 @@ export function ModelPill({
   ) : (
     <>
       {currentModel.trim() ? (
-        <span className="truncate">{formatModelStatusLabel(currentModel, { fastMode, reasoningEffort })}</span>
+        <span className="truncate">
+          {atumShellEnabled
+            ? displayModelName(currentModel)
+            : formatModelStatusLabel(currentModel, { fastMode, reasoningEffort })}
+        </span>
       ) : (
         <GlyphSpinner className="opacity-50" spinner="braille" />
       )}
-      {pinnedOverride && (
+      {pinnedOverride && !atumShellEnabled && (
         <span
           aria-label={copy.modelPinned}
           className="size-1 shrink-0 rounded-full bg-(--ui-accent)"

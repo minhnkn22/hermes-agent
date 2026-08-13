@@ -1868,9 +1868,9 @@ text-* variant utilities. */ .btn-arc {
         content (rows, transcript, workspace body) carries none, so nothing
         repaints during scroll;
      3. a soft specular hairline on plate TOP edges (`--atum-sheen`).
-   The BrowserWindow already supplies native macOS vibrancy. The scoped clear
-   document paint below lets these recipes composite over that material while
-   keeping the legacy Hermes shell opaque.
+   The BrowserWindow supplies native macOS vibrancy during pre-paint. The Atum
+   root itself is opaque so wallpaper never becomes product content; glass is
+   created only by layering Atum's own surfaces.
 
    The transcript is the ONE opaque plane: `--atum-chat` /
    `--atum-chat-solid` are near-fully opaque so no desktop image or legacy
@@ -1878,10 +1878,10 @@ text-* variant utilities. */ .btn-arc {
    panels, and edges — never by making the transcript transparent. */
 .atum-shell {
   /* surfaces */
-  --atum-desk: rgb(222 218 210 / 90%);
+  --atum-desk: rgb(222 218 210);
   --atum-panel: rgb(249 248 245 / 74%);
   --atum-card: rgb(255 255 255 / 88%);
-  --atum-chat: rgb(253 252 250 / 96%);
+  --atum-chat: rgb(252 251 248);
   --atum-chat-solid: rgb(252 251 248);
   --atum-chat-veil: rgb(253 252 250 / 62%);
   --atum-rim: rgb(250 249 246 / 60%);
@@ -1892,8 +1892,13 @@ text-* variant utilities. */ .btn-arc {
   --atum-ink-deep: #141311;
   --atum-ink-strong: #1f1e1b;
   --atum-ink-soft: #63625d;
-  --atum-ink-muted: #8f8d87;
-  --atum-ink-faint: #a3a19b;
+  --atum-ink-muted: #6b6963;
+  --atum-ink-faint: #6f6d67;
+  --atum-verified: #a9701c;
+  --atum-app-moon: #6a4bbc;
+  --atum-app-andy: #5a9b8a;
+  --atum-app-ben: #a9701c;
+  --atum-app-taylor: #e8c547;
 
   /* hairlines & interaction */
   --atum-line: rgb(0 0 0 / 5%);
@@ -1916,6 +1921,15 @@ text-* variant utilities. */ .btn-arc {
 
   /* geometry */
   --atum-rim-h: 34px;
+
+  /* Consumer transcript density. Legacy Hermes retains its 13/18px scale. */
+  --conversation-text-font-size: 0.875rem;
+  --conversation-line-height: 1.375rem;
+  --conversation-caption-font-size: 0.8125rem;
+  --conversation-caption-line-height: 1.25rem;
+  --atum-text-title: 0.875rem;
+  --atum-text-body: 0.8125rem;
+  --atum-text-meta: 0.75rem;
 
   /* elevation */
   --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 6%), 0 8px 20px -12px rgb(0 0 0 / 22%);
@@ -1947,43 +1961,40 @@ text-* variant utilities. */ .btn-arc {
   --composer-shell-pad-block-end: 0.875rem;
 }
 
-/* BrowserWindow supplies the actual NSVisualEffectView on macOS in dev and in
-   packaged builds. Clear the document paint only while the Atum product shell
-   is mounted so its warm
-   translucent desk and plates can refract the native macOS material. Legacy
-   Hermes remains fully opaque when the fallback shell is selected. */
+/* BrowserWindow supplies the NSVisualEffectView during pre-paint. The opaque
+   Atum desk below prevents wallpaper from becoming recognizable product UI. */
 html:has(.atum-shell),
 body:has(.atum-shell),
 #root:has(.atum-shell) {
-  background: transparent;
+  background: var(--atum-desk, rgb(222 218 210));
 }
 
-/* Dark ramp derived from `atumTheme.darkColors` (themes/presets.ts) — the same
-   warm dark palette, not a second one. */
+/* Neutral, high-contrast dark material. Warmth stays in the app accents and
+   surfaces; long-form transcript text follows the calmer Codex-style ramp. */
 .dark .atum-shell {
-  --atum-desk: rgb(12 11 10 / 92%);
-  --atum-panel: rgb(30 28 24 / 74%);
-  --atum-card: rgb(46 43 38 / 88%);
-  --atum-chat: rgb(38 35 30 / 96%);
-  --atum-chat-solid: rgb(36 33 29);
-  --atum-chat-veil: rgb(38 35 30 / 62%);
-  --atum-rim: rgb(30 28 24 / 60%);
-  --atum-sunk: rgb(24 22 19 / 88%);
+  --atum-desk: rgb(13 13 13);
+  --atum-panel: rgb(32 32 32);
+  --atum-card: rgb(49 49 49);
+  --atum-chat: rgb(24 24 24);
+  --atum-chat-solid: rgb(24 24 24);
+  --atum-chat-veil: rgb(24 24 24 / 92%);
+  --atum-rim: rgb(27 27 27);
+  --atum-sunk: rgb(19 19 19);
 
-  --atum-ink: #f2ece1;
-  --atum-ink-deep: #0c0b0a;
-  --atum-ink-strong: #fbf6ec;
-  --atum-ink-soft: #c3bbaf;
-  --atum-ink-muted: #afa69a;
-  --atum-ink-faint: #857d72;
+  --atum-ink: #f1f1f1;
+  --atum-ink-deep: #0d0d0d;
+  --atum-ink-strong: #fafafa;
+  --atum-ink-soft: #d1d1d1;
+  --atum-ink-muted: #a8a8a8;
+  --atum-ink-faint: #858585;
 
-  --atum-line: rgb(255 255 255 / 6%);
-  --atum-line-strong: rgb(255 255 255 / 12%);
-  --atum-hover: rgb(255 255 255 / 5%);
-  --atum-pressed: rgb(255 255 255 / 9%);
-  --atum-focus: rgb(242 236 225 / 32%);
-  --atum-auth-field-line: rgb(242 236 225 / 48%);
-  --atum-auth-focus: rgb(242 236 225 / 58%);
+  --atum-line: rgb(255 255 255 / 8%);
+  --atum-line-strong: rgb(255 255 255 / 15%);
+  --atum-hover: rgb(255 255 255 / 7%);
+  --atum-pressed: rgb(255 255 255 / 11%);
+  --atum-focus: rgb(255 255 255 / 34%);
+  --atum-auth-field-line: rgb(255 255 255 / 42%);
+  --atum-auth-focus: rgb(255 255 255 / 62%);
   --atum-sheen: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
 
   --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 32%), 0 8px 20px -12px rgb(0 0 0 / 55%);

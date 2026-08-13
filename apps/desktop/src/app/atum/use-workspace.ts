@@ -10,7 +10,7 @@ import { availableWorkspaceTabs, resolveWorkspaceTab } from './workspace-tabs'
 
 export interface AtumWorkspaceState {
   available: AtumWorkspaceTab[]
-  /** The tab actually shown. The real files pane is always available. */
+  /** The tab actually shown. Atum's consumer files pane is always available. */
   activeTab: AtumWorkspaceTab
   /** The DM conversation id when the foreground conversation is a hosted DM. */
   dmConversationId: null | string

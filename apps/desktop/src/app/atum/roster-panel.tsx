@@ -103,6 +103,7 @@ export function AtumRosterPanel({ compact = false, onNavigated }: AtumRosterPane
       key={entry.id}
       onOpen={() => open(entry)}
       unreadLabel={t.atum.roster.unread}
+      verifiedLabel={t.atum.roster.verified}
     />
   )
 
@@ -238,12 +239,14 @@ function AtumRosterRow({
   active,
   entry,
   onOpen,
-  unreadLabel
+  unreadLabel,
+  verifiedLabel
 }: {
   active: boolean
   entry: AtumRosterEntry
   onOpen: () => void
   unreadLabel: (count: number) => string
+  verifiedLabel: string
 }) {
   const label = entry.unreadCount > 0 ? `${entry.title}, ${unreadLabel(entry.unreadCount)}` : entry.title
   const line2 = entry.role || entry.preview
@@ -266,13 +269,19 @@ function AtumRosterRow({
         {entry.kind === 'assistant' ? (
           <BrandMark className="size-[34px] rounded-[var(--atum-r-tile)]" />
         ) : entry.avatarUrl ? (
-          <img alt="" className="size-[34px] rounded-full object-cover" src={entry.avatarUrl} />
+          <img
+            alt=""
+            className="size-[36px] rounded-[11px] object-cover shadow-(--atum-shadow-tile)"
+            src={entry.avatarUrl}
+          />
         ) : (
           <span
             aria-hidden="true"
-            className="grid size-[34px] place-items-center rounded-full text-[13px] font-semibold text-(--atum-ink-soft)"
+            className="grid size-[36px] place-items-center rounded-[11px] text-[14px] font-semibold text-(--atum-ink-soft) shadow-(--atum-shadow-tile)"
             style={{
-              background: `color-mix(in srgb, var(--ui-accent) ${ATUM_AVATAR_TINTS[entry.avatarTint]}%, var(--atum-sunk))`
+              background: entry.accent
+                ? `color-mix(in srgb, ${entry.accent} 24%, var(--atum-sunk))`
+                : `color-mix(in srgb, var(--ui-accent) ${ATUM_AVATAR_TINTS[entry.avatarTint]}%, var(--atum-sunk))`
             }}
           >
             {entry.title.slice(0, 1).toUpperCase()}
@@ -286,8 +295,20 @@ function AtumRosterRow({
         )}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-(--atum-ink)">{entry.title}</span>
-        {line2 && <span className="block truncate text-[11px] text-(--atum-ink-muted)">{line2}</span>}
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-[14px] font-medium text-(--atum-ink)">{entry.title}</span>
+          {entry.verified && (
+            <span
+              aria-label={verifiedLabel}
+              className="grid size-[13px] shrink-0 place-items-center rounded-full bg-(--atum-verified) text-[8px] font-bold leading-none text-white"
+              data-testid="verified-badge"
+              role="img"
+            >
+              ✓
+            </span>
+          )}
+        </span>
+        {line2 && <span className="block truncate text-[12px] text-(--atum-ink-muted)">{line2}</span>}
       </span>
       {entry.unreadCount > 0 ? (
         <span

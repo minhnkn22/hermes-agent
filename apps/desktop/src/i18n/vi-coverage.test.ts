@@ -99,6 +99,7 @@ describe('Atum namespace coverage across every locale', () => {
       'nav',
       'offline',
       'roster',
+      'settings',
       'workspace'
     ])
     expect(typeof catalog.atum.roster.unread(3)).toBe('string')

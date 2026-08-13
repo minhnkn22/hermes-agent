@@ -12,7 +12,26 @@ import { atom } from 'nanostores'
 
 export const $zoomPercent = atom<number>(100)
 
+// The 34px title rim aligns with native macOS traffic lights, which do not
+// participate in Electron zoom. Keep the consumer slider intentionally tight;
+// the full power-user zoom controls remain under Advanced.
+export const TEXT_SIZE_MIN_PERCENT = 90
+export const TEXT_SIZE_MAX_PERCENT = 110
+export const TEXT_SIZE_STEP_PERCENT = 10
+
+export function normalizeTextSizeSliderPercent(percent: number): number {
+  if (!Number.isFinite(percent)) {
+    return 100
+  }
+
+  return Math.min(TEXT_SIZE_MAX_PERCENT, Math.max(TEXT_SIZE_MIN_PERCENT, Math.round(percent)))
+}
+
 export function setZoomPercent(percent: number): void {
+  // Update immediately so the range control tracks the pointer even before
+  // the native bridge echoes the actually-applied value back. The main process
+  // remains authoritative and its onChanged event corrects any difference.
+  $zoomPercent.set(percent)
   window.hermesDesktop?.zoom?.setPercent(percent)
 }
 

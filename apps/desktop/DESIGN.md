@@ -122,24 +122,37 @@ three floating plates — **roster 274px**, **chat flex-1**, **workspace
 are the drag regions; there is no Hermes titlebar content and no statusbar.
 
 - **The rim carries the foreground conversation title and workspace toggle**.
-  In compact layouts it also carries the roster toggle. The brand mark lives
-  in the rail account tile. The rim hosts the macOS
+  In compact layouts it also carries the roster toggle. The rim hosts the macOS
   traffic lights. Session/profile/project/worktree pickers, pin, split, flip,
   model pill, approval mode, context usage, gateway, and tool clusters are
-  Hermes organisation and never return — they live in the account menu,
-  Settings, and ⌘K.
-- **The rail has exactly four controls**: account, chat, devices, settings. Devices is
+  Hermes organisation and never return — they live in Advanced Settings and
+  ⌘K.
+- **The rail has exactly four controls**: account, chat, devices, settings. The
+  account control is a circular user initial/icon, never the Atum brand mark,
+  and opens a focused identity dialog. Language and appearance belong in
+  Settings, not the account dialog. Devices is
   `aria-disabled` with no `onClick` and no pairing UI — a capability we do not
   have is shown honestly, not faked.
 - **There is no second chat header.** Conversation identity appears once in the
   34px rim; the transcript begins directly beneath it.
 - **The chat body is `WiredPane part="chatRoutes"`** — the same transcript, tool
   cards, and approvals the Hermes shell renders. Never fork a second one.
-- **The real Hermes files pane is always reachable** from the workspace toggle
-  and owns its honest no-folder state. Preview and conversation-detail tabs are
-  derived from live capability and never rendered-and-disabled.
+- **The workspace file tab is the Atum consumer browser**: Finder-style grid
+  by default, persistent grid/list switch, back/up navigation, and no dot
+  entries. Files still open through Hermes' existing preview pipeline. The
+  legacy Hermes developer tree remains unchanged behind Advanced surfaces.
+  Preview and conversation-detail tabs are derived from live capability and
+  never rendered-and-disabled.
 - **Sign-in is a full-window gate** (`atum/auth-view.tsx`, route
   `ATUM_AUTH_ROUTE = '/sign-in'`). Credentials are never collected in a rail.
+- **Settings is consumer-first in the Atum shell**: language, light/dark/system,
+  and persistent text size are the default surface. The complete Hermes
+  configuration remains intact behind one **Advanced / Nâng cao** disclosure;
+  disabling the Atum shell preserves the legacy Settings navigation verbatim.
+- **Account identity is truthful and read-only until the hosted profile seam
+  supports edits**: display name, handle, and account ID come from the native
+  account contract; unavailable email/phone are plain text, never disabled
+  inputs or fake save actions.
 - **The roster is Atum-only**: search first; the local Atum assistant as its own
   class; first-party app chats in curated order; then person-to-person chats by
   recency. Empty app/person headings are omitted. Hermes sessions, profiles,
@@ -155,9 +168,11 @@ Scoped to `.atum-shell` in `src/styles.css` (desktop themes write CSS vars from
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | surfaces               | `--atum-desk`, `--atum-panel`, `--atum-card`, `--atum-chat`, `--atum-chat-solid`, `--atum-chat-veil`, `--atum-rim`, `--atum-sunk` |
 | ink                    | `--atum-ink`, `-deep`, `-strong`, `-soft`, `-muted`, `-faint`                                                                     |
+| identity               | `--atum-verified`, `--atum-app-moon`, `--atum-app-andy`, `--atum-app-ben`, `--atum-app-taylor`                                    |
 | hairline / interaction | `--atum-line`, `-strong`, `--atum-hover`, `--atum-pressed`, `--atum-focus`, `--atum-sheen`                                        |
 | radii                  | `--atum-r-surface` (16px), `-composer`, `-card`, `-row`, `-control`, `-sm`, `-tile`                                               |
 | geometry               | `--atum-rim-h` (34px)                                                                                                             |
+| conversation density   | `--conversation-text-font-size`, `--conversation-line-height`, `--conversation-caption-*`, `--atum-text-title/body/meta`          |
 | elevation              | `--atum-shadow-panel`, `-chat`, `-row`, `-tile`                                                                                   |
 | motion                 | `--atum-ease`, `--atum-dur-fast`, `--atum-dur`, `--atum-dur-slow`                                                                 |
 

@@ -97,6 +97,7 @@ export function AtumDmView() {
               avatarUrl={conversationPresentation?.avatarUrl ?? ''}
               role={conversationPresentation?.role ?? ''}
               title={title}
+              verified={conversationPresentation?.verified ?? false}
             />
           )
         }
@@ -115,7 +116,17 @@ export function AtumDmView() {
   )
 }
 
-function DmEmptyState({ avatarUrl, role, title }: { avatarUrl: string; role: string; title: string }) {
+function DmEmptyState({
+  avatarUrl,
+  role,
+  title,
+  verified
+}: {
+  avatarUrl: string
+  role: string
+  title: string
+  verified: boolean
+}) {
   const { t } = useI18n()
 
   return (
@@ -127,9 +138,20 @@ function DmEmptyState({ avatarUrl, role, title }: { avatarUrl: string; role: str
           {title.slice(0, 1).toLocaleUpperCase()}
         </span>
       )}
-      <h2 className="mt-4 text-[15px] font-semibold tracking-[-0.01em] text-(--atum-ink)">
-        {t.dm.startConversation(title)}
-      </h2>
+      <div className="mt-4 flex items-center justify-center gap-1.5">
+        <h2 className="text-[16px] font-semibold tracking-[-0.01em] text-(--atum-ink)">
+          {t.dm.startConversation(title)}
+        </h2>
+        {verified && (
+          <span
+            aria-label={t.atum.roster.verified}
+            className="grid size-[14px] place-items-center rounded-full bg-(--atum-verified) text-[9px] font-bold text-white"
+            role="img"
+          >
+            ✓
+          </span>
+        )}
+      </div>
       {role && <p className="mt-1 text-[12px] text-(--atum-ink-muted)">{role}</p>}
     </div>
   )

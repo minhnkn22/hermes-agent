@@ -1,7 +1,7 @@
 import { useStore } from '@nanostores/react'
 import { useEffect, useRef } from 'react'
 
-import { FilesPane, PreviewRailPane } from '@/app/contrib/panes'
+import { PreviewRailPane } from '@/app/contrib/panes'
 import { Button } from '@/components/ui/button'
 import { SegmentedControl, type SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Tip } from '@/components/ui/tooltip'
@@ -20,6 +20,7 @@ import {
   setWorkspaceWidth
 } from '@/store/atum-shell'
 
+import { AtumConsumerFiles } from './consumer-files'
 import { presentAtumConversation } from './roster'
 import type { AtumWorkspaceState } from './use-workspace'
 
@@ -30,9 +31,9 @@ interface AtumWorkspacePanelProps {
 }
 
 /**
- * The right workspace plate. It keeps Hermes' modular capability rendering —
- * the REAL preview rail and the REAL file tree, not reimplementations — behind
- * a flattened, capability-derived tab set.
+ * The right workspace plate keeps Hermes' real preview pipeline, while Atum's
+ * Files tab presents the same desktop filesystem bridge as a consumer browser
+ * instead of exposing the developer-oriented project tree.
  *
  * Deliberately absent in P0: terminal, logs, review/diff, devtools/monitor
  * clusters, drag-to-rearrange, and layout presets. They still exist in the app
@@ -179,7 +180,7 @@ export function AtumWorkspacePanel({ drawer = false, workspace }: AtumWorkspaceP
 
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'view' && <PreviewRailPane />}
-        {activeTab === 'files' && <FilesPane />}
+        {activeTab === 'files' && <AtumConsumerFiles />}
         {activeTab === 'details' && <AtumConversationDetails conversationId={workspace.dmConversationId} />}
       </div>
     </aside>
@@ -205,7 +206,7 @@ function AtumConversationDetails({ conversationId }: { conversationId: null | st
 
   return (
     <div className="px-3 py-3">
-      <div className="rounded-[var(--atum-r-card)] border border-(--atum-line) bg-(--atum-card) p-4 shadow-(--atum-shadow-row)">
+      <div className="p-2">
         <div className="flex items-center gap-3">
           {presentation.avatarUrl ? (
             <img alt="" className="size-11 rounded-[var(--atum-r-tile)] object-cover" src={presentation.avatarUrl} />
@@ -215,7 +216,18 @@ function AtumConversationDetails({ conversationId }: { conversationId: null | st
             </span>
           )}
           <div className="min-w-0">
-            <div className="truncate text-[13px] font-semibold text-(--atum-ink)">{presentation.title}</div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="truncate text-[14px] font-semibold text-(--atum-ink)">{presentation.title}</div>
+              {presentation.verified && (
+                <span
+                  aria-label={t.atum.roster.verified}
+                  className="grid size-[13px] shrink-0 place-items-center rounded-full bg-(--atum-verified) text-[8px] font-bold text-white"
+                  role="img"
+                >
+                  ✓
+                </span>
+              )}
+            </div>
             <div className="mt-0.5 truncate text-[11px] text-(--atum-ink-muted)">
               {presentation.role || (presentation.kind === 'app' ? t.atum.roster.groupApps : t.atum.roster.groupPeople)}
             </div>

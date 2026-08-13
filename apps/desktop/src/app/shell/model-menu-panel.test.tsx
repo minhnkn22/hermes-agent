@@ -3,8 +3,15 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { DropdownMenu, DropdownMenuContent } from '@/components/ui/dropdown-menu'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
-import { $activeSessionId, $currentModel, $currentProvider } from '@/store/session'
+import {
+  $activeSessionId,
+  $currentModel,
+  $currentModelSource,
+  $currentProvider,
+  setCurrentModelSource
+} from '@/store/session'
 
 import { ModelMenuPanel } from './model-menu-panel'
 
@@ -42,11 +49,47 @@ const GOOGLE_PROVIDER = {
 const MOCK_PROVIDERS = [DEEPSEEK_PROVIDER, GOOGLE_PROVIDER, MOA_PROVIDER]
 
 beforeEach(() => {
+  $atumShellEnabled.set(false)
   $activeSessionId.set('runtime-1')
   $currentModel.set('')
   $currentProvider.set('')
+  setCurrentModelSource('')
   $collapsedProviders.set([])
   getGlobalModelOptions.mockResolvedValue({ providers: MOCK_PROVIDERS })
+})
+
+describe('Atum compact model menu', () => {
+  it('keeps the consumer surface bounded with an advanced escape', async () => {
+    $atumShellEnabled.set(true)
+    const { content } = renderPanel()
+
+    await content.findByText('Advanced options…')
+    expect(content.queryByRole('textbox', { name: 'Search models' })).toBeNull()
+    expect(content.queryAllByRole('menuitem').length).toBeLessThanOrEqual(8)
+  })
+
+  it('clears a sticky draft override back to the resolved default', async () => {
+    $atumShellEnabled.set(true)
+    $activeSessionId.set('')
+    $currentModel.set('deepseek/deepseek-v4-pro')
+    $currentProvider.set('deepseek')
+    setCurrentModelSource('manual')
+    getGlobalModelOptions.mockResolvedValueOnce({
+      model: 'gemini-3.1-pro',
+      provider: 'google',
+      providers: MOCK_PROVIDERS
+    })
+    const { content } = renderPanel()
+
+    const useDefault = await content.findByText('Use default')
+
+    await vi.waitFor(() => expect(useDefault.closest('[role="menuitem"]')?.getAttribute('data-disabled')).toBeNull())
+    fireEvent.click(useDefault)
+
+    expect($currentModel.get()).toBe('gemini-3.1-pro')
+    expect($currentProvider.get()).toBe('google')
+    expect($currentModelSource.get()).toBe('default')
+  })
 })
 
 afterEach(() => {

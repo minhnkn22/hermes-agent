@@ -13,6 +13,7 @@ const $atumAccountStatus = atom<AtumAccountStatus>({
   errorCode: null,
   providers: { google: true, password: true }
 })
+
 const $atumConnectivity = atom('online')
 const $atumSortedRoster = atom<AtumMessagingConversation[]>([])
 const refreshAtumRoster = vi.fn()

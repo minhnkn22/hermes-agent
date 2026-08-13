@@ -106,7 +106,32 @@ export const vi = defineLocale({
       menu: 'Menu tài khoản',
       signedOut: 'Chưa đăng nhập',
       language: 'Ngôn ngữ',
-      theme: 'Giao diện'
+      theme: 'Giao diện',
+      title: 'Tài khoản của bạn',
+      description: 'Thông tin hiện đang được kết nối với Atum.',
+      name: 'Tên',
+      username: 'Tên người dùng',
+      email: 'Email',
+      phone: 'Số điện thoại',
+      id: 'Mã Atum',
+      unavailable: 'Chưa có thông tin',
+      editUnavailable: 'Atum chưa hỗ trợ chỉnh sửa các thông tin này trong phiên bản hiện tại.'
+    },
+    settings: {
+      title: 'Cài đặt',
+      description: 'Tùy chỉnh giao diện và cách hiển thị nội dung của Atum trên máy này.',
+      general: 'Chung',
+      advanced: 'Nâng cao',
+      systemConfiguration: 'Cấu hình chuyên sâu',
+      appearance: 'Giao diện',
+      appearanceDescription: 'Tự động theo máy Mac hoặc chọn chế độ sáng hay tối.',
+      textSize: 'Cỡ chữ',
+      textSizeDescription: 'Điều chỉnh kích thước chữ và các nút điều khiển trong Atum.',
+      model: 'Mô hình',
+      speed: 'Tốc độ',
+      standard: 'Tiêu chuẩn',
+      useDefault: 'Dùng mặc định',
+      advancedOptions: 'Tùy chọn nâng cao…'
     },
     roster: {
       title: 'Trò chuyện',
@@ -125,7 +150,8 @@ export const vi = defineLocale({
       results: count => `${count} kết quả`,
       emptySearch: 'Không tìm thấy cuộc trò chuyện nào',
       emptySearchHint: 'Thử từ khóa khác.',
-      loadFailed: 'Không tải được danh sách trò chuyện'
+      loadFailed: 'Không tải được danh sách trò chuyện',
+      verified: 'Đã xác minh'
     },
     empty: {
       chips: ['Hỏi Atum một câu bất kỳ', 'Giao một việc trên máy này', 'Nhắn cho một chuyên gia']
@@ -148,7 +174,20 @@ export const vi = defineLocale({
       empty: 'Chưa có gì để xem',
       detailsConversation: 'Cuộc trò chuyện',
       detailsParticipants: 'Thành viên',
-      detailsUpdated: 'Hoạt động gần nhất'
+      detailsUpdated: 'Hoạt động gần nhất',
+      filesBack: 'Quay lại',
+      filesUp: 'Lên một thư mục',
+      filesRoot: 'Tệp của tôi',
+      filesView: 'Cách hiển thị tệp',
+      filesGrid: 'Biểu tượng',
+      filesList: 'Danh sách',
+      filesLoading: 'Đang mở thư mục…',
+      filesEmpty: 'Thư mục này đang trống',
+      filesError: 'Không mở được thư mục này.',
+      filesOpenError: 'Không mở được tệp này.',
+      filesRetry: 'Thử lại',
+      filesNoFolder: 'Chưa mở thư mục',
+      filesNoFolderHint: 'Bắt đầu một tác vụ với Atum để xem tệp tại đây.'
     },
     auth: {
       title: 'Chào mừng đến Atum',

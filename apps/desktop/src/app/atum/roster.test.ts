@@ -109,7 +109,7 @@ describe('buildAtumRoster', () => {
     expect(roster.map(entry => entry.title)).toEqual(['Atum', 'Taylor', 'Mary Jane', 'Trò chuyện nhóm'])
   })
 
-  it('reads role, avatar, and presence only from what the hosted row actually supplies', () => {
+  it('uses the approved first-party app presentation while presence remains hosted truth', () => {
     const roster = buildAtumRoster({
       ...base,
       activeSessionId: null,
@@ -125,13 +125,19 @@ describe('buildAtumRoster', () => {
 
     expect(roster[1]).toMatchObject({
       role: 'Kế toán trưởng',
-      avatarUrl: 'https://x/a.png',
+      avatarUrl: '/specialists/moon-avatar.png',
       presence: 'online',
-      preview: 'Chào Minh'
+      preview: 'Chào Minh',
+      verified: true
     })
-    // Curated first-party app copy is presentation truth; images/presence are
-    // still never fabricated when the hosted row does not supply them.
-    expect(roster[2]).toMatchObject({ role: 'Chuyên gia hướng nghiệp', avatarUrl: '', presence: null })
+    // Ben has no approved image asset. Keep the honest initial fallback while
+    // carrying the platform-owned official verification bit.
+    expect(roster[2]).toMatchObject({
+      role: 'Chuyên gia hướng nghiệp',
+      avatarUrl: '',
+      presence: null,
+      verified: true
+    })
   })
 
   it('keeps direct chats after app chats and orders people by recent activity', () => {

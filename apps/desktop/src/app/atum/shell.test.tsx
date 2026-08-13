@@ -61,8 +61,8 @@ afterEach(cleanup)
 beforeEach(() => {
   resetAtumShellState()
   $previewTarget.set(null)
-  // No cwd and no preview: the Assistant still exposes Hermes' real files
-  // pane, whose own empty state explains that no project is open yet.
+  // No cwd and no preview: the Assistant still exposes Atum's file browser,
+  // whose own empty state explains that no folder is open yet.
   $currentCwd.set('')
   $atumAccountStatus.set(signedIn)
   writableRoster.set([])
@@ -212,6 +212,16 @@ describe('AtumShellRoot — auth gate', () => {
     renderShell()
 
     expect(screen.getByRole('navigation', { name: 'Main navigation' })).toBeTruthy()
+  })
+
+  it('uses the generic account glyph when no account identity exists', () => {
+    $atumAccountStatus.set({ ...signedIn, configured: false, account: null, state: 'unconfigured' })
+    const { container } = renderShell()
+
+    const accountButton = screen.getByRole('button', { name: 'Account' })
+
+    expect(accountButton.textContent).not.toContain('A')
+    expect(container.querySelector('.codicon-account')).toBeTruthy()
   })
 
   it('does NOT gate an unconfigured build — the app still works without hosted DMs', () => {

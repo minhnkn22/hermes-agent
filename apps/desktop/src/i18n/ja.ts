@@ -58,7 +58,32 @@ export const ja = defineLocale({
       menu: 'アカウントメニュー',
       signedOut: '未ログイン',
       language: '言語',
-      theme: '外観'
+      theme: '外観',
+      title: 'アカウント',
+      description: '現在 Atum に接続されている情報です。',
+      name: '名前',
+      username: 'ユーザー名',
+      email: 'メールアドレス',
+      phone: '電話番号',
+      id: 'Atum ID',
+      unavailable: '利用できません',
+      editUnavailable: 'このバージョンの Atum では、まだこれらの情報を編集できません。'
+    },
+    settings: {
+      title: '設定',
+      description: 'このコンピューターでの Atum の表示と読みやすさを調整します。',
+      general: '一般',
+      advanced: '詳細設定',
+      systemConfiguration: 'システム設定',
+      appearance: '外観',
+      appearanceDescription: 'Mac に自動的に合わせるか、ライトまたはダークを選びます。',
+      textSize: '文字サイズ',
+      textSizeDescription: 'Atum 全体の文字とコントロールを小さく、または大きくします。',
+      model: 'モデル',
+      speed: '速度',
+      standard: '標準',
+      useDefault: 'デフォルトを使用',
+      advancedOptions: '詳細オプション…'
     },
     roster: {
       title: 'チャット',
@@ -77,7 +102,8 @@ export const ja = defineLocale({
       results: count => `${count} 件の結果`,
       emptySearch: 'チャットが見つかりません',
       emptySearchHint: '別のキーワードをお試しください。',
-      loadFailed: 'チャット一覧を読み込めませんでした'
+      loadFailed: 'チャット一覧を読み込めませんでした',
+      verified: '確認済み'
     },
     empty: {
       chips: ['Atum に何でも聞く', 'このコンピューターで作業を任せる', 'スペシャリストにメッセージ']
@@ -100,7 +126,20 @@ export const ja = defineLocale({
       empty: '表示できるものがまだありません',
       detailsConversation: '会話',
       detailsParticipants: '参加者',
-      detailsUpdated: '最終アクティビティ'
+      detailsUpdated: '最終アクティビティ',
+      filesBack: '戻る',
+      filesUp: '一つ上のフォルダ',
+      filesRoot: '自分のファイル',
+      filesView: 'ファイル表示',
+      filesGrid: 'アイコン',
+      filesList: 'リスト',
+      filesLoading: 'フォルダを開いています…',
+      filesEmpty: 'このフォルダは空です',
+      filesError: 'このフォルダを開けませんでした。',
+      filesOpenError: 'このファイルを開けませんでした。',
+      filesRetry: '再試行',
+      filesNoFolder: 'フォルダが開かれていません',
+      filesNoFolderHint: 'Atum でタスクを始めると、ここにファイルが表示されます。'
     },
     auth: {
       title: 'Atum へようこそ',

@@ -3,22 +3,27 @@ import { useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { SETTINGS_ROUTE } from '@/app/routes'
-import { BrandMark } from '@/components/brand-mark'
 import { StatusDot, type StatusTone } from '@/components/status-dot'
 import { Codicon } from '@/components/ui/codicon'
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { $atumConnectivity } from '@/store/atum-messaging'
+import { $atumAccountStatus, $atumConnectivity } from '@/store/atum-messaging'
 import { $railDestination } from '@/store/atum-shell'
 
-import { AtumAccountMenu } from './account-menu'
+import { AtumAccountDialog } from './account-menu'
 
 const RAIL_BUTTON = 'flex size-8 items-center justify-center rounded-[var(--atum-r-control)] transition-colors'
 
 function connectivityTone(connectivity: string): StatusTone | null {
-  if (connectivity === 'offline_cached' || connectivity === 'reconnecting') return 'warn'
-  if (connectivity === 'error' || connectivity === 'auth_expired') return 'bad'
+  if (connectivity === 'offline_cached' || connectivity === 'reconnecting') {
+    return 'warn'
+  }
+
+  if (connectivity === 'error' || connectivity === 'auth_expired') {
+    return 'bad'
+  }
+
   return null
 }
 
@@ -40,8 +45,11 @@ export function AtumRail() {
   const navigate = useNavigate()
   const destination = useStore($railDestination)
   const connectivity = useStore($atumConnectivity)
+  const account = useStore($atumAccountStatus)
   const navRef = useRef<HTMLElement>(null)
   const tone = connectivityTone(connectivity)
+  const accountLabel = account.account?.displayName || account.account?.handle || ''
+  const accountInitial = account.account ? accountLabel.trim().charAt(0).toLocaleUpperCase() || null : null
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
     const keys = ['ArrowDown', 'ArrowUp', 'End', 'Home']
@@ -57,6 +65,7 @@ export function AtumRail() {
     }
 
     const current = items.findIndex(item => item === document.activeElement)
+
     const next =
       event.key === 'Home'
         ? 0
@@ -77,17 +86,17 @@ export function AtumRail() {
       onKeyDown={onKeyDown}
       ref={navRef}
     >
-      <AtumAccountMenu>
+      <AtumAccountDialog>
         <button
           aria-label={t.atum.nav.account}
-          className="relative mb-1 rounded-[var(--atum-r-tile)] shadow-(--atum-shadow-tile) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--atum-focus)"
+          className="relative mb-1 grid size-[30px] place-items-center rounded-full border border-(--atum-line-strong) bg-(--atum-card) text-[length:var(--conversation-text-font-size)] font-semibold text-(--atum-ink) shadow-(--atum-shadow-tile) transition-colors hover:bg-(--atum-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--atum-focus)"
           data-rail-item
           type="button"
         >
-          <BrandMark className="size-[30px] rounded-[var(--atum-r-tile)]" />
+          {accountInitial ? <span aria-hidden>{accountInitial}</span> : <Codicon name="account" size="1rem" />}
           {tone && <StatusDot className="absolute -bottom-0.5 -right-0.5" tone={tone} />}
         </button>
-      </AtumAccountMenu>
+      </AtumAccountDialog>
 
       <Tip label={t.atum.nav.chat} side="right">
         <button

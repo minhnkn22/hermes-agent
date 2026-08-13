@@ -1,7 +1,7 @@
 /**
  * Which workspace tabs the CURRENT conversation can actually offer.
  *
- * The real Hermes file pane is always available and owns its honest no-folder
+ * Atum's consumer file pane is always available and owns its honest no-folder
  * state. Preview and conversation details remain capability-derived.
  */
 
@@ -31,7 +31,7 @@ export function availableWorkspaceTabs(capability: WorkspaceCapability): AtumWor
 }
 
 /** Resolve the tab to show: the user's choice when it is still available,
- *  otherwise the first available one. The files pane guarantees a result. */
+ *  otherwise the first available one. The consumer files pane guarantees a result. */
 export function resolveWorkspaceTab(
   preferred: AtumWorkspaceTab,
   available: readonly AtumWorkspaceTab[]

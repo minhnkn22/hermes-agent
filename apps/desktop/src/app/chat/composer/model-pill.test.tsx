@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { ChatBarState } from '@/app/chat/composer/types'
 import { type SessionView, SessionViewProvider } from '@/app/chat/session-view'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { $activeSessionId, $currentModel, setCurrentModel, setCurrentModelSource } from '@/store/session'
 
 import { ModelPill } from './model-pill'
@@ -20,12 +21,14 @@ afterEach(() => {
   $activeSessionId.set(null)
   setCurrentModel('')
   setCurrentModelSource('')
+  $atumShellEnabled.set(true)
 })
 
 // #62055: a manual composer pick is sticky and silently overrides the
 // Settings → Model default for every NEW chat. The pill must say so.
 describe('ModelPill pinned-override badge', () => {
   it('shows the pin dot on a draft running a manual pick', () => {
+    $atumShellEnabled.set(false)
     setCurrentModel('deepseek/deepseek-v4-flash')
     setCurrentModelSource('manual')
     $activeSessionId.set(null)
@@ -46,6 +49,7 @@ describe('ModelPill pinned-override badge', () => {
   })
 
   it('stays quiet on a live session (footer shows that session, not the pin)', () => {
+    $atumShellEnabled.set(false)
     setCurrentModel('deepseek/deepseek-v4-flash')
     setCurrentModelSource('manual')
     $activeSessionId.set('live-1')
@@ -56,6 +60,7 @@ describe('ModelPill pinned-override badge', () => {
   })
 
   it('is exercised in both render paths', () => {
+    $atumShellEnabled.set(false)
     setCurrentModel('deepseek/deepseek-v4-flash')
     setCurrentModelSource('manual')
     $activeSessionId.set(null)
@@ -77,6 +82,17 @@ describe('ModelPill pinned-override badge', () => {
     )
     expect(screen.getByTestId('model-pinned-dot')).toBeTruthy()
     expect($currentModel.get()).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  it('keeps the consumer Atum trigger free of power-user pin decoration', () => {
+    $atumShellEnabled.set(true)
+    setCurrentModel('deepseek/deepseek-v4-flash')
+    setCurrentModelSource('manual')
+
+    render(<ModelPill disabled={false} model={modelState({ model: 'deepseek/deepseek-v4-flash' })} />)
+
+    expect(screen.getByText('Deepseek V4 Flash')).toBeTruthy()
+    expect(screen.queryByTestId('model-pinned-dot')).toBeNull()
   })
 })
 
@@ -110,7 +126,16 @@ describe('ModelPill per-surface model label', () => {
       </SessionViewProvider>
     )
 
-    expect(screen.getByText('Sonnet · High')).toBeTruthy()
+    expect(screen.getByText('Sonnet')).toBeTruthy()
+    expect(screen.queryByText('Sonnet · High')).toBeNull()
     expect(screen.queryByText(/primary/i)).toBeNull()
+  })
+
+  it('keeps the richer Hermes status label outside the Atum shell', () => {
+    $atumShellEnabled.set(false)
+
+    render(<ModelPill disabled={false} model={modelState({ model: 'tile/claude-sonnet' })} />)
+
+    expect(screen.getByText('Sonnet · Med')).toBeTruthy()
   })
 })

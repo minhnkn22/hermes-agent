@@ -108,7 +108,32 @@ export const zh: Translations = {
       menu: '账户菜单',
       signedOut: '未登录',
       language: '语言',
-      theme: '外观'
+      theme: '外观',
+      title: '你的账户',
+      description: '当前连接到 Atum 的信息。',
+      name: '姓名',
+      username: '用户名',
+      email: '电子邮件',
+      phone: '电话号码',
+      id: 'Atum ID',
+      unavailable: '暂无信息',
+      editUnavailable: '当前版本的 Atum 暂不支持编辑这些信息。'
+    },
+    settings: {
+      title: '设置',
+      description: '自定义 Atum 在这台电脑上的外观和显示大小。',
+      general: '通用',
+      advanced: '高级',
+      systemConfiguration: '系统配置',
+      appearance: '外观',
+      appearanceDescription: '自动跟随 Mac，或选择浅色或深色模式。',
+      textSize: '文字大小',
+      textSizeDescription: '调整 Atum 中的文字和控件大小。',
+      model: '模型',
+      speed: '速度',
+      standard: '标准',
+      useDefault: '使用默认值',
+      advancedOptions: '高级选项…'
     },
     roster: {
       title: '对话',
@@ -127,7 +152,8 @@ export const zh: Translations = {
       results: count => `${count} 条结果`,
       emptySearch: '未找到对话',
       emptySearchHint: '换个关键词试试。',
-      loadFailed: '无法加载对话列表'
+      loadFailed: '无法加载对话列表',
+      verified: '已验证'
     },
     empty: {
       chips: ['随便问 Atum 一个问题', '在这台电脑上交办一项任务', '给专家发消息']
@@ -150,7 +176,20 @@ export const zh: Translations = {
       empty: '暂无内容',
       detailsConversation: '对话',
       detailsParticipants: '成员',
-      detailsUpdated: '最近活动'
+      detailsUpdated: '最近活动',
+      filesBack: '返回',
+      filesUp: '上一级文件夹',
+      filesRoot: '我的文件',
+      filesView: '文件视图',
+      filesGrid: '图标',
+      filesList: '列表',
+      filesLoading: '正在打开文件夹…',
+      filesEmpty: '此文件夹为空',
+      filesError: '无法打开此文件夹。',
+      filesOpenError: '无法打开此文件。',
+      filesRetry: '重试',
+      filesNoFolder: '未打开文件夹',
+      filesNoFolderHint: '与 Atum 开始任务后，文件会显示在这里。'
     },
     auth: {
       title: '欢迎使用 Atum',

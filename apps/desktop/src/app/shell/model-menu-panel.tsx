@@ -28,6 +28,7 @@ import {
 } from '@/lib/model-status-label'
 import { normalize } from '@/lib/text'
 import { cn } from '@/lib/utils'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { $modelPresets, applyModelPreset, modelPresetKey } from '@/store/model-presets'
 import {
   $visibleModels,
@@ -39,6 +40,7 @@ import {
   setModelVisibilityOpen
 } from '@/store/model-visibility'
 import { $collapsedProviders, toggleCollapsedProvider } from '@/store/provider-collapse'
+import { $currentModelSource, restoreComposerSelectionDefault } from '@/store/session'
 import type { ModelOptionProvider, ModelOptionsResponse } from '@/types/hermes'
 
 import { ModelEditSubmenu, resolveFastControl } from './model-edit-submenu'
@@ -69,7 +71,7 @@ interface ProviderGroup {
 }
 
 export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', requestGateway }: ModelMenuPanelProps) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const copy = t.shell.modelMenu
   const closeMenu = useContext(ModelMenuCloseContext)
   const [search, setSearch] = useState('')
@@ -86,6 +88,9 @@ export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', re
   const modelPresets = useStore($modelPresets)
   const visibleModels = useStore($visibleModels)
   const collapsedProviders = useStore($collapsedProviders)
+  const atumShellEnabled = useStore($atumShellEnabled)
+  const modelSource = useStore($currentModelSource)
+  const [advanced, setAdvanced] = useState(false)
 
   const modelOptions = useQuery({
     queryKey: modelOptionsQueryKey(profile, activeSessionId),
@@ -214,6 +219,113 @@ export function ModelMenuPanel({ gateway, onSelectModel, profile = 'default', re
       groupModels(pickerProviders, search, { model: optionsModel, provider: optionsProvider }, effectiveVisibleModels),
     [pickerProviders, search, optionsModel, optionsProvider, effectiveVisibleModels]
   )
+
+  const compactFamilies = useMemo(() => {
+    const rows = groups.flatMap(group => group.families.map(family => ({ family, provider: group.provider })))
+
+    const currentIndex = rows.findIndex(
+      row =>
+        row.provider.slug === optionsProvider && (row.family.id === optionsModel || row.family.fastId === optionsModel)
+    )
+
+    if (currentIndex > 4) {
+      const [current] = rows.splice(currentIndex, 1)
+
+      rows.unshift(current!)
+    }
+
+    return rows.slice(0, 5)
+  }, [groups, optionsModel, optionsProvider])
+
+  const useDefaultModel = () => {
+    const model = modelOptions.data?.model ?? ''
+    const provider = modelOptions.data?.provider ?? ''
+    const row = modelOptions.data?.providers?.find(candidate => candidate.slug === provider)
+    const fallbackModel = row?.models?.[0] ?? modelOptions.data?.providers?.[0]?.models?.[0] ?? ''
+    const fallbackProvider = fallbackModel ? (row?.slug ?? modelOptions.data?.providers?.[0]?.slug ?? '') : ''
+
+    restoreComposerSelectionDefault({
+      model: model || fallbackModel,
+      provider: model ? provider : fallbackProvider
+    })
+    closeMenu()
+  }
+
+  if (atumShellEnabled && !advanced) {
+    const effortLabel = reasoningEffortLabel(currentReasoningEffort) || copy.medium
+    const speedLabel = currentFastMode ? copy.fast : t.atum.settings.standard
+
+    return (
+      <div className="py-1 text-[13px]">
+        <DropdownMenuLabel className="flex items-center justify-between px-2.5 py-2 font-normal">
+          <span>{t.atum.settings.model}</span>
+          <span className="max-w-40 truncate text-(--ui-text-tertiary)">
+            {optionsModel || currentModel ? displayModelName(optionsModel || currentModel) : '…'}
+          </span>
+        </DropdownMenuLabel>
+        <DropdownMenuItem
+          className="flex items-center justify-between px-2.5 py-2 font-normal"
+          onSelect={event => {
+            event.preventDefault()
+            setAdvanced(true)
+          }}
+        >
+          <span>{t.shell.modelOptions.effort}</span>
+          <span className="text-(--ui-text-tertiary)">{effortLabel}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="flex items-center justify-between px-2.5 py-2 font-normal"
+          onSelect={event => {
+            event.preventDefault()
+            setAdvanced(true)
+          }}
+        >
+          <span>{t.atum.settings.speed}</span>
+          <span className="text-(--ui-text-tertiary)">{speedLabel}</span>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator className="mx-0" />
+
+        {compactFamilies.map(({ family, provider }) => {
+          const current =
+            provider.slug === optionsProvider && (family.id === optionsModel || family.fastId === optionsModel)
+
+          return (
+            <DropdownMenuItem
+              className={dropdownMenuRow}
+              key={`${provider.slug}:${family.id}`}
+              onSelect={event => {
+                event.preventDefault()
+                void selectFamily(family, provider).then(closeMenu)
+              }}
+            >
+              <span className="min-w-0 flex-1 truncate">{displayModelName(family.id)}</span>
+              {current ? <Codicon className="ml-auto" name="check" size="0.75rem" /> : null}
+            </DropdownMenuItem>
+          )
+        })}
+
+        {!activeSessionId && modelSource === 'manual' ? (
+          <DropdownMenuItem className={dropdownMenuRow} disabled={!modelOptions.data} onSelect={useDefaultModel}>
+            <Codicon name="discard" size="0.75rem" />
+            {t.atum.settings.useDefault}
+          </DropdownMenuItem>
+        ) : null}
+
+        <DropdownMenuSeparator className="mx-0" />
+        <DropdownMenuItem
+          className={cn(dropdownMenuRow, 'text-(--ui-text-tertiary)')}
+          onSelect={event => {
+            event.preventDefault()
+            setAdvanced(true)
+          }}
+        >
+          <Codicon name="settings-gear" size="0.75rem" />
+          {t.atum.settings.advancedOptions}
+        </DropdownMenuItem>
+      </div>
+    )
+  }
 
   return (
     <>

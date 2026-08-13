@@ -108,7 +108,32 @@ export const en: Translations = {
       menu: 'Account menu',
       signedOut: 'Signed out',
       language: 'Language',
-      theme: 'Appearance'
+      theme: 'Appearance',
+      title: 'Your account',
+      description: 'The information currently connected to Atum.',
+      name: 'Name',
+      username: 'Username',
+      email: 'Email',
+      phone: 'Phone number',
+      id: 'Atum ID',
+      unavailable: 'Not available',
+      editUnavailable: 'Editing these details is not available in this version of Atum yet.'
+    },
+    settings: {
+      title: 'Settings',
+      description: 'Personalize how Atum looks and reads on this computer.',
+      general: 'General',
+      advanced: 'Advanced',
+      systemConfiguration: 'System configuration',
+      appearance: 'Appearance',
+      appearanceDescription: 'Follow your Mac automatically, or choose light or dark mode.',
+      textSize: 'Text size',
+      textSizeDescription: 'Make text and controls smaller or larger across Atum.',
+      model: 'Model',
+      speed: 'Speed',
+      standard: 'Standard',
+      useDefault: 'Use default',
+      advancedOptions: 'Advanced options…'
     },
     roster: {
       title: 'Chats',
@@ -127,7 +152,8 @@ export const en: Translations = {
       results: count => `${count} results`,
       emptySearch: 'No chats found',
       emptySearchHint: 'Try another keyword.',
-      loadFailed: "Couldn't load your chats"
+      loadFailed: "Couldn't load your chats",
+      verified: 'Verified'
     },
     empty: {
       chips: ['Ask Atum anything', 'Hand off a task on this computer', 'Message a specialist']
@@ -150,7 +176,20 @@ export const en: Translations = {
       empty: 'Nothing to show yet',
       detailsConversation: 'Conversation',
       detailsParticipants: 'Participants',
-      detailsUpdated: 'Last activity'
+      detailsUpdated: 'Last activity',
+      filesBack: 'Back',
+      filesUp: 'Up one folder',
+      filesRoot: 'My files',
+      filesView: 'File view',
+      filesGrid: 'Icons',
+      filesList: 'List',
+      filesLoading: 'Opening folder…',
+      filesEmpty: 'This folder is empty',
+      filesError: "Couldn't open this folder.",
+      filesOpenError: "Couldn't open this file.",
+      filesRetry: 'Try again',
+      filesNoFolder: 'No folder is open',
+      filesNoFolderHint: 'Start a task with Atum to see its files here.'
     },
     auth: {
       title: 'Welcome to Atum',

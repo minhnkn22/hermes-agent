@@ -22,10 +22,38 @@ import { dmRoute, NEW_CHAT_ROUTE, sessionRoute } from '../routes'
 export type AtumRosterKind = 'assistant' | 'app' | 'direct'
 
 const APP_PRESENTATION = {
-  moon: { order: 1, role: { vi: 'Chuyên gia chiêm tinh', en: 'Astrology specialist' } },
-  andy: { order: 2, role: { vi: 'Người đồng hành tinh thần', en: 'Mental & emotional guide' } },
-  ben: { order: 3, role: { vi: 'Chuyên gia hướng nghiệp', en: 'Career counselor' } },
-  taylor: { order: 4, role: { vi: 'Chuyên gia nghiên cứu tài chính', en: 'Financial research specialist' } }
+  moon: {
+    accent: 'var(--atum-app-moon)',
+    avatarUrl: '/specialists/moon-avatar.png',
+    name: 'Moon',
+    order: 1,
+    role: { vi: 'Chuyên gia chiêm tinh', en: 'Astrology specialist' },
+    verified: true
+  },
+  andy: {
+    accent: 'var(--atum-app-andy)',
+    avatarUrl: '/specialists/andy-avatar.svg',
+    name: 'Andy',
+    order: 2,
+    role: { vi: 'Người đồng hành tinh thần', en: 'Mental & emotional guide' },
+    verified: true
+  },
+  ben: {
+    accent: 'var(--atum-app-ben)',
+    avatarUrl: '',
+    name: 'Ben',
+    order: 3,
+    role: { vi: 'Chuyên gia hướng nghiệp', en: 'Career counselor' },
+    verified: true
+  },
+  taylor: {
+    accent: 'var(--atum-app-taylor)',
+    avatarUrl: '/specialists/taylor-avatar.svg',
+    name: 'Taylor',
+    order: 4,
+    role: { vi: 'Chuyên gia nghiên cứu tài chính', en: 'Financial research specialist' },
+    verified: true
+  }
 } as const
 
 /** Deterministic avatar tint steps — an accent-mix percentage, never a raw
@@ -43,6 +71,10 @@ export interface AtumRosterEntry {
   role: string
   /** Hosted avatar image when the row carries one; else an initial on a tint. */
   avatarUrl: string
+  /** Curated first-party presentation, static by design and never inferred from `kind`. */
+  verified: boolean
+  /** Approved app accent; direct chats retain the neutral Atum tint. */
+  accent: string
   /** Index into ATUM_AVATAR_TINTS, derived from the id — stable across renders. */
   avatarTint: number
   /** `'online'` only when the hosted row says so; the assistant never has one. */
@@ -136,11 +168,13 @@ function appOrder(conversation: AtumMessagingConversation): number {
 }
 
 export interface AtumConversationPresentation {
+  accent: string
   avatarUrl: string
   kind: 'app' | 'direct'
   presence: 'online' | null
   role: string
   title: string
+  verified: boolean
 }
 
 /** One presentation adapter shared by the roster, transcript empty state and
@@ -150,16 +184,22 @@ export function presentAtumConversation(
   locale: Locale
 ): AtumConversationPresentation {
   const kind = conversation.kind === 'specialist' ? 'app' : 'direct'
+
+  const presentation =
+    kind === 'app' ? APP_PRESENTATION[appId(conversation) as keyof typeof APP_PRESENTATION] : undefined
+
   const suppliedTitle = conversation.title?.trim() ?? ''
   const participantLabel = conversation.participantIds.find(id => !UUID.test(id)) ?? ''
   const title = suppliedTitle && !UUID.test(suppliedTitle) ? suppliedTitle : participantLabel
 
   return {
-    avatarUrl: payloadString(conversation.payload, 'avatar_url', 'avatarUrl'),
+    accent: presentation?.accent ?? '',
+    avatarUrl: presentation?.avatarUrl ?? payloadString(conversation.payload, 'avatar_url', 'avatarUrl'),
     kind,
     presence: conversation.payload?.presence === 'online' ? 'online' : null,
     role: kind === 'app' ? appRole(conversation, locale) : '',
-    title: toDisplayTitle(title || (locale === 'vi' ? 'Cuộc trò chuyện' : 'Conversation'))
+    title: presentation?.name ?? toDisplayTitle(title || (locale === 'vi' ? 'Cuộc trò chuyện' : 'Conversation')),
+    verified: presentation?.verified ?? false
   }
 }
 
@@ -212,6 +252,8 @@ export function buildAtumRoster({
     preview: assistantHint,
     role: '',
     avatarUrl: '',
+    accent: '',
+    verified: false,
     avatarTint: 0,
     presence: null,
     unreadCount: 0,
@@ -233,6 +275,8 @@ export function buildAtumRoster({
       preview: dmPreview(conversation),
       role: presentation.role,
       avatarUrl: presentation.avatarUrl,
+      accent: presentation.accent,
+      verified: presentation.verified,
       avatarTint: avatarTintIndex(conversation.id),
       presence: presentation.presence,
       unreadCount: conversation.unreadCount,

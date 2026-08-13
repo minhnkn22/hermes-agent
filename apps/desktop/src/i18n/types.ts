@@ -158,6 +158,31 @@ export interface Translations {
       signedOut: string
       language: string
       theme: string
+      title: string
+      description: string
+      name: string
+      username: string
+      email: string
+      phone: string
+      id: string
+      unavailable: string
+      editUnavailable: string
+    }
+    settings: {
+      title: string
+      description: string
+      general: string
+      advanced: string
+      systemConfiguration: string
+      appearance: string
+      appearanceDescription: string
+      textSize: string
+      textSizeDescription: string
+      model: string
+      speed: string
+      standard: string
+      useDefault: string
+      advancedOptions: string
     }
     roster: {
       title: string
@@ -177,6 +202,7 @@ export interface Translations {
       emptySearch: string
       emptySearchHint: string
       loadFailed: string
+      verified: string
     }
     empty: {
       chips: [string, string, string]
@@ -200,6 +226,19 @@ export interface Translations {
       detailsConversation: string
       detailsParticipants: string
       detailsUpdated: string
+      filesBack: string
+      filesUp: string
+      filesRoot: string
+      filesView: string
+      filesGrid: string
+      filesList: string
+      filesLoading: string
+      filesEmpty: string
+      filesError: string
+      filesOpenError: string
+      filesRetry: string
+      filesNoFolder: string
+      filesNoFolderHint: string
     }
     auth: {
       title: string

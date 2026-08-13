@@ -134,11 +134,13 @@ describe('Atum shell — the chat plane is opaque and the composer is Atum-shape
   it('paints an opaque Atum chat ground under every chat descendant', () => {
     // Scoped override — the legacy shell keeps its own surface color.
     expect(styles).toMatch(/\.atum-shell\s*\{[^}]*--ui-chat-surface-background:\s*var\(--atum-chat-solid\)/u)
-    // Near-fully opaque chat tokens in both ramps: nothing recognizable can
+    // Fully opaque chat tokens in both ramps: nothing recognizable can
     // leak through the transcript.
-    expect(styles).toContain('--atum-chat: rgb(253 252 250 / 96%)')
+    expect(styles).toContain('--atum-chat: rgb(252 251 248)')
     expect(styles).toContain('--atum-chat-solid: rgb(252 251 248)')
-    expect(styles).toContain('--atum-chat: rgb(38 35 30 / 96%)')
+    expect(styles).toContain('--atum-chat: rgb(24 24 24)')
+    expect(styles).toContain('--atum-desk: rgb(222 218 210)')
+    expect(styles).toContain('--atum-desk: rgb(13 13 13)')
   })
 
   it('scopes the rounded floating composer to the Atum shell', () => {
