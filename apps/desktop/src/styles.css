@@ -1863,8 +1863,8 @@ text-* variant utilities. */ .btn-arc {
    "Liquid glass" here is exactly three pure-CSS effects and nothing else:
      1. depth by elevation, not borders — `--atum-shadow-chat` sits above
         `--atum-shadow-panel`, and no divider borders run between regions;
-     2. translucent veils on PINNED structural surfaces only — the rim, the
-        plates, and `.atum-chat-header` carry a backdrop-filter; scrolling
+     2. translucent veils on PINNED structural surfaces only — the rim and
+        plates carry a backdrop-filter; scrolling
         content (rows, transcript, workspace body) carries none, so nothing
         repaints during scroll;
      3. a soft specular hairline on plate TOP edges (`--atum-sheen`).
@@ -1915,7 +1915,7 @@ text-* variant utilities. */ .btn-arc {
   --atum-r-tile: 9px;
 
   /* geometry */
-  --atum-rim-h: 44px;
+  --atum-rim-h: 34px;
 
   /* elevation */
   --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 6%), 0 8px 20px -12px rgb(0 0 0 / 22%);
@@ -2015,19 +2015,13 @@ body:has(.atum-shell),
   contain: layout paint;
 }
 
-/* The top rim: full-width brand band that hosts the traffic lights and gives
-   the plates a lid. Same pinned-veil recipe as the plates. */
+/* The top rim: one native-height conversation band that hosts the traffic
+   lights and gives the plates a lid. Same pinned-veil recipe as the plates. */
 .atum-rim {
   height: var(--atum-rim-h);
   background: var(--atum-rim);
   border-bottom: 1px solid var(--atum-line);
   box-shadow: var(--atum-sheen);
-  backdrop-filter: blur(30px) saturate(180%);
-}
-
-.atum-chat-header {
-  background: var(--atum-chat-veil);
-  border-bottom: 1px solid var(--atum-line);
   backdrop-filter: blur(30px) saturate(180%);
 }
 

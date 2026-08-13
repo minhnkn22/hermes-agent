@@ -5,14 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { AtumMessagingConversation } from '@/lib/atum-messaging-client'
 
-import {
-  ATUM_AVATAR_TINTS,
-  avatarTintIndex,
-  buildAtumRoster,
-  filterRoster,
-  foldSearchText,
-  toDisplayTitle
-} from './roster'
+import { ATUM_AVATAR_TINTS, avatarTintIndex, buildAtumRoster, filterRoster, foldSearchText } from './roster'
 
 const conversation = (overrides: Partial<AtumMessagingConversation> = {}): AtumMessagingConversation => ({
   id: 'c1',
@@ -81,6 +74,24 @@ describe('buildAtumRoster', () => {
     })
 
     expect(roster[1]!.title).toBe('Moon')
+  })
+
+  it('never turns an opaque participant id into visible conversation copy', () => {
+    const roster = buildAtumRoster({
+      ...base,
+      activeSessionId: null,
+      conversations: [
+        conversation({
+          kind: 'direct',
+          title: null,
+          participantIds: ['9ae6e579-671e-4d35-bdb8-390002bd6217']
+        })
+      ],
+      dmsAvailable: true
+    })
+
+    expect(roster[1]!.title).toBe('Cuộc trò chuyện')
+    expect(roster[1]!.title).not.toContain('9ae6e579')
   })
 
   it('title-cases lowercase hosted names but leaves self-cased titles alone', () => {
@@ -162,6 +173,7 @@ describe('buildAtumRoster', () => {
       conversations: [conversation()],
       dmsAvailable: true
     })
+
     const second = buildAtumRoster({
       ...base,
       activeSessionId: null,

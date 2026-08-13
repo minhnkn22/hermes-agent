@@ -64,4 +64,16 @@ describe('DmComposer', () => {
     expect((screen.getByRole('textbox') as HTMLTextAreaElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Gửi' }) as HTMLButtonElement).disabled).toBe(true)
   })
+
+  it('shows contextual reconnecting copy without disabling queued composition', () => {
+    render(
+      <I18nProvider configClient={null} initialLocale="vi">
+        <DmComposer conversationId="conversation-1" disabled={false} placeholder="Đang kết nối lại…" />
+      </I18nProvider>
+    )
+
+    const composer = screen.getByRole('textbox') as HTMLTextAreaElement
+    expect(composer.placeholder).toBe('Đang kết nối lại…')
+    expect(composer.disabled).toBe(false)
+  })
 })

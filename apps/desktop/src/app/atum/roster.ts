@@ -81,6 +81,7 @@ function dmPreview(conversation: AtumMessagingConversation): string {
 }
 
 const HAS_UPPERCASE = /\p{Lu}/u
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
 /**
  * Display title for a hosted row. Hosted specialist ids arrive lowercase
@@ -132,6 +133,34 @@ function appRole(conversation: AtumMessagingConversation, locale: Locale): strin
 
 function appOrder(conversation: AtumMessagingConversation): number {
   return APP_PRESENTATION[appId(conversation) as keyof typeof APP_PRESENTATION]?.order ?? Number.MAX_SAFE_INTEGER
+}
+
+export interface AtumConversationPresentation {
+  avatarUrl: string
+  kind: 'app' | 'direct'
+  presence: 'online' | null
+  role: string
+  title: string
+}
+
+/** One presentation adapter shared by the roster, transcript empty state and
+ * workspace details. Raw participant ids never need to become UI copy. */
+export function presentAtumConversation(
+  conversation: AtumMessagingConversation,
+  locale: Locale
+): AtumConversationPresentation {
+  const kind = conversation.kind === 'specialist' ? 'app' : 'direct'
+  const suppliedTitle = conversation.title?.trim() ?? ''
+  const participantLabel = conversation.participantIds.find(id => !UUID.test(id)) ?? ''
+  const title = suppliedTitle && !UUID.test(suppliedTitle) ? suppliedTitle : participantLabel
+
+  return {
+    avatarUrl: payloadString(conversation.payload, 'avatar_url', 'avatarUrl'),
+    kind,
+    presence: conversation.payload?.presence === 'online' ? 'online' : null,
+    role: kind === 'app' ? appRole(conversation, locale) : '',
+    title: toDisplayTitle(title || (locale === 'vi' ? 'Cuộc trò chuyện' : 'Conversation'))
+  }
 }
 
 function activityTime(conversation: AtumMessagingConversation): string {
@@ -195,17 +224,17 @@ export function buildAtumRoster({
   }
 
   const entries = conversations.map<AtumRosterEntry>(conversation => {
-    const kind: AtumRosterKind = conversation.kind === 'specialist' ? 'app' : 'direct'
+    const presentation = presentAtumConversation(conversation, locale)
 
     return {
       id: conversation.id,
-      kind,
-      title: toDisplayTitle(conversation.title ?? conversation.participantIds[0] ?? conversation.id),
+      kind: presentation.kind,
+      title: presentation.title,
       preview: dmPreview(conversation),
-      role: kind === 'app' ? appRole(conversation, locale) : '',
-      avatarUrl: payloadString(conversation.payload, 'avatar_url', 'avatarUrl'),
+      role: presentation.role,
+      avatarUrl: presentation.avatarUrl,
       avatarTint: avatarTintIndex(conversation.id),
-      presence: conversation.payload?.presence === 'online' ? 'online' : null,
+      presence: presentation.presence,
       unreadCount: conversation.unreadCount,
       route: dmRoute(conversation.id),
       activityAt: activityTime(conversation)
@@ -220,6 +249,7 @@ export function buildAtumRoster({
 
       return appOrder(leftConversation) - appOrder(rightConversation) || left.title.localeCompare(right.title)
     })
+
   const direct = entries
     .filter(entry => entry.kind === 'direct')
     .sort((left, right) => (right.activityAt ?? '').localeCompare(left.activityAt ?? ''))

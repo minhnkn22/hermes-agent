@@ -59,6 +59,7 @@ export const en: Translations = {
     sending: 'Sending...',
     sendFailed: 'Send failed',
     noMessages: 'No messages yet',
+    startConversation: name => `Start a conversation with ${name}`,
     noConversations: 'No conversations yet',
     offline: 'Offline',
     reconnecting: 'Reconnecting...',

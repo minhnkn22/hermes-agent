@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -30,7 +30,7 @@ vi.mock('@/store/atum-messaging', async () => {
   }
 })
 
-const { $atumAccountStatus } = await import('@/store/atum-messaging')
+const { $atumAccountStatus, $atumSortedRoster } = await import('@/store/atum-messaging')
 const { $previewTarget } = await import('@/store/preview')
 const { $currentCwd } = await import('@/store/session')
 const { $workspaceOpen, resetAtumShellState } = await import('@/store/atum-shell')
@@ -42,6 +42,10 @@ const signedIn: AtumAccountStatus = {
   account: { id: 'a', displayName: 'Minh' },
   errorCode: null,
   providers: { google: true, password: true }
+}
+
+const writableRoster = $atumSortedRoster as unknown as {
+  set(next: Array<Record<string, unknown>>): void
 }
 
 function renderShell(path = '/') {
@@ -57,10 +61,11 @@ afterEach(cleanup)
 beforeEach(() => {
   resetAtumShellState()
   $previewTarget.set(null)
-  // No cwd and no preview ⇒ the conversation genuinely offers no workspace
-  // capability, which is the baseline these tests reason about.
+  // No cwd and no preview: the Assistant still exposes Hermes' real files
+  // pane, whose own empty state explains that no project is open yet.
   $currentCwd.set('')
   $atumAccountStatus.set(signedIn)
+  writableRoster.set([])
 })
 
 describe('AtumShellRoot — signed in', () => {
@@ -74,7 +79,7 @@ describe('AtumShellRoot — signed in', () => {
     expect(rim!.parentElement!.firstElementChild).toBe(rim)
     expect(rim!.querySelectorAll('button')).toHaveLength(1)
     expect(rim!.querySelector('[aria-label="Open workspace"]')).toBeTruthy()
-    // The brand lockup is the wordmark, not a Hermes noun.
+    // The rim names the foreground conversation, not a Hermes noun.
     expect(rim!.textContent).toContain('Atum')
   })
 
@@ -94,7 +99,7 @@ describe('AtumShellRoot — signed in', () => {
       )
     }
 
-    // Exactly the brand lockup plus the sanctioned control — nothing else
+    // Exactly the conversation title plus the sanctioned control — nothing else
     // interactive may sneak back in.
     expect(rim.querySelectorAll('button, [role="button"]')).toHaveLength(1)
   })
@@ -102,7 +107,7 @@ describe('AtumShellRoot — signed in', () => {
   it('renders exactly one rail with account, chat, devices, and settings', () => {
     renderShell()
 
-    const rails = document.querySelectorAll('nav')
+    const rails = globalThis.document.querySelectorAll('nav')
     const rail = screen.getByRole('navigation', { name: 'Main navigation' })
     const buttons = rail.querySelectorAll('button')
 
@@ -121,7 +126,7 @@ describe('AtumShellRoot — signed in', () => {
 
     expect(devices.getAttribute('aria-disabled')).toBe('true')
     // No pairing/device state may leak into P0 output.
-    expect(document.body.textContent).not.toMatch(/pair|paired|ghép đôi/iu)
+    expect(globalThis.document.body.textContent).not.toMatch(/pair|paired|ghép đôi/iu)
   })
 
   it('renders no statusbar and no pane tree', () => {
@@ -131,30 +136,49 @@ describe('AtumShellRoot — signed in', () => {
     expect(container.querySelector('[data-pane-tree]')).toBeNull()
   })
 
-  it('shows the chat plate with a conversation header of at most one control (compact roster toggle)', () => {
+  it('uses the single thin rim as the only conversation header', () => {
     const { container } = renderShell()
 
-    const header = container.querySelector('.atum-chat-header')
-
-    expect(header).toBeTruthy()
-    expect(header!.querySelectorAll('button').length).toBeLessThanOrEqual(1)
+    expect(container.querySelectorAll('[data-atum-rim]')).toHaveLength(1)
+    expect(container.querySelector('.atum-chat-header')).toBeNull()
   })
 
-  it('keeps the workspace toggle in the rim, disabled but visible when the conversation offers no capability', () => {
+  it('keeps the Assistant workspace toggle functional before a cwd exists', () => {
     const { container } = renderShell()
 
     const rim = container.querySelector('[data-atum-rim]')!
     const toggle = rim.querySelector('[aria-label="Open workspace"]')!
 
-    expect(toggle.getAttribute('aria-disabled')).toBe('true')
-    // The chat header no longer hosts it.
-    expect(container.querySelector('.atum-chat-header [aria-label="Open workspace"]')).toBeNull()
+    expect(toggle.hasAttribute('aria-disabled')).toBe(false)
+    fireEvent.click(toggle)
+    expect($workspaceOpen.get()).toBe(true)
   })
 
-  it('renders exactly one chat header veil inside the chat plate', () => {
+  it('uses the shared presentation adapter for a DM title instead of exposing an opaque id', () => {
+    writableRoster.set([
+      {
+        id: 'conversation-1',
+        title: null,
+        kind: 'direct',
+        participantIds: ['9ae6e579-671e-4d35-bdb8-390002bd6217'],
+        updatedAt: '2026-08-13T00:00:00.000Z',
+        lastMessageAt: null,
+        unreadCount: 0,
+        payload: {}
+      }
+    ])
+
+    const { container } = renderShell('/dm/conversation-1')
+    const rim = container.querySelector('[data-atum-rim]')!
+
+    expect(rim.textContent).toContain('Conversation')
+    expect(rim.textContent).not.toContain('9ae6e579')
+  })
+
+  it('does not stack a second conversation header inside the chat plate', () => {
     const { container } = renderShell()
 
-    expect(container.querySelectorAll('.atum-chat-header')).toHaveLength(1)
+    expect(container.querySelectorAll('.atum-chat-header')).toHaveLength(0)
   })
 
   it('does not open the workspace when a preview target arrives in the background', () => {
@@ -177,8 +201,8 @@ describe('AtumShellRoot — auth gate', () => {
       // The inline-sidebar-form regression cannot come back silently: with the
       // gate up there is no rail, no roster, and no chat plate in the DOM at all.
       expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull()
-      expect(document.querySelector('.atum-plate-chat')).toBeNull()
-      expect(document.querySelector('[data-atum-roster]')).toBeNull()
+      expect(globalThis.document.querySelector('.atum-plate-chat')).toBeNull()
+      expect(globalThis.document.querySelector('[data-atum-roster]')).toBeNull()
       expect(screen.getByRole('heading', { level: 1 })).toBeTruthy()
     }
   )

@@ -7,6 +7,7 @@ import { SegmentedControl, type SegmentedControlOption } from '@/components/ui/s
 import { Tip } from '@/components/ui/tooltip'
 import { useI18n } from '@/i18n'
 import { X } from '@/lib/icons'
+import { relativeTime } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { $atumSortedRoster } from '@/store/atum-messaging'
 import {
@@ -19,6 +20,7 @@ import {
   setWorkspaceWidth
 } from '@/store/atum-shell'
 
+import { presentAtumConversation } from './roster'
 import type { AtumWorkspaceState } from './use-workspace'
 
 interface AtumWorkspacePanelProps {
@@ -58,7 +60,12 @@ export function AtumWorkspacePanel({ drawer = false, workspace }: AtumWorkspaceP
 
   const options: Array<SegmentedControlOption<AtumWorkspaceTab>> = available.map(tab => ({
     id: tab,
-    label: tab === 'view' ? t.atum.workspace.tabView : tab === 'files' ? t.atum.workspace.tabFiles : t.atum.workspace.tabDetails
+    label:
+      tab === 'view'
+        ? t.atum.workspace.tabView
+        : tab === 'files'
+          ? t.atum.workspace.tabFiles
+          : t.atum.workspace.tabDetails
   }))
 
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -148,12 +155,17 @@ export function AtumWorkspacePanel({ drawer = false, workspace }: AtumWorkspaceP
         />
       )}
 
-      <header className="flex h-[44px] shrink-0 items-center gap-2 px-3">
+      <header className="flex h-[34px] shrink-0 items-center gap-2 px-3">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-(--atum-ink)">
           {t.atum.workspace.title}
         </span>
         <Tip label={t.atum.workspace.close}>
-          <Button aria-label={t.atum.workspace.close} onClick={() => setWorkspaceOpen(false)} size="icon-xs" variant="ghost">
+          <Button
+            aria-label={t.atum.workspace.close}
+            onClick={() => setWorkspaceOpen(false)}
+            size="icon-xs"
+            variant="ghost"
+          >
             <X />
           </Button>
         </Tip>
@@ -169,18 +181,13 @@ export function AtumWorkspacePanel({ drawer = false, workspace }: AtumWorkspaceP
         {activeTab === 'view' && <PreviewRailPane />}
         {activeTab === 'files' && <FilesPane />}
         {activeTab === 'details' && <AtumConversationDetails conversationId={workspace.dmConversationId} />}
-        {!activeTab && (
-          <div className="grid h-full place-items-center px-4 text-center text-xs text-(--atum-ink-muted)">
-            {t.atum.workspace.empty}
-          </div>
-        )}
       </div>
     </aside>
   )
 }
 
 function AtumConversationDetails({ conversationId }: { conversationId: null | string }) {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const roster = useStore($atumSortedRoster)
   const conversation = roster.find(entry => entry.id === conversationId)
 
@@ -192,20 +199,35 @@ function AtumConversationDetails({ conversationId }: { conversationId: null | st
     )
   }
 
+  const presentation = presentAtumConversation(conversation, locale)
+  const activityAt = conversation.lastMessageAt ?? conversation.updatedAt
+  const activityMs = Date.parse(activityAt)
+
   return (
-    <dl className="space-y-3 px-3 py-2 text-xs">
-      <div>
-        <dt className="text-(--atum-ink-muted)">{t.atum.workspace.detailsConversation}</dt>
-        <dd className="mt-0.5 truncate text-(--atum-ink)">{conversation.title ?? conversation.id}</dd>
+    <div className="px-3 py-3">
+      <div className="rounded-[var(--atum-r-card)] border border-(--atum-line) bg-(--atum-card) p-4 shadow-(--atum-shadow-row)">
+        <div className="flex items-center gap-3">
+          {presentation.avatarUrl ? (
+            <img alt="" className="size-11 rounded-[var(--atum-r-tile)] object-cover" src={presentation.avatarUrl} />
+          ) : (
+            <span className="grid size-11 place-items-center rounded-[var(--atum-r-tile)] bg-(--atum-sunk) text-sm font-semibold text-(--atum-ink-soft)">
+              {presentation.title.slice(0, 1).toLocaleUpperCase()}
+            </span>
+          )}
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold text-(--atum-ink)">{presentation.title}</div>
+            <div className="mt-0.5 truncate text-[11px] text-(--atum-ink-muted)">
+              {presentation.role || (presentation.kind === 'app' ? t.atum.roster.groupApps : t.atum.roster.groupPeople)}
+            </div>
+          </div>
+        </div>
+
+        {Number.isFinite(activityMs) && (
+          <div className="mt-4 border-t border-(--atum-line) pt-3 text-[11px] text-(--atum-ink-muted)">
+            {t.atum.workspace.detailsUpdated} · {relativeTime(activityMs)}
+          </div>
+        )}
       </div>
-      <div>
-        <dt className="text-(--atum-ink-muted)">{t.atum.workspace.detailsParticipants}</dt>
-        <dd className="mt-0.5 text-(--atum-ink)">{conversation.participantIds.join(', ')}</dd>
-      </div>
-      <div>
-        <dt className="text-(--atum-ink-muted)">{t.atum.workspace.detailsUpdated}</dt>
-        <dd className="mt-0.5 text-(--atum-ink)">{conversation.lastMessageAt ?? conversation.updatedAt}</dd>
-      </div>
-    </dl>
+    </div>
   )
 }

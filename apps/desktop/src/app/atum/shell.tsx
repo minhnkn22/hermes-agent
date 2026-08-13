@@ -24,8 +24,8 @@ import { AtumAuthView } from './auth-view'
 import { AtumChatPanel } from './chat-panel'
 import { AtumRail } from './rail'
 import { AtumRim } from './rim'
+import { presentAtumConversation } from './roster'
 import { AtumRosterPanel } from './roster-panel'
-import { toDisplayTitle } from './roster'
 import { useAtumWorkspace } from './use-workspace'
 
 // The workspace pulls in the real preview rail and file tree. It is closed by
@@ -36,19 +36,18 @@ const AtumWorkspacePanel = lazy(async () => ({ default: (await import('./workspa
 /**
  * The Atum product shell.
  *
- * Layout: a full-width 44px rim on top (traffic lights + brand lockup +
+ * Layout: one native-height title band on top (traffic lights + conversation +
  * workspace toggle), then the plate row (rail, roster, chat, workspace) inside
  * the 10px gutter. The rim band and gutter are drag regions; the rail and every
  * plate opt out of dragging.
  *
  * This component is mounted INSIDE `ContribWiring`, so contributions, keybinds,
- * overlays, dialogs, notifications, the command palette, the persistent
  * terminal host, and every boot surface are untouched by the branch. The full
  * Hermes engine — plugins, skills, providers, browser and computer control,
  * tool cards, approvals — is alive underneath; only the chrome differs.
  */
 export function AtumShellRoot() {
-  const { t } = useI18n()
+  const { locale, t } = useI18n()
   const account = useStore($atumAccountStatus)
   const roster = useStore($atumSortedRoster)
   const workspaceOpen = useStore($workspaceOpen)
@@ -116,14 +115,7 @@ export function AtumShellRoot() {
 
   const dmId = routeDmConversationId(location.pathname)
   const dmEntry = dmId ? roster.find(entry => entry.id === dmId) : undefined
-  const title = dmEntry ? toDisplayTitle(dmEntry.title ?? dmEntry.participantIds[0] ?? dmId) : t.atum.roster.assistant
-  // Conversation header's second line: the specialist's role when the hosted
-  // row supplies one; the local assistant always gets its hint. Never a
-  // placeholder when the payload has nothing to say.
-  const subtitle = dmEntry
-    ? (typeof dmEntry.payload?.role === 'string' && dmEntry.payload.role) || ''
-    : t.atum.roster.assistantHint
-
+  const title = dmEntry ? presentAtumConversation(dmEntry, locale).title : t.atum.roster.assistant
   // macOS traffic lights live in the rim, so the rim's content has to clear
   // them. Read the real position rather than assuming a platform; Windows and
   // Linux reserve the native overlay width on the right instead.
@@ -132,7 +124,13 @@ export function AtumShellRoot() {
 
   return (
     <main className="atum-shell relative flex h-dvh min-h-[520px] flex-col overflow-hidden bg-(--atum-desk) text-(--atum-ink) [-webkit-app-region:drag]">
-      <AtumRim controlsLeft={controlsPos.left} nativeOverlayWidth={nativeOverlayWidth} workspace={workspace} />
+      <AtumRim
+        controlsLeft={controlsPos.left}
+        nativeOverlayWidth={nativeOverlayWidth}
+        onToggleRoster={compact ? () => setRosterDrawerOpen(!rosterDrawerOpen) : undefined}
+        rosterOpen={rosterDrawerOpen}
+        title={title}
+      />
 
       <div className="flex min-h-0 flex-1 gap-2.5 p-2.5">
         <AtumRail />
@@ -141,14 +139,9 @@ export function AtumShellRoot() {
           <AtumRosterPanel compact={compact} onNavigated={() => compact && setRosterDrawerOpen(false)} />
         )}
 
-        <AtumChatPanel
-          onToggleRoster={compact ? () => setRosterDrawerOpen(!rosterDrawerOpen) : undefined}
-          rosterOpen={rosterDrawerOpen}
-          subtitle={subtitle}
-          title={title}
-        />
+        <AtumChatPanel />
 
-        {workspaceOpen && workspace.available.length > 0 && (
+        {workspaceOpen && (
           <Suspense fallback={null}>
             <AtumWorkspacePanel drawer={workspaceIsDrawer} workspace={workspace} />
           </Suspense>

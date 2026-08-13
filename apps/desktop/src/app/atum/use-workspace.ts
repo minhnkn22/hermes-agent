@@ -5,14 +5,13 @@ import { routeDmConversationId } from '@/app/routes'
 import type { AtumWorkspaceTab } from '@/store/atum-shell'
 import { $workspaceTab } from '@/store/atum-shell'
 import { $filePreviewTarget, $previewTarget } from '@/store/preview'
-import { $currentCwd } from '@/store/session'
 
 import { availableWorkspaceTabs, resolveWorkspaceTab } from './workspace-tabs'
 
 export interface AtumWorkspaceState {
   available: AtumWorkspaceTab[]
-  /** The tab actually shown, or null when the workspace has nothing to offer. */
-  activeTab: AtumWorkspaceTab | null
+  /** The tab actually shown. The real files pane is always available. */
+  activeTab: AtumWorkspaceTab
   /** The DM conversation id when the foreground conversation is a hosted DM. */
   dmConversationId: null | string
 }
@@ -27,13 +26,11 @@ export interface AtumWorkspaceState {
 export function useAtumWorkspace(): AtumWorkspaceState {
   const previewTarget = useStore($previewTarget)
   const filePreviewTarget = useStore($filePreviewTarget)
-  const cwd = useStore($currentCwd)
   const preferred = useStore($workspaceTab)
   const location = useLocation()
   const dmConversationId = routeDmConversationId(location.pathname)
 
   const available = availableWorkspaceTabs({
-    hasCwd: Boolean(cwd),
     hasPreview: Boolean(previewTarget || filePreviewTarget),
     isDm: Boolean(dmConversationId)
   })

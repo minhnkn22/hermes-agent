@@ -67,6 +67,7 @@ describe('Atum shell — no Hermes nouns reach the product surface', () => {
 
 describe('Atum shell — the rim carries Atum contents only', () => {
   const rim = readFileSync(join(ATUM_DIR, 'rim.tsx'), 'utf8')
+  const styles = readFileSync(resolve(ATUM_DIR, '../../styles.css'), 'utf8')
 
   it('hosts no Hermes organisation control', () => {
     const code = stripCommentsAndStrings(rim)
@@ -81,6 +82,43 @@ describe('Atum shell — the rim carries Atum contents only', () => {
     expect(rim).toContain('[-webkit-app-region:drag]')
     expect(rim).toContain('toggleWorkspace')
     expect(rim).not.toContain('AtumAccountMenu')
+  })
+
+  it('is the single 34px conversation band', () => {
+    expect(styles).toContain('--atum-rim-h: 34px')
+    expect(styles).not.toContain('.atum-chat-header {')
+  })
+})
+
+describe('Atum conversation surfaces — presentation, never wire data', () => {
+  const details = readFileSync(join(ATUM_DIR, 'workspace-panel.tsx'), 'utf8')
+  const dm = readFileSync(resolve(ATUM_DIR, '../dm/index.tsx'), 'utf8')
+
+  const dmSources = readdirSync(resolve(ATUM_DIR, '../dm'))
+    .filter(entry => entry.endsWith('.tsx') && !entry.includes('.test.'))
+    .map(entry => readFileSync(resolve(ATUM_DIR, '../dm', entry), 'utf8'))
+    .join('\n')
+
+  it('routes workspace identity through the shared presentation adapter', () => {
+    expect(details).toContain('presentAtumConversation(conversation, locale)')
+    expect(details).not.toContain("participantIds.join(', ')")
+    expect(details).not.toMatch(/conversation\.(?:id|updatedAt|lastMessageAt)\s*\}/u)
+  })
+
+  it('does not stack a second DM identity header', () => {
+    expect(dm).not.toContain('DmHeader')
+    expect(dm).not.toMatch(/<header\b/u)
+  })
+
+  it('keeps ambient connectivity out of the transcript plate', () => {
+    const chatPanel = readFileSync(join(ATUM_DIR, 'chat-panel.tsx'), 'utf8')
+
+    expect(chatPanel).not.toContain('$atumConnectivity')
+    expect(chatPanel).not.toMatch(/role="status"/u)
+  })
+
+  it('uses Atum material tokens throughout app and P2P chat', () => {
+    expect(dmSources).not.toContain('--ui-')
   })
 })
 

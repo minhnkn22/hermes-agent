@@ -59,6 +59,7 @@ export const zh: Translations = {
     sending: '发送中...',
     sendFailed: '发送失败',
     noMessages: '暂无消息',
+    startConversation: name => `开始与 ${name} 对话`,
     noConversations: '暂无对话',
     offline: '离线',
     reconnecting: '正在重新连接...',

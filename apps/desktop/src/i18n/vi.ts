@@ -57,6 +57,7 @@ export const vi = defineLocale({
     sending: 'Đang gửi...',
     sendFailed: 'Gửi thất bại',
     noMessages: 'Chưa có tin nhắn',
+    startConversation: name => `Bắt đầu trò chuyện với ${name}`,
     noConversations: 'Chưa có cuộc trò chuyện',
     offline: 'Ngoại tuyến',
     reconnecting: 'Đang kết nối lại...',

@@ -9,9 +9,10 @@ interface DmComposerProps {
   conversationId: string
   disabled: boolean
   onSend?: (text: string) => Promise<void> | void
+  placeholder?: string
 }
 
-export function DmComposer({ conversationId, disabled, onSend }: DmComposerProps) {
+export function DmComposer({ conversationId, disabled, onSend, placeholder }: DmComposerProps) {
   const { locale, t } = useI18n()
   const drafts = useStore($atumDrafts)
   const text = drafts[conversationId] ?? ''
@@ -45,22 +46,22 @@ export function DmComposer({ conversationId, disabled, onSend }: DmComposerProps
   }
 
   return (
-    <div className="shrink-0 border-t border-(--ui-border) p-4">
-      <div className="flex items-end gap-2 rounded-2xl border border-(--ui-border) bg-(--ui-control-background) p-1.5 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15">
+    <div className="shrink-0 px-4 pt-2 pb-4">
+      <div className="mx-auto flex w-full max-w-3xl items-end gap-2 rounded-[var(--atum-r-composer)] border border-(--atum-line-strong) bg-(--atum-card) p-1.5 shadow-(--atum-shadow-row) focus-within:border-(--atum-focus) focus-within:ring-3 focus-within:ring-(--atum-focus)/20">
         <textarea
           aria-label={t.dm.compose}
-          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-(--ui-text-tertiary) disabled:cursor-not-allowed disabled:opacity-50"
+          className="max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent px-2.5 py-2 text-[13px] text-(--atum-ink) outline-none placeholder:text-(--atum-ink-faint) disabled:cursor-not-allowed disabled:opacity-50"
           disabled={disabled}
           onBlur={() => void persistAtumDraft(conversationId)}
           onChange={event => setAtumDraft(conversationId, event.target.value)}
           onKeyDown={onKeyDown}
-          placeholder={disabled ? t.dm.loadingMessages : t.dm.compose}
+          placeholder={disabled ? t.dm.loadingMessages : (placeholder ?? t.dm.compose)}
           rows={1}
           value={text}
         />
         <Button
           aria-label={t.dm.send}
-          className="size-9 shrink-0 rounded-full"
+          className="size-9 shrink-0 rounded-full bg-(--atum-ink) text-(--atum-card) hover:bg-(--atum-ink-strong)"
           disabled={disabled || !text.trim()}
           onClick={() => void send()}
           size="icon"

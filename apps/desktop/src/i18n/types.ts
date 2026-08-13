@@ -104,6 +104,7 @@ export interface Translations {
     sending: string
     sendFailed: string
     noMessages: string
+    startConversation: (name: string) => string
     noConversations: string
     offline: string
     reconnecting: string

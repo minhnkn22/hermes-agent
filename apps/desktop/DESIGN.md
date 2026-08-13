@@ -115,13 +115,15 @@ surfaces are identical either way — only the chrome differs. Setting the flag
 false restores the legacy Hermes chrome (titlebar tool clusters, pane tree,
 statusbar) verbatim.
 
-Structure (`src/app/atum/`): a full-width **44px top rim** (macOS/Hermes
+Structure (`src/app/atum/`): a full-width **34px top rim** (macOS/Hermes
 geometry, Atum contents only), then a bare **52px rail** on the desk, then
 three floating plates — **roster 274px**, **chat flex-1**, **workspace
 360–640px collapsible** — inside `gap-2.5 p-2.5`. The rim band and the gutter
 are the drag regions; there is no Hermes titlebar content and no statusbar.
 
-- **The rim carries the brand lockup and workspace toggle**. It hosts the macOS
+- **The rim carries the foreground conversation title and workspace toggle**.
+  In compact layouts it also carries the roster toggle. The brand mark lives
+  in the rail account tile. The rim hosts the macOS
   traffic lights. Session/profile/project/worktree pickers, pin, split, flip,
   model pill, approval mode, context usage, gateway, and tool clusters are
   Hermes organisation and never return — they live in the account menu,
@@ -129,13 +131,13 @@ are the drag regions; there is no Hermes titlebar content and no statusbar.
 - **The rail has exactly four controls**: account, chat, devices, settings. Devices is
   `aria-disabled` with no `onClick` and no pairing UI — a capability we do not
   have is shown honestly, not faked.
-- **The chat header is a conversation header** — title plus one quiet muted
-  line (specialist role / assistant hint), roster toggle in compact only.
+- **There is no second chat header.** Conversation identity appears once in the
+  34px rim; the transcript begins directly beneath it.
 - **The chat body is `WiredPane part="chatRoutes"`** — the same transcript, tool
   cards, and approvals the Hermes shell renders. Never fork a second one.
-- **Workspace tabs are derived from live capability** (`workspace-tabs.ts`): a
-  tab whose capability is absent is not rendered, never rendered-and-disabled.
-  When zero qualify, the rim toggle is the one disabled affordance.
+- **The real Hermes files pane is always reachable** from the workspace toggle
+  and owns its honest no-folder state. Preview and conversation-detail tabs are
+  derived from live capability and never rendered-and-disabled.
 - **Sign-in is a full-window gate** (`atum/auth-view.tsx`, route
   `ATUM_AUTH_ROUTE = '/sign-in'`). Credentials are never collected in a rail.
 - **The roster is Atum-only**: search first; the local Atum assistant as its own
@@ -155,25 +157,24 @@ Scoped to `.atum-shell` in `src/styles.css` (desktop themes write CSS vars from
 | ink                    | `--atum-ink`, `-deep`, `-strong`, `-soft`, `-muted`, `-faint`                                                                     |
 | hairline / interaction | `--atum-line`, `-strong`, `--atum-hover`, `--atum-pressed`, `--atum-focus`, `--atum-sheen`                                        |
 | radii                  | `--atum-r-surface` (16px), `-composer`, `-card`, `-row`, `-control`, `-sm`, `-tile`                                               |
-| geometry               | `--atum-rim-h` (44px)                                                                                                             |
+| geometry               | `--atum-rim-h` (34px)                                                                                                             |
 | elevation              | `--atum-shadow-panel`, `-chat`, `-row`, `-tile`                                                                                   |
 | motion                 | `--atum-ease`, `--atum-dur-fast`, `--atum-dur`, `--atum-dur-slow`                                                                 |
 
-Four material classes; call sites pass nothing else:
+Three material classes; call sites pass nothing else:
 
 ```
 .atum-rim         the top rim band
 .atum-plate       roster / workspace plate
 .atum-plate-chat  the chat plate — MORE elevation, which is what makes chat
                   read as the product centre
-.atum-chat-header the conversation-header veil
 ```
 
 **Liquid glass, honestly.** Electron cannot claim `NSVisualEffectView` from CSS
 and this system does not pretend to. It is exactly three pure-CSS effects:
 depth by elevation (not divider borders), translucent veils with
-`backdrop-filter` on **pinned structural surfaces only** (rim, plates, chat
-header — scrolling content like rows, the transcript, and the workspace body
+`backdrop-filter` on **pinned structural surfaces only** (rim and plates;
+scrolling content like rows, the transcript, and the workspace body
 carries none, so nothing repaints on scroll), and a soft specular hairline on
 plate **top** edges. Do not put a `backdrop-filter` on scrolling content,
 animate blur, or reach for BrowserWindow `vibrancy` — real vibrancy is a
