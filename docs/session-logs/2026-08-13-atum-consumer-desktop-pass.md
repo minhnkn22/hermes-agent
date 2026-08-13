@@ -86,6 +86,48 @@ Electron's `file://` renderer and produced broken images even though the assets
 were present. The catalog now uses package-relative `./specialists/*` URLs; the
 package was rebuilt from the follow-up commit and visually rechecked.
 
+## Packaged dogfood evidence
+
+- Exact packaged source: `40674eaa67a9` on `feat/atum-desktop`.
+- `npm run pack` staged the pinned relocatable Python 3.11.13 and Hermes source,
+  produced the arm64 application bundle, and passed `ATUM_BUNDLED_BOOT_OK`.
+- The bundle is ad-hoc signed for owner dogfood. `codesign --verify --deep
+  --strict` passed; Developer ID signing and notarization remain distribution
+  work, not claims of this checkpoint.
+- The prior installation was retained as
+  `/Applications/Atum.app.pre-assetfix-e2e693b8c-20260813-101136`; the new app
+  was installed at `/Applications/Atum.app` without replacing Application
+  Support or Keychain state.
+- Packaged light-mode inspection confirmed the thin native title bar, one
+  consumer rail, search-first roster, separate Atum assistant, curated app
+  order and assets, gold badges, opaque transcript, rounded composer, and
+  Finder-style grid/list workspace with dot entries absent.
+- Packaged dark-mode inspection confirmed distinct near-black root, rail,
+  transcript, composer and workspace planes with 14px/22px conversation type.
+  Settings exposed only language, appearance and bounded text size before the
+  explicit `Nâng cao` surface.
+
+## Live Codex subscription proof
+
+The packaged app's isolated profile was still truthfully exposing its old
+`anthropic/claude-opus-4.6` default. For dogfood it was migrated through
+Hermes' supported runtime switch, not relabelled in the renderer:
+
+- model `gpt-5.3-codex-spark`;
+- provider `openai-codex`;
+- `model.openai_runtime: codex_app_server`;
+- existing `codex login status` returned `Logged in using ChatGPT`; and
+- Codex CLI 0.144.6 passed the runtime's minimum-version check.
+
+After a full Atum restart, the composer displayed the resolved
+`GPT-5.3-codex-spark` label. A real Assistant turn, `Reply with exactly: ATUM
+OK`, returned `ATUM OK`. `agent.log` independently recorded provider
+`openai-codex`, model `gpt-5.3-codex-spark`, and a new `codex app-server`
+thread. This proves the installed Atum → bundled Hermes → Codex app-server →
+ChatGPT subscription path. A title-generation auxiliary request failed after
+the successful primary turn; it did not affect the user response and remains a
+bounded upstream/helper follow-up.
+
 ## Follow-ups deliberately not faked in this pass
 
 - Profile email/phone editing needs a hosted account projection and write API,
@@ -94,6 +136,8 @@ package was rebuilt from the follow-up commit and visually rechecked.
 - Google authentication still requires enabling an Atum-owned Google OAuth
   client in the dedicated Atum Supabase project and repackaging with the public
   provider flag.
-- After review, commit/push, build the exact clean commit, retain the previous
-  `/Applications/Atum.app`, install the new bundle without touching Application
-  Support or Keychain, and run the packaged visual checklist in light and dark.
+- The packaged backend reports some optional Hermes tools unavailable when
+  their external dependencies are absent (browser dialog, computer-use,
+  image-generation and web API checks). The core Codex Assistant and local
+  Finder workspace path are proven; those optional capability prerequisites
+  should be exercised as their next vertical slices.
