@@ -81,5 +81,21 @@ Founder dogfood exposed four related presentation failures:
   documentation hook in disposable Git-fixture commits.
 - Changed-path ESLint (zero warnings), Prettier, and `git diff --check` — PASS.
 
-The exact-head packaged visual verification and installed-app replacement are
-the remaining post-commit steps.
+## Packaged dogfood checkpoint
+
+- Committed and pushed implementation head
+  `5cb8d3b829256568c3a2c7f8af4bd789ff6644af`.
+- `npm run pack` produced the arm64 `Atum.app` from that exact clean source
+  commit with the bundled Hermes runtime.
+- Ad-hoc deep signing and `codesign --verify --deep --strict` — PASS.
+- `ALLOW_NO_DOCS_LOG=1 npm run verify:bundled-app` — PASS with
+  `ATUM_BUNDLED_BOOT_OK`.
+- Installed `/Applications/Atum.app` without changing Application Support,
+  account partitions, or Keychain state. The previous bundle is retained at
+  `/Applications/Atum.app.pre-titlebar-5cb8d3b82-20260813-090027`.
+- Real packaged visual dogfood confirmed the 34px single titlebar on Assistant
+  and Moon, one Moon identity header, shared rounded DM composition, no repeated
+  reconnect bands, and the right titlebar button opening Hermes' real FilesPane
+  for both Assistant and specialist routes. With no project selected, the
+  Assistant pane truthfully displays its existing `NO PROJECT OPEN` empty
+  state; the specialist route displays the local filesystem.
