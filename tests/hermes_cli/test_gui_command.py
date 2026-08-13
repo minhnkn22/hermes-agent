@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -32,7 +33,18 @@ def _make_desktop_tree(tmp_path: Path) -> Path:
     root = tmp_path / "hermes-agent"
     desktop_dir = root / "apps" / "desktop"
     desktop_dir.mkdir(parents=True)
-    (desktop_dir / "package.json").write_text("{}", encoding="utf-8")
+    (desktop_dir / "package.json").write_text(
+        json.dumps(
+            {
+                "productName": "Atum",
+                "build": {
+                    "productName": "Atum",
+                    "executableName": "Atum",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     return root
 
 
@@ -40,11 +52,11 @@ def _make_packaged_executable(root: Path, monkeypatch, platform: str = "darwin")
     monkeypatch.setattr(cli_main.sys, "platform", platform)
     desktop_dir = root / "apps" / "desktop"
     if platform == "darwin":
-        exe = desktop_dir / "release" / "mac-arm64" / "Hermes.app" / "Contents" / "MacOS" / "Hermes"
+        exe = desktop_dir / "release" / "mac-arm64" / "Atum.app" / "Contents" / "MacOS" / "Atum"
     elif platform == "win32":
-        exe = desktop_dir / "release" / "win-unpacked" / "Hermes.exe"
+        exe = desktop_dir / "release" / "win-unpacked" / "Atum.exe"
     else:
-        exe = desktop_dir / "release" / "linux-unpacked" / "hermes"
+        exe = desktop_dir / "release" / "linux-unpacked" / "Atum"
     exe.parent.mkdir(parents=True)
     exe.write_text("", encoding="utf-8")
     return exe

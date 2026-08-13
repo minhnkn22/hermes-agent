@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import { useEffect, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
@@ -22,6 +23,7 @@ import {
   Wrench,
   Zap
 } from '@/lib/icons'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { notifyError } from '@/store/notifications'
 
 import { useRouteEnumParam } from '../hooks/use-route-enum-param'
@@ -32,6 +34,7 @@ import { SKILLS_ROUTE } from '../routes'
 
 import { AboutSettings } from './about-settings'
 import { AppearanceSettings } from './appearance-settings'
+import { AtumConsumerSettings } from './atum-consumer-settings'
 import { BillingSettings } from './billing'
 import { ConfigSettings } from './config-settings'
 import { SECTIONS } from './constants'
@@ -44,7 +47,7 @@ import { PROVIDER_VIEWS, ProvidersSettings, type ProviderView } from './provider
 import { SessionsSettings } from './sessions-settings'
 import type { SettingsPageProps, SettingsView as SettingsViewId } from './types'
 
-const SETTINGS_VIEWS: readonly SettingsViewId[] = [
+const LEGACY_SETTINGS_VIEWS: readonly SettingsViewId[] = [
   ...SECTIONS.map(s => `config:${s.id}` as SettingsViewId),
   'providers',
   'gateway',
@@ -57,8 +60,11 @@ const SETTINGS_VIEWS: readonly SettingsViewId[] = [
   'about'
 ]
 
+const ATUM_SETTINGS_VIEWS: readonly SettingsViewId[] = ['atum:general', ...LEGACY_SETTINGS_VIEWS]
+
 export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: SettingsPageProps) {
   const { t } = useI18n()
+  const atumShell = useStore($atumShellEnabled)
   const navigate = useNavigate()
   const { hash, pathname, search } = useLocation()
 
@@ -76,7 +82,12 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     }
   }, [navigate, search])
 
-  const [activeView, setActiveView] = useRouteEnumParam('tab', SETTINGS_VIEWS, 'config:model' as SettingsViewId)
+  const [activeView, setActiveView] = useRouteEnumParam(
+    'tab',
+    atumShell ? ATUM_SETTINGS_VIEWS : LEGACY_SETTINGS_VIEWS,
+    (atumShell ? 'atum:general' : 'config:model') as SettingsViewId
+  )
+
   // Providers subnav (Accounts vs API keys) lives in its own param so each
   // sub-view is deep-linkable and survives a refresh.
   const [providerView, setProviderView] = useRouteEnumParam<ProviderView>('pview', PROVIDER_VIEWS, 'accounts')
@@ -134,7 +145,7 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     }
   }
 
-  const navGroups: OverlayNavGroup[] = [
+  const legacyNavGroups: OverlayNavGroup[] = [
     ...SECTIONS.map(s => {
       const view = `config:${s.id}` as SettingsViewId
 
@@ -252,6 +263,41 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
     }
   ]
 
+  // Atum presents three everyday preferences first. The full Hermes settings
+  // remain available, unchanged, but are disclosed only after entering one
+  // Advanced group. Legacy Hermes chrome keeps its original navigation verbatim.
+  const advancedActive = activeView !== 'atum:general'
+
+  const navGroups: OverlayNavGroup[] = atumShell
+    ? [
+        {
+          active: activeView === 'atum:general',
+          icon: Settings2,
+          id: 'atum:general',
+          label: t.atum.settings.general,
+          onSelect: () => setActiveView('atum:general')
+        },
+        {
+          active: advancedActive,
+          children: legacyNavGroups.flatMap(group => [
+            {
+              active: group.active && !group.children?.some(child => child.active),
+              icon: group.icon,
+              id: `advanced:${group.id}`,
+              label: group.id === 'config:advanced' ? t.atum.settings.systemConfiguration : group.label,
+              onSelect: group.onSelect
+            },
+            ...(group.children ?? []).map(child => ({ ...child, id: `advanced:${child.id}` }))
+          ]),
+          gapBefore: true,
+          icon: Wrench,
+          id: 'atum:advanced',
+          label: t.atum.settings.advanced,
+          onSelect: () => setActiveView(advancedActive ? activeView : ('config:model' as SettingsViewId))
+        }
+      ]
+    : legacyNavGroups
+
   const navFooter = (
     <>
       <Tip label={t.settings.exportConfig}>
@@ -286,10 +332,12 @@ export function SettingsView({ onClose, onConfigSaved, onMainModelChanged }: Set
   return (
     <OverlayView closeLabel={t.settings.closeSettings} onClose={onClose}>
       <OverlaySplitLayout>
-        <OverlayNav footer={navFooter} groups={navGroups} />
+        <OverlayNav footer={!atumShell || advancedActive ? navFooter : undefined} groups={navGroups} />
 
         <OverlayMain className="px-0 pb-0 pt-[calc(var(--titlebar-height)+1rem)]">
-          {activeView === 'config:appearance' ? (
+          {activeView === 'atum:general' ? (
+            <AtumConsumerSettings />
+          ) : activeView === 'config:appearance' ? (
             <AppearanceSettings />
           ) : activeView === 'about' ? (
             <AboutSettings />

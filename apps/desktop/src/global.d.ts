@@ -1,5 +1,7 @@
 import type { GatewayWsUrlResult } from '@hermes/shared'
 
+import type { AtumAccountClient } from './lib/atum-account-client'
+import type { AtumMessagingClient } from './lib/atum-messaging-client'
 import type {
   PetOverlayBounds,
   PetOverlayControl,
@@ -81,6 +83,8 @@ declare global {
         // clear the preference.
         set: (name: string | null) => Promise<DesktopActiveProfile>
       }
+      account: AtumAccountClient
+      messaging: AtumMessagingClient
       api: <T>(request: HermesApiRequest) => Promise<T>
       notify: (payload: HermesNotification) => Promise<boolean>
       requestMicrophoneAccess: () => Promise<boolean>

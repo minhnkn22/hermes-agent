@@ -24,6 +24,16 @@ describe('desktop i18n runtime translator', () => {
     expect(translateNow('assistant.tool.statusRecovered')).toBe('已恢复')
   })
 
+  it('ships the founder-approved Vietnamese first-run copy', () => {
+    setRuntimeI18nLocale('vi')
+
+    expect(translateNow('intro.heading')).toBe('Bắt đầu với Atum')
+    expect(TRANSLATIONS.vi.composer.newSessionPlaceholders).toEqual(['Nhắn cho Atum…'])
+    expect(translateNow('onboarding.headerDesc')).toBe(
+      'Điều khiển mọi tác vụ trên máy tính, sử dụng app yêu thích, nhắn tin cho bạn bè - tất cả cùng một nơi.'
+    )
+  })
+
   it('passes arguments to function translations', () => {
     expect(translateNow('notifications.updateReadyMessage', 2)).toBe('2 new changes available.')
   })

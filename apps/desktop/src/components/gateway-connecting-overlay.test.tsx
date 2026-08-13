@@ -1,7 +1,8 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $desktopBoot } from '@/store/boot'
+import { GATEWAY_RECONNECT_REQUEST_EVENT } from '@/store/gateway-reconnect'
 import { $gatewaySwitching } from '@/store/gateway-switch'
 import { $desktopOnboarding } from '@/store/onboarding'
 import { setGatewayState } from '@/store/session'
@@ -119,7 +120,8 @@ describe('connecting overlay vs recovery surface', () => {
     // The initial-boot connecting overlay stays out of the way, so settings and
     // the composer remain reachable during the reconnect loop.
     expect(isConnectingShown()).toBe(false)
-    expect(isRecoveryShown()).toBe(false)
+    expect(isRecoveryShown()).toBe(true)
+    expect(screen.getByText('Connection lost. Atum will reconnect automatically.')).toBeTruthy()
 
     // 3. Reconnect loops against the dead remote: gatewayState bounces closed
     //    → error → closed. Until the escalation path sets boot.error, the app
@@ -135,7 +137,12 @@ describe('connecting overlay vs recovery surface', () => {
     })
     expect($desktopBoot.get().error).toBeNull()
     expect(isConnectingShown()).toBe(false)
-    expect(isRecoveryShown()).toBe(false)
+    expect(isRecoveryShown()).toBe(true)
+
+    const reconnectRequested = vi.fn()
+    window.addEventListener(GATEWAY_RECONNECT_REQUEST_EVENT, reconnectRequested, { once: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(reconnectRequested).toHaveBeenCalledOnce()
   })
 
   it('soft gateway switch keeps the shell — no fullscreen CONNECTING', async () => {

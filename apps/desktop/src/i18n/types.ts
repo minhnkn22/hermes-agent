@@ -5,7 +5,7 @@
 // partial locales should use `defineLocale()` so missing desktop-only strings
 // fall back to English while new keys remain type-checked.
 
-export type Locale = 'en' | 'zh' | 'zh-hant' | 'ja'
+export type Locale = 'en' | 'vi' | 'zh' | 'zh-hant' | 'ja'
 
 export type ToolTitleKey =
   | 'browser_click'
@@ -88,6 +88,169 @@ export interface Translations {
     tryHint: (term: string) => string
     on: string
     off: string
+  }
+
+  intro: {
+    heading: string
+    body: string
+  }
+
+  dm: {
+    sectionTitle: string
+    brandLine: string
+    compose: string
+    send: string
+    retry: string
+    sending: string
+    sendFailed: string
+    noMessages: string
+    startConversation: (name: string) => string
+    noConversations: string
+    offline: string
+    reconnecting: string
+    authExpired: string
+    authExpiredAction: string
+    errorGeneric: string
+    loadingMessages: string
+    today: string
+    yesterday: string
+    unreadCount: (count: number) => string
+    signedInAs: (name: string) => string
+    notSignedIn: string
+    signIn: string
+    identifier: string
+    identifierHint: string
+    identifierPlaceholder: string
+    identifierRequired: string
+    password: string
+    passwordRequired: string
+    signingIn: string
+    googlePending: string
+    signInFailed: string
+    signInOffline: string
+    signInProviderDown: string
+    signInRetry: string
+    continueWithGoogle: string
+    or: string
+    signOut: string
+    cancelSignIn: string
+    you: string
+    messageDelivered: string
+    messageRead: string
+    unavailable: string
+  }
+
+  /** The Atum product shell (rail / roster / chat rim / workspace / auth gate).
+   *  Separate from `dm` on purpose: `dm` is the hosted-messaging vocabulary,
+   *  `atum` is the shell's own. Shared strings are reused from `dm`, not
+   *  duplicated here. */
+  atum: {
+    nav: {
+      aria: string
+      chat: string
+      devices: string
+      devicesSoon: string
+      settings: string
+      account: string
+    }
+    account: {
+      menu: string
+      signedOut: string
+      language: string
+      theme: string
+      title: string
+      description: string
+      name: string
+      username: string
+      email: string
+      phone: string
+      id: string
+      unavailable: string
+      editUnavailable: string
+    }
+    settings: {
+      title: string
+      description: string
+      general: string
+      advanced: string
+      systemConfiguration: string
+      appearance: string
+      appearanceDescription: string
+      textSize: string
+      textSizeDescription: string
+      model: string
+      speed: string
+      standard: string
+      useDefault: string
+      advancedOptions: string
+    }
+    roster: {
+      title: string
+      search: string
+      assistant: string
+      assistantHint: string
+      groupAssistant: string
+      groupApps: string
+      groupPeople: string
+      signedOutTitle: string
+      signedOutBody: string
+      signIn: string
+      retry: string
+      emptyChats: string
+      unread: (count: number) => string
+      results: (count: number) => string
+      emptySearch: string
+      emptySearchHint: string
+      loadFailed: string
+      verified: string
+    }
+    empty: {
+      chips: [string, string, string]
+    }
+    chat: {
+      none: string
+      noneHint: string
+      openRoster: string
+      closeRoster: string
+    }
+    workspace: {
+      title: string
+      open: string
+      close: string
+      none: string
+      resize: string
+      tabView: string
+      tabFiles: string
+      tabDetails: string
+      empty: string
+      detailsConversation: string
+      detailsParticipants: string
+      detailsUpdated: string
+      filesBack: string
+      filesUp: string
+      filesRoot: string
+      filesView: string
+      filesGrid: string
+      filesList: string
+      filesLoading: string
+      filesEmpty: string
+      filesError: string
+      filesOpenError: string
+      filesRetry: string
+      filesNoFolder: string
+      filesNoFolderHint: string
+    }
+    auth: {
+      title: string
+      expiredTitle: string
+      expiredBody: string
+      terms: string
+    }
+    offline: {
+      banner: string
+      reconnecting: string
+      reconnected: string
+    }
   }
 
   fileMenu: {
@@ -1367,6 +1530,8 @@ export interface Translations {
   }
 
   sidebar: {
+    navAria?: string
+    emptyRoster?: string
     nav: Record<string, string>
     searchAria: string
     searchPlaceholder: string
@@ -1454,6 +1619,7 @@ export interface Translations {
     loadMore: string
     loadCount: (step: number) => string
     row: {
+      sessionIdle?: string
       pin: string
       unpin: string
       copyId: string
@@ -1706,6 +1872,7 @@ export interface Translations {
 
   onboarding: {
     headerTitle: string
+    headerSub?: string
     headerDesc: string
     preparingInstall: string
     starting: string
@@ -2086,6 +2253,8 @@ export interface Translations {
   }
 
   assistant: {
+    retry?: string
+    copy?: string
     thread: {
       loadingSession: string
       showEarlier: string
@@ -2147,6 +2316,11 @@ export interface Translations {
       lateAnswerHint: string
     }
     tool: {
+      approvalTitle?: string
+      approveOnce?: string
+      approveSession?: string
+      approveAlways?: string
+      deny?: string
       code: string
       copyCode: string
       renderingImage: string
@@ -2281,6 +2455,8 @@ export interface Translations {
   }
 
   errors: {
+    offline?: string
+    turnFailed?: string
     genericFailure: string
     boundaryTitle: string
     boundaryDesc: string

@@ -449,6 +449,16 @@ export const markComposerSelectionManual = (): void => {
   setCurrentModelSource('manual')
 }
 
+/** Return the draft composer to the profile/runtime default. This is a user
+ * intent just like a manual pick, so advance the generation before any older
+ * in-flight default refresh can commit over it. */
+export const restoreComposerSelectionDefault = (selection: { model?: string; provider?: string }): void => {
+  composerSelectionGeneration += 1
+  setCurrentModel(selection.model ?? '')
+  setCurrentProvider(selection.provider ?? '')
+  setCurrentModelSource(selection.model || selection.provider ? 'default' : '')
+}
+
 export const setCurrentReasoningEffort = (next: Updater<string>) => {
   updateAtom($currentReasoningEffort, next)
   persistString(COMPOSER_EFFORT_KEY, $currentReasoningEffort.get() || null)

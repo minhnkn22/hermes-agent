@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 
+import { prefersReducedMotion } from '@/hooks/use-reduced-motion'
+
 /**
  * Canvas hatch celebration layered over a freshly revealed pet: a one-shot
  * sunburst of rotating god-rays, a fast radial star burst (confetti physics —
@@ -73,7 +75,7 @@ export function PetStarShower() {
       return
     }
 
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (prefersReducedMotion()) {
       return
     }
 

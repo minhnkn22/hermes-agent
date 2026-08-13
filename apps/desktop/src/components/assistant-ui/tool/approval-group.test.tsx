@@ -276,7 +276,11 @@ describe('flat tool list approval surfacing', () => {
   })
 
   it('lets failed tool rows be dismissed', async () => {
-    render(<GroupHarness message={failedOnlyMessage()} />)
+    const { container } = render(<GroupHarness message={failedOnlyMessage()} />)
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-tool-row][data-tool-open]')).not.toBeNull()
+    })
 
     const dismiss = await screen.findByLabelText('Dismiss')
 

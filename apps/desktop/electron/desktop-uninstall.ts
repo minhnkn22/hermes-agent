@@ -31,6 +31,28 @@ import path from 'node:path'
 const UNINSTALL_MODES = ['gui', 'lite', 'full']
 
 /**
+ * Which modes the running product may actually execute.
+ *
+ * Packaged Atum is restricted to 'gui'. The lite/full modes drive
+ * `hermes_cli.uninstall`, which performs CLI-product cleanup that is NOT
+ * scoped to any HERMES_HOME: shell-rc PATH edits, Windows User-scoped
+ * HERMES_HOME / HERMES_GIT_BASH_PATH registry deletion, node symlink
+ * removal, and gateway service teardown. From a packaged Atum those actions
+ * would mutate a co-installed CLI product's state, so they stay disabled
+ * until the engine uninstaller is product-scoped. 'gui' is safe: the cleanup
+ * script exports the resolved (Atum) HERMES_HOME and removes only the app
+ * bundle plus Atum-home GUI artifacts. Dev/source-checkout runs keep all
+ * three modes — there the desktop and the CLI share one install by design.
+ */
+function allowedUninstallModes({ isPackaged }: any = {}) {
+  return isPackaged ? ['gui'] : [...UNINSTALL_MODES]
+}
+
+function isUninstallModeAllowed(mode, { isPackaged }: any = {}) {
+  return allowedUninstallModes({ isPackaged }).includes(mode)
+}
+
+/**
  * Map an uninstall mode to the `python -m hermes_cli.uninstall` argv (after the
  * python executable). Uses the dedicated lightweight module entrypoint (not
  * `hermes_cli.main`) so it can run under a system Python OUTSIDE the venv that
@@ -92,10 +114,10 @@ function resolveRemovableAppPath(execPath, platform, env: any = {}) {
   }
 
   if (platform === 'win32') {
-    // NSIS per-user installs Hermes.exe directly in the install dir.
+    // NSIS per-user installs the executable directly in the product dir.
     const dir = p.dirname(exe)
 
-    if (/[\\/]Hermes$/i.test(dir) || /[\\/]hermes-desktop$/i.test(dir)) {
+    if (/[\\/](Atum|Hermes)$/i.test(dir) || /[\\/]hermes-desktop$/i.test(dir)) {
       return dir
     }
 
@@ -257,8 +279,10 @@ function buildWindowsCleanupScript({
 }
 
 export {
+  allowedUninstallModes,
   buildPosixCleanupScript,
   buildWindowsCleanupScript,
+  isUninstallModeAllowed,
   modeRemovesAgent,
   modeRemovesUserData,
   resolveRemovableAppPath,

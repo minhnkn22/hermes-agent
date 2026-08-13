@@ -304,7 +304,9 @@ function ToolEntry({ part }: ToolEntryProps) {
   const sideDiff = useStore($toolInlineDiff(toolCallId ?? ''))
   const inlineDiff = stripInlineDiffChrome(sideDiff) || inlineDiffFromResult(result)
   const isFileEdit = isFileEditTool(toolName)
-  const defaultOpen = Boolean(inlineDiff)
+  // Failures must reveal their recovery detail without an extra click. The
+  // disclosure remains user-toggleable after that initial open.
+  const defaultOpen = Boolean(inlineDiff) || isError
   const open = useDisclosureOpen(disclosureId, defaultOpen)
   const canDismiss = !isPending && !embedded
   // Only animate entries that mount while their message is actively

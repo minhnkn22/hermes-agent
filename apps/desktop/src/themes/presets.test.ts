@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 
-import { BUILTIN_THEME_LIST, DEFAULT_TYPOGRAPHY, EMOJI_FALLBACK } from './presets'
+import { BUILTIN_THEMES, BUILTIN_THEME_LIST, DEFAULT_SKIN_NAME, DEFAULT_TYPOGRAPHY, EMOJI_FALLBACK } from './presets'
+
+describe('Atum theme', () => {
+  it('is the fresh-profile default without removing Hermes themes', () => {
+    expect(DEFAULT_SKIN_NAME).toBe('atum')
+    expect(BUILTIN_THEMES.atum.label).toBe('Atum')
+    expect(BUILTIN_THEMES.nous).toBeDefined()
+    expect(BUILTIN_THEMES.midnight).toBeDefined()
+  })
+
+  it('keeps destructive status visually distinct from the warm accent', () => {
+    expect(BUILTIN_THEMES.atum.colors.destructive).not.toBe(BUILTIN_THEMES.atum.colors.primary)
+    expect(BUILTIN_THEMES.atum.darkColors?.destructive).not.toBe(BUILTIN_THEMES.atum.darkColors?.primary)
+  })
+})
 
 // #40364: none of the UI text/mono fonts carry emoji glyphs, so every font
 // stack must end with a color-emoji fallback or emoji render as tofu on

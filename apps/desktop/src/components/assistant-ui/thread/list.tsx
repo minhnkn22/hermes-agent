@@ -14,6 +14,7 @@ import {
 } from 'react'
 import { useStickToBottom } from 'use-stick-to-bottom'
 
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useI18n } from '@/i18n'
 import { cn } from '@/lib/utils'
 import {
@@ -148,6 +149,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
   )
 
   const { t } = useI18n()
+  const reduceMotion = useReducedMotion()
   const groups = buildGroups(messageSignature)
   const renderEmpty = groups.length === 0 && Boolean(emptyPlaceholder)
 
@@ -278,6 +280,12 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     stopScroll()
     el.scrollTop = el.scrollHeight
 
+    if (reduceMotion) {
+      void scrollToBottom('instant')
+
+      return
+    }
+
     let frame = 0
     let stableFrames = 0
     let lastHeight = el.scrollHeight
@@ -310,7 +318,7 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
     let rafId = requestAnimationFrame(settle)
 
     return () => cancelAnimationFrame(rafId)
-  }, [scrollRef, scrollToBottom, sessionKey, stopScroll])
+  }, [reduceMotion, scrollRef, scrollToBottom, sessionKey, stopScroll])
 
   // Prepend an older page while preserving the on-screen position. The user is
   // scrolled up (reading history) so the stick-to-bottom lock is escaped and
@@ -353,10 +361,13 @@ const ThreadMessageListInner: FC<ThreadMessageListProps> = ({
         />
       )}
       <div
+        aria-live="polite"
+        aria-relevant="additions"
         className="size-full overflow-x-hidden overflow-y-auto overscroll-contain"
         data-following={isAtBottom ? 'true' : 'false'}
         data-slot="aui_thread-viewport"
         ref={scrollRef as React.RefCallback<HTMLDivElement>}
+        role="log"
       >
         {renderEmpty ? (
           <div

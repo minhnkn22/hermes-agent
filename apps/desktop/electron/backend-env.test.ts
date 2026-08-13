@@ -64,6 +64,7 @@ test('buildDesktopBackendEnv extends PYTHONPATH and backend PATH together', () =
   })
 
   assert.equal(env.PYTHONPATH, '/repo/hermes-agent:/existing/pythonpath')
+  assert.equal(env.PYTHONDONTWRITEBYTECODE, '1')
   assert.ok(env.PATH.startsWith('/Users/test/.hermes/node/bin:/Users/test/.hermes/hermes-agent/venv/bin:'))
   assert.ok(env.PATH.includes('/opt/homebrew/bin'))
 })
@@ -95,6 +96,7 @@ test('Windows PATH casing and delimiter are preserved without POSIX sane entries
 
   assert.equal(pathEnvKey({ Path: 'x' }, 'win32'), 'Path')
   assert.equal(env.PATH, undefined)
+  assert.equal(env.PYTHONDONTWRITEBYTECODE, '1')
   assert.ok(env.Path.startsWith('C:\\Users\\test\\AppData\\Local\\hermes\\node\\bin;'))
   assert.ok(env.Path.includes('\\venv\\Scripts;'))
   assert.ok(env.Path.includes(';C:\\Windows\\System32;C:\\Windows'))

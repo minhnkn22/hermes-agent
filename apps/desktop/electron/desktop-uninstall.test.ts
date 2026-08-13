@@ -14,8 +14,10 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 
 import {
+  allowedUninstallModes,
   buildPosixCleanupScript,
   buildWindowsCleanupScript,
+  isUninstallModeAllowed,
   modeRemovesAgent,
   modeRemovesUserData,
   resolveRemovableAppPath,
@@ -39,6 +41,20 @@ test('uninstallArgsForMode throws on an unknown mode (no silent full wipe)', () 
 
 test('UNINSTALL_MODES lists exactly the three supported modes', () => {
   assert.deepEqual([...UNINSTALL_MODES].sort(), ['full', 'gui', 'lite'])
+})
+
+// --- allowedUninstallModes / isUninstallModeAllowed ---
+
+test('packaged Atum is restricted to gui-only; lite/full cross-product actions stay disabled', () => {
+  assert.deepEqual(allowedUninstallModes({ isPackaged: true }), ['gui'])
+  assert.equal(isUninstallModeAllowed('gui', { isPackaged: true }), true)
+  assert.equal(isUninstallModeAllowed('lite', { isPackaged: true }), false)
+  assert.equal(isUninstallModeAllowed('full', { isPackaged: true }), false)
+})
+
+test('dev / source-checkout runs keep all three modes', () => {
+  assert.deepEqual([...allowedUninstallModes({ isPackaged: false })].sort(), ['full', 'gui', 'lite'])
+  assert.equal(isUninstallModeAllowed('full', { isPackaged: false }), true)
 })
 
 // --- modeRemovesAgent / modeRemovesUserData ---
@@ -80,6 +96,10 @@ test('resolveRemovableAppPath: dev-run .app resolves (safety is shouldRemoveAppB
 })
 
 test('resolveRemovableAppPath finds the install dir on Windows', () => {
+  assert.equal(
+    resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\Programs\\Atum\\Atum.exe', 'win32'),
+    'C:\\Users\\x\\AppData\\Local\\Programs\\Atum'
+  )
   assert.equal(
     resolveRemovableAppPath('C:\\Users\\x\\AppData\\Local\\Programs\\Hermes\\Hermes.exe', 'win32'),
     'C:\\Users\\x\\AppData\\Local\\Programs\\Hermes'

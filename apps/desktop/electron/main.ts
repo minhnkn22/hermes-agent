@@ -30,15 +30,24 @@ import {
 } from 'electron'
 import nodePty from 'node-pty'
 
+import {
+  AtumAccountAuthController,
+  AtumMessagingRuntime,
+  registerAtumAccountIpc,
+  registerAtumMessagingIpc,
+  resolveAtumPublicAccountConfig,
+  SupabaseAtumAccountClient
+} from './atum-messaging'
 import { stopBackendChild as stopBackendChildImpl } from './backend-child'
 import { dashboardFallbackArgs, sourceDeclaresServe } from './backend-command'
 import { createBackendConnectionState } from './backend-connection-state'
-import { buildDesktopBackendEnv, normalizeHermesHomeRoot } from './backend-env'
+import { buildDesktopBackendEnv } from './backend-env'
 import { canImportHermesCli, shouldTrustHermesOverride, verifyHermesCli } from './backend-probes'
 import { waitForDashboardPortAnnouncement } from './backend-ready'
 import { shouldLatchBackendStartFailure } from './backend-start-failure'
 import { detectRemoteDisplay, isWindowsBinaryPathInWsl, isWslEnvironment } from './bootstrap-platform'
 import { runBootstrap } from './bootstrap-runner'
+import { resolveBundledHermesRuntime } from './bundled-runtime'
 import { applyConnectionChange, resolveTerminalConnection } from './connection-apply'
 import {
   authModeFromStatus,
@@ -68,8 +77,10 @@ import {
 import { adoptServedDashboardToken } from './dashboard-token'
 import { loadOrCreateInstallationId, sshOwnershipId } from './desktop-installation'
 import {
+  allowedUninstallModes,
   buildPosixCleanupScript,
   buildWindowsCleanupScript,
+  isUninstallModeAllowed,
   modeRemovesAgent,
   modeRemovesUserData,
   resolveRemovableAppPath,
@@ -77,6 +88,7 @@ import {
   uninstallArgsForMode
 } from './desktop-uninstall'
 import { installEmbedReferer } from './embed-referer'
+import { planEngineUpdate } from './engine-update-scope'
 import { createEventDeduper } from './event-dedupe'
 import { findGitBash as _findGitBash } from './find-git-bash'
 import { readDirForIpc } from './fs-read-dir'
@@ -115,6 +127,8 @@ import {
   resolveTimeoutMs,
   TEXT_PREVIEW_SOURCE_MAX_BYTES
 } from './hardening'
+import { resolveCliHomeForSeed, resolveDesktopHermesHome, resolveSharedAuthDirEnv } from './hermes-home'
+import { seedHermesHomeOnce, shouldSeedPackagedHome } from './hermes-home-seed'
 import { createLinkTitleWindow, guardLinkTitleSession, readLinkTitleWindowTitle } from './link-title-window'
 import { ensureMainWindow } from './main-window-lifecycle'
 import { oauthSessionIsLive, resolveJsonBody, resolveOauthRestAuth } from './native-auth-decisions'
@@ -449,61 +463,80 @@ if (INSTALL_STAMP) {
   )
 }
 
-// HERMES_HOME — the user-facing root for everything Hermes-related. Mirrors
-// scripts/install.ps1's $HermesHome and scripts/install.sh's $HERMES_HOME.
-//
-// Defaults:
-//   Windows: %LOCALAPPDATA%\hermes (matches install.ps1)
-//   macOS / Linux: ~/.hermes (matches install.sh)
-//
-// Special case for Windows: if the user has a legacy ~/.hermes directory
-// (e.g., from a prior pip install or a manual setup) AND no
-// %LOCALAPPDATA%\hermes yet, prefer the legacy path so we don't orphan their
-// existing config / sessions / .env. New installs go to %LOCALAPPDATA%.
-//
-// HERMES_DESKTOP_USER_DATA_DIR (used by test:desktop:fresh) puts the sandbox
-// HERMES_HOME beneath the throwaway userData dir so a fresh-install run never
-// touches the user's real ~/.hermes / %LOCALAPPDATA%\hermes.
-function resolveHermesHome() {
-  if (process.env.HERMES_HOME) {
-    return normalizeHermesHomeRoot(process.env.HERMES_HOME)
-  }
+// HERMES_HOME — the root for everything Hermes-related the desktop touches.
+// The full precedence ladder (packaged product isolation vs. historical dev
+// behavior) lives in electron/hermes-home.ts and is unit-tested there.
+// Packaged builds NEVER land on the CLI product home: they default to
+// app.getPath('userData')/hermes-home, ignore inherited HERMES_HOME and the
+// Windows registry value, and honor only the product-scoped
+// HERMES_DESKTOP_HERMES_HOME support override or a managed test sandbox.
+const HERMES_HOME = resolveDesktopHermesHome({
+  isPackaged: IS_PACKAGED,
+  platform: process.platform,
+  env: process.env,
+  userDataPath: app.getPath('userData'),
+  homeDir: app.getPath('home'),
+  readWindowsUserEnvVar,
+  directoryExists
+})
 
-  if (USER_DATA_OVERRIDE) {
-    return path.join(path.resolve(USER_DATA_OVERRIDE), 'hermes-home')
-  }
+// Seed-once migration for existing CLI users (packaged only): copy the
+// minimum static provider/setup files from the platform-native CLI home into
+// the fresh Atum home. One-way, one-time, allowlisted — never sessions,
+// profiles, memory, plugins, cron, caches, logs, checkouts, or the shared
+// credential store. See electron/hermes-home-seed.ts for the boundaries.
+if (shouldSeedPackagedHome({ isPackaged: IS_PACKAGED, env: process.env })) {
+  try {
+    const seedResult = seedHermesHomeOnce({
+      sourceHome: resolveCliHomeForSeed({
+        platform: process.platform,
+        env: process.env,
+        homeDir: app.getPath('home'),
+        directoryExists
+      }),
+      targetHome: HERMES_HOME,
+      deps: {
+        exists: fileExists,
+        isDirectory: directoryExists,
+        isSymbolicLink: candidate => {
+          try {
+            return fs.lstatSync(candidate).isSymbolicLink()
+          } catch {
+            return false
+          }
+        },
+        copyEntry: (source, target) => fs.cpSync(source, target, { recursive: true }),
+        mkdirp: target => fs.mkdirSync(target, { recursive: true }),
+        rename: (source, target) => fs.renameSync(source, target),
+        remove: target => fs.rmSync(target, { recursive: true, force: true }),
+        writeFile: (target, contents) => fs.writeFileSync(target, contents),
+        now: () => new Date().toISOString()
+      }
+    })
 
-  if (IS_WINDOWS) {
-    // A GUI app launched from Explorer inherits the environment block captured
-    // at login, so a HERMES_HOME set via `setx` AFTER login is invisible in
-    // process.env even though the CLI (a fresh shell) sees it. Without this the
-    // backend silently falls back to %LOCALAPPDATA%\hermes and reports "No
-    // inference provider configured" despite a valid configured home (#45471).
-    // Consult the live User-scoped registry value before the default below.
-    const fromRegistry = readWindowsUserEnvVar('HERMES_HOME')
-
-    if (fromRegistry) {
-      return normalizeHermesHomeRoot(fromRegistry)
+    if (seedResult.status === 'seeded') {
+      console.log(`[hermes] seeded Atum home from CLI home: ${(seedResult.entries || []).join(', ')}`)
     }
+  } catch (error) {
+    // A failed seed must never block a boot — the engine regenerates what it
+    // needs; the user just re-picks a provider.
+    console.warn(`[hermes] home seed failed (continuing without it): ${error?.message || error}`)
   }
-
-  if (IS_WINDOWS && process.env.LOCALAPPDATA) {
-    const localappdata = path.join(process.env.LOCALAPPDATA, 'hermes')
-    const legacy = path.join(app.getPath('home'), '.hermes')
-
-    // Migrate transparently to LOCALAPPDATA, but honour an existing legacy
-    // ~/.hermes setup (no LOCALAPPDATA install yet) so users don't lose state.
-    if (!directoryExists(localappdata) && directoryExists(legacy)) {
-      return legacy
-    }
-
-    return localappdata
-  }
-
-  return path.join(app.getPath('home'), '.hermes')
 }
 
-const HERMES_HOME = resolveHermesHome()
+// The ONE intentional cross-product share: the subscription credential plane
+// (Codex / Nous OAuth single-use refresh tokens + cross-process refresh lock
+// in <CLI home>/shared). Re-homing HERMES_HOME would silently fork that
+// store, so packaged builds pin HERMES_SHARED_AUTH_DIR to the CLI's native
+// shared dir for every backend child — both products serialize refresh of the
+// SAME credential. Empty in dev, in sandboxes, and under explicit overrides.
+const SHARED_AUTH_DIR_ENV = resolveSharedAuthDirEnv({
+  isPackaged: IS_PACKAGED,
+  platform: process.platform,
+  env: process.env,
+  homeDir: app.getPath('home'),
+  directoryExists
+})
 
 function hermesManagedNodePathEntries() {
   // NOTE: keep this ordering in sync with iter_hermes_node_dirs() in
@@ -596,7 +629,7 @@ const BOOT_FAKE_STEP_MS = (() => {
   return Math.max(120, raw)
 })()
 
-const APP_NAME = process.env.HERMES_DESKTOP_APP_NAME || 'Hermes'
+const APP_NAME = process.env.HERMES_DESKTOP_APP_NAME || 'Atum'
 const TITLEBAR_HEIGHT = 34
 const MACOS_TRAFFIC_LIGHTS_HEIGHT = 14
 
@@ -610,6 +643,8 @@ const WINDOW_BUTTON_POSITION = {
 // It's only the pre-layout fallback — the renderer measures the exact overlay
 // width live via the Window Controls Overlay API.
 const APP_ICON_PATHS = [
+  path.join(APP_ROOT, 'assets', 'icon-mac.png'),
+  path.join(unpackedPathFor(APP_ROOT), 'assets', 'icon-mac.png'),
   path.join(APP_ROOT, 'public', 'apple-touch-icon.png'),
   path.join(APP_ROOT, 'dist', 'apple-touch-icon.png'),
   path.join(unpackedPathFor(APP_ROOT), 'dist', 'apple-touch-icon.png')
@@ -889,12 +924,12 @@ app.setName(APP_NAME)
 // Windows toast notifications silently no-op unless an AppUserModelID is set:
 // `new Notification().show()` returns without error and nothing appears. The
 // AUMID must match the installed Start Menu shortcut's AUMID, which
-// electron-builder derives from the build `appId` (com.nousresearch.hermes) —
+// electron-builder derives from the build `appId` (com.atum.desktop) —
 // keep this string in sync with package.json `build.appId`. macOS/Linux don't
 // need this, so gate it on Windows. (Fixes: desktop approval/turn notifications
 // never firing on Windows.)
 if (IS_WINDOWS) {
-  app.setAppUserModelId('com.nousresearch.hermes')
+  app.setAppUserModelId('com.atum.desktop')
 }
 
 // Seed the native About panel with the live Hermes version. This is refreshed
@@ -972,6 +1007,8 @@ function registerMediaProtocol() {
 }
 
 let mainWindow = null
+let atumMessagingRuntime: AtumMessagingRuntime | null = null
+let atumAccountController: AtumAccountAuthController | null = null
 const backendConnectionState = createBackendConnectionState<ReturnType<typeof spawn>, any>()
 const remoteLiveness = new RemoteLivenessTracker()
 const remoteRevalidation = new RemoteRevalidationCoordinator()
@@ -2612,6 +2649,14 @@ async function applyUpdates(opts = {}) {
       // the GUI button's contract: append --branch <current> for non-main
       // checkouts, keep it bare for main so the card stays clean.
       const updateRoot = resolveUpdateRoot()
+
+      // Packaged Atum with no engine checkout of its own: the CLI-shaped
+      // manual command below would update the wrong product. Say "update the
+      // app" instead (see engine-update-scope.ts).
+      if (planLocalEngineUpdate(updateRoot).kind === 'app-managed') {
+        return engineUpdateAppManagedResult(updateRoot)
+      }
+
       let command = 'hermes update'
 
       try {
@@ -2786,16 +2831,23 @@ async function handOffWindowsBootstrapRecovery(reason) {
   return true
 }
 
-// Resolve the hermes CLI to drive an in-app update: prefer the venv shim in
-// the install we're updating, fall back to `hermes` on PATH.
-function resolveHermesCliBinary(updateRoot) {
-  const venvHermes = path.join(updateRoot, 'venv', 'bin', 'hermes')
+// Resolve the plan for an in-app engine update. Packaged Atum with no engine
+// checkout of its own is app-managed; see engine-update-scope.ts.
+function planLocalEngineUpdate(updateRoot) {
+  return planEngineUpdate({ fileExists, findOnPath, isPackaged: IS_PACKAGED, platform: process.platform, updateRoot })
+}
 
-  if (fileExists(venvHermes)) {
-    return venvHermes
-  }
+// Packaged builds without their own engine checkout have no in-app engine
+// update to perform: the bundled runtime is immutable inside the signed app
+// and engine updates arrive with the app itself. Answer with the renderer's
+// closeable guiSkew terminal state ("update the app"), never with a command
+// that would update the CLI product instead.
+function engineUpdateAppManagedResult(updateRoot) {
+  const message = 'Atum ships its engine inside the app — install the latest Atum release to pick up engine updates.'
 
-  return findOnPath('hermes') || null
+  emitUpdateProgress({ message, percent: null, stage: 'guiSkew' })
+
+  return { guiSkew: true, hermesRoot: updateRoot, message, ok: true }
 }
 
 // Spawn a command and stream each output line to the update progress channel.
@@ -2862,7 +2914,13 @@ function shellQuote(value) {
 // restart to load the new GUI" if the swap can't be performed.
 async function applyUpdatesPosixInApp(opts: any) {
   const updateRoot = resolveUpdateRoot()
-  const hermes = resolveHermesCliBinary(updateRoot)
+  const updatePlan = planLocalEngineUpdate(updateRoot)
+
+  if (updatePlan.kind === 'app-managed') {
+    return engineUpdateAppManagedResult(updateRoot)
+  }
+
+  const hermes = updatePlan.command
 
   if (!hermes) {
     emitUpdateProgress({ stage: 'manual', message: 'hermes update', percent: null })
@@ -3082,6 +3140,8 @@ async function applyUpdatesPosixInApp(opts: any) {
   }
 
   const rebuiltApp = [
+    path.join(updateRoot, 'apps', 'desktop', 'release', 'mac-arm64', `${APP_NAME}.app`),
+    path.join(updateRoot, 'apps', 'desktop', 'release', 'mac', `${APP_NAME}.app`),
     path.join(updateRoot, 'apps', 'desktop', 'release', 'mac-arm64', 'Hermes.app'),
     path.join(updateRoot, 'apps', 'desktop', 'release', 'mac', 'Hermes.app')
   ].find(directoryExists)
@@ -3477,7 +3537,26 @@ function resolveHermesBackend(backendArgs) {
     }
   }
 
-  // 3. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
+  // 3. Packaged macOS runtime -- Atum/Hermes distributions stage a pinned,
+  //    relocatable Python + git-archived Hermes tree under Resources/runtime.
+  //    Validate the actual import seam before trusting it; a partial or
+  //    damaged payload simply falls through to the historical managed install
+  //    and bootstrap rungs below, so source/dev and repair behavior stay intact.
+  const bundledBackend = resolveBundledHermesRuntime({
+    isPackaged: IS_PACKAGED,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    backendArgs,
+    hermesHome: HERMES_HOME,
+    currentEnv: process.env,
+    probeRuntime: (python, options) => canImportHermesCli(python, options)
+  })
+
+  if (bundledBackend) {
+    return bundledBackend
+  }
+
+  // 4. Bootstrap-complete ACTIVE_HERMES_ROOT -- the canonical install at
   //    %LOCALAPPDATA%\hermes\hermes-agent (Windows) or ~/.hermes/hermes-agent.
   //    The bootstrap marker means install.ps1 stages finished and the user
   //    completed initial configuration; we trust the install and go straight
@@ -3487,7 +3566,7 @@ function resolveHermesBackend(backendArgs) {
     return createActiveBackend(backendArgs)
   }
 
-  // 4. Existing `hermes` on PATH -- installed via install.ps1 / install.sh from
+  // 5. Existing `hermes` on PATH -- installed via install.ps1 / install.sh from
   //    a previous tool-only setup, or pip-installed system-wide. Use it but
   //    do NOT write a bootstrap marker; the user did this themselves and we
   //    don't want to take ownership of an install we didn't perform.
@@ -3530,7 +3609,7 @@ function resolveHermesBackend(backendArgs) {
       // via findOnPath but explodes on spawn -- the user then sees a
       // dead backend instead of the first-launch installer. The cheap
       // `--version` probe (see backend-probes.ts) catches that case
-      // and lets the resolver fall through to step 6 / bootstrap.
+      // and lets the resolver fall through to the final bootstrap rung.
       const shellForProbe = isCommandScript(hermesCommand)
 
       // HERMES_DESKTOP_HERMES is an explicit deployment override (used by
@@ -3557,7 +3636,7 @@ function resolveHermesBackend(backendArgs) {
     }
   }
 
-  // 5. Last-ditch: pip-installed hermes_cli module via system Python.
+  // 6. Last-ditch: pip-installed hermes_cli module via system Python.
   //    Same rationale as #4 -- the user installed this; we use it but don't
   //    take ownership.
   const python = findSystemPython()
@@ -3569,7 +3648,7 @@ function resolveHermesBackend(backendArgs) {
     // a python.org install from prior unrelated work. Returning that
     // backend hands the spawn step a guaranteed ModuleNotFoundError.
     // Verify the import works before trusting the candidate; on
-    // failure, fall through to step 6 so the bootstrap runner pulls
+    // failure, fall through to the final rung so the bootstrap runner pulls
     // a uv-managed 3.11 into %LOCALAPPDATA%\hermes\hermes-agent\venv.
     if (canImportHermesCli(python)) {
       return {
@@ -3586,7 +3665,7 @@ function resolveHermesBackend(backendArgs) {
     rememberLog(`Ignoring system Python ${python}: hermes_cli is not importable; falling through to bootstrap.`)
   }
 
-  // 6. Nothing usable yet -- signal the bootstrap runner that we need to
+  // 7. Nothing usable yet -- signal the bootstrap runner that we need to
   //    clone+install. Phase 1D's bootstrap-runner consumes this sentinel
   //    and drives install.ps1 stages with a progress UI. Until 1D lands,
   //    callers see the sentinel and surface it as a user-facing error
@@ -7583,6 +7662,9 @@ async function spawnPoolBackend(profile, entry) {
       env: {
         ...process.env,
         HERMES_HOME,
+        // Shared subscription credential plane — same pin as the primary
+        // backend spawn in startHermes(); {} outside packaged builds.
+        ...SHARED_AUTH_DIR_ENV,
         ...backend.env,
         // Pin the gateway's tool/terminal cwd to the same directory we chose for
         // the child process. Inherited TERMINAL_CWD (or a stale config bridge)
@@ -7849,6 +7931,9 @@ async function startHermes() {
           // directories. install.ps1 sets HERMES_HOME via setx; the desktop
           // can't reliably do that, so we set it inline for every spawn.
           HERMES_HOME,
+          // Shared subscription credential plane (Codex/Nous OAuth) — see the
+          // SHARED_AUTH_DIR_ENV declaration. Packaged-only pin; {} otherwise.
+          ...SHARED_AUTH_DIR_ENV,
           ...backend.env,
           TERMINAL_CWD: hermesCwd,
           HERMES_DASHBOARD_SESSION_TOKEN: token,
@@ -8081,7 +8166,7 @@ function spawnSecondaryWindow({ sessionId, watch }: { sessionId?: string; watch?
     height: SESSION_WINDOW_MIN_HEIGHT,
     minWidth: SESSION_WINDOW_MIN_WIDTH,
     minHeight: SESSION_WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     titleBarStyle: 'hidden',
     titleBarOverlay: getTitleBarOverlayOptions(),
     trafficLightPosition: IS_MAC ? WINDOW_BUTTON_POSITION : undefined,
@@ -8164,7 +8249,7 @@ function createInstanceWindow() {
     ...nextInstanceBounds(),
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     titleBarStyle: 'hidden',
     titleBarOverlay: getTitleBarOverlayOptions(),
     trafficLightPosition: IS_MAC ? WINDOW_BUTTON_POSITION : undefined,
@@ -8356,7 +8441,7 @@ function createWindow() {
     ...computeWindowOptions(savedWindowState, screen.getAllDisplays()),
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
-    title: 'Hermes',
+    title: APP_NAME,
     // Frameless title bar on every platform so the renderer can paint the
     // "hide sidebar" button (and other left-side titlebar tools) flush with
     // the top edge — matching the macOS layout where the traffic lights sit
@@ -8557,6 +8642,18 @@ function createWindow() {
   } else {
     mainWindow.loadURL(pathToFileURL(resolveRendererIndex()).toString())
   }
+
+  // Electron 40 can omit `ready-to-show` for the packaged, split-chunk
+  // renderer even after the renderer process and backend are healthy. Start
+  // the fallback only after navigation has been scheduled: an earlier timer
+  // can be starved while loadURL synchronously initializes the renderer.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      rememberLog('[window] ready-to-show fallback revealed the main window')
+      mainWindow.show()
+      schedulePersistWindowState()
+    }
+  }, 1_500)
 
   // Start the Python backend NOW, in parallel with the renderer load — not on
   // did-finish-load. The backend cold boot (spawn → port announce → /api/status)
@@ -9387,7 +9484,7 @@ ipcMain.handle('hermes:notify', (_event, payload) => {
   const actions = Array.isArray(payload?.actions) ? payload.actions : []
 
   const notification = new Notification({
-    title: payload?.title || 'Hermes',
+    title: payload?.title || APP_NAME,
     body: payload?.body || '',
     silent: Boolean(payload?.silent),
     actions: actions.map(action => ({ type: 'button', text: String(action?.text || '') }))
@@ -10295,7 +10392,8 @@ async function getUninstallSummary() {
     userdata_dir: app.getPath('userData'),
     userdata_exists: true,
     platform: process.platform,
-    probe: 'fallback'
+    probe: 'fallback',
+    allowed_modes: allowedUninstallModes({ isPackaged: IS_PACKAGED })
   })
 
   if (!fileExists(py)) {
@@ -10342,6 +10440,9 @@ async function getUninstallSummary() {
           // resolved from the running exe (the Python probe only knows the
           // standard locations, not where THIS build actually runs from).
           parsed.running_app_path = resolveRemovableAppPath(process.execPath, process.platform, process.env)
+          // Packaged builds restrict which modes may run (product isolation);
+          // the Python probe doesn't know the desktop's packaging state.
+          parsed.allowed_modes = allowedUninstallModes({ isPackaged: IS_PACKAGED })
           done(parsed)
         } catch {
           done(fallback())
@@ -10361,6 +10462,19 @@ async function runDesktopUninstall(mode) {
     uninstallArgs = uninstallArgsForMode(mode)
   } catch (error) {
     return { ok: false, error: 'invalid-mode', message: error.message }
+  }
+
+  // Product isolation: packaged Atum must never run the CLI uninstaller's
+  // lite/full cross-product cleanup (shell-rc edits, registry env vars,
+  // node symlinks, gateway services). See desktop-uninstall.ts.
+  if (!isUninstallModeAllowed(mode, { isPackaged: IS_PACKAGED })) {
+    return {
+      ok: false,
+      error: 'mode-disabled',
+      message:
+        `Uninstall mode '${mode}' is disabled in packaged Atum because it performs ` +
+        `CLI-product cleanup that is not scoped to the Atum home. Mode 'gui' removes only the app.`
+    }
   }
 
   const venvPy = uninstallVenvPython()
@@ -10628,6 +10742,50 @@ app.whenReady().then(() => {
   registerMediaProtocol()
   installEmbedReferer()
   registerDeepLinkProtocol()
+  // Messaging owns its bearer credentials + SQLite projection entirely in
+  // main. The account-login lane installs a verified session through the
+  // runtime's main-only seam; no token or database capability crosses preload.
+  let atumAccountClient: SupabaseAtumAccountClient | null = null
+
+  try {
+    const accountConfig = resolveAtumPublicAccountConfig({
+      environment: {
+        hostedBaseUrl: process.env.ATUM_PLATFORM_URL,
+        supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+        supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        providers: {
+          google: process.env.NEXT_PUBLIC_GOOGLE_AUTH_ENABLED === 'true',
+          password: process.env.ATUM_PASSWORD_AUTH_ENABLED !== 'false'
+        }
+      },
+      packagedPath: process.resourcesPath ? path.join(process.resourcesPath, 'atum-public-config.json') : null
+    })
+
+    if (accountConfig) {
+      atumAccountClient = new SupabaseAtumAccountClient(accountConfig, {
+        fetchImpl: electronNet.fetch,
+        openExternal: url => shell.openExternal(url)
+      })
+    }
+  } catch (error) {
+    rememberLog(`[atum-account] invalid configuration: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
+  atumMessagingRuntime = new AtumMessagingRuntime({
+    userDataPath: app.getPath('userData'),
+    safeStorage,
+    refreshSession: (session, signal) =>
+      atumAccountController?.refresh(session, signal) ??
+      atumAccountClient?.refresh(session, signal) ??
+      Promise.resolve(null)
+  })
+  atumAccountController = new AtumAccountAuthController({
+    runtime: atumMessagingRuntime,
+    client: atumAccountClient
+  })
+  registerAtumAccountIpc(ipcMain, atumAccountController)
+  registerAtumMessagingIpc(ipcMain, atumMessagingRuntime)
+  void atumMessagingRuntime.start()
   ensureWslWindowsFonts()
   configureSpellChecker()
   registerPowerResumeListeners()
@@ -10677,6 +10835,9 @@ function configureSpellChecker() {
 }
 
 app.on('before-quit', event => {
+  atumAccountController?.stop()
+  atumMessagingRuntime?.stop()
+
   if ((sshConnections.size > 0 || sshBootstrapCoordinator.promises().length > 0) && !sshQuitTeardownDone) {
     event.preventDefault()
     sshBootstrapCoordinator.cancelAll()

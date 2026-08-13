@@ -33,6 +33,7 @@ import type { SidebarActions, WiringActions } from './types'
 // (agents/settings/…) are the controller's and stay in wiring.tsx.
 const ArtifactsView = lazy(async () => ({ default: (await import('../artifacts')).ArtifactsView }))
 const MessagingView = lazy(async () => ({ default: (await import('../messaging')).MessagingView }))
+const AtumDmView = lazy(async () => ({ default: (await import('../dm')).AtumDmView }))
 const SkillsView = lazy(async () => ({ default: (await import('../skills')).SkillsView }))
 
 export function LegacySessionRedirect() {
@@ -180,6 +181,7 @@ export const ChatRoutesSurface = memo(function ChatRoutesSurface({
     <Routes>
       <Route element={chatView} index />
       <Route element={chatView} path=":sessionId" />
+      <Route element={page(<AtumDmView />)} path="dm/:conversationId" />
       <Route element={page(<SkillsView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="skills" />
       <Route element={page(<MessagingView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="messaging" />
       <Route element={page(<ArtifactsView setStatusbarItemGroup={setStatusbarItemGroup} />)} path="artifacts" />
@@ -188,6 +190,10 @@ export const ChatRoutesSurface = memo(function ChatRoutesSurface({
       <Route element={null} path="cron" />
       <Route element={null} path="profiles" />
       <Route element={null} path="settings" />
+      {/* The Atum auth gate owns the whole window (AtumShellRoot renders it
+          instead of the shell), so the workspace pane must render nothing —
+          not fall through to the `*` redirect, which would bounce the route. */}
+      <Route element={null} path="sign-in" />
       <Route element={null} path="starmap" />
       {/* Registry-contributed pages (core features + plugins) render in the
           workspace pane like any built-in view — behind the same blast wall

@@ -9,18 +9,27 @@ export const SETTINGS_ROUTE = '/settings'
 export const COMMAND_CENTER_ROUTE = '/command-center'
 export const SKILLS_ROUTE = '/skills'
 export const MESSAGING_ROUTE = '/messaging'
+export const DM_ROUTE_PREFIX = '/dm/'
 export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
 export const STARMAP_ROUTE = '/starmap'
+/** The Atum sign-in gate. Internal plumbing stays conventional English; the
+ *  copy the user reads is Vietnamese-first (see `t.atum.auth`). */
+export const ATUM_AUTH_ROUTE = '/sign-in'
 
 export type AppView =
   | 'agents'
   | 'artifacts'
+  // The full-window Atum sign-in gate. NOT an OVERLAY_VIEW: it replaces the
+  // shell entirely rather than floating a card over it, so there is nothing
+  // behind it to click around.
+  | 'atum-auth'
   | 'chat'
   | 'command-center'
   | 'cron'
+  | 'dm'
   // A contributed (plugin) full page at its own route — NOT chat. Without this
   // distinction contributed paths fell through appViewForPath's 'chat' default,
   // so the sidebar kept a session highlighted and the titlebar kept the
@@ -35,6 +44,7 @@ export type AppView =
 export type AppRouteId =
   | 'agents'
   | 'artifacts'
+  | 'atum-auth'
   | 'command-center'
   | 'cron'
   | 'messaging'
@@ -60,7 +70,8 @@ export const APP_ROUTES = [
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },
   { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
-  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' }
+  { id: 'starmap', path: STARMAP_ROUTE, view: 'starmap' },
+  { id: 'atum-auth', path: ATUM_AUTH_ROUTE, view: 'atum-auth' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
@@ -133,11 +144,30 @@ export function isNewChatRoute(pathname: string): boolean {
 }
 
 export function routeSessionId(pathname: string): string | null {
-  if (!pathname.startsWith(SESSION_ROUTE_PREFIX) || RESERVED_PATHS.has(pathname) || isContributedPath(pathname)) {
+  if (
+    !pathname.startsWith(SESSION_ROUTE_PREFIX) ||
+    pathname.startsWith(DM_ROUTE_PREFIX) ||
+    RESERVED_PATHS.has(pathname) ||
+    isContributedPath(pathname)
+  ) {
     return null
   }
 
   const id = pathname.slice(SESSION_ROUTE_PREFIX.length)
+
+  return id && !id.includes('/') ? decodeURIComponent(id) : null
+}
+
+export function dmRoute(conversationId: string): string {
+  return `${DM_ROUTE_PREFIX}${encodeURIComponent(conversationId)}`
+}
+
+export function routeDmConversationId(pathname: string): string | null {
+  if (!pathname.startsWith(DM_ROUTE_PREFIX)) {
+    return null
+  }
+
+  const id = pathname.slice(DM_ROUTE_PREFIX.length)
 
   return id && !id.includes('/') ? decodeURIComponent(id) : null
 }
@@ -147,6 +177,10 @@ export function sessionRoute(sessionId: string): string {
 }
 
 export function appViewForPath(pathname: string): AppView {
+  if (routeDmConversationId(pathname)) {
+    return 'dm'
+  }
+
   if (isNewChatRoute(pathname) || routeSessionId(pathname)) {
     return 'chat'
   }

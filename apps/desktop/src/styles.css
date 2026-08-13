@@ -5,6 +5,10 @@
 @import '@vscode/codicons/dist/codicon.css';
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --ui-focus-ring: color-mix(in srgb, var(--ui-accent) 62%, transparent);
+}
+
 /* Blanket reduced-motion override: kill ALL CSS animations and transitions
    when the user (or the E2E test harness via prefers-reduced-motion) requests
    it. Per-component @media rules below handle specific cases; this catches
@@ -136,20 +140,20 @@
   :root {
     color-scheme: light;
 
-    --theme-foreground: #17171a;
-    --theme-primary: #0053fd;
-    --theme-secondary: color-mix(in srgb, #0053fd 7%, #ffffff);
-    --theme-accent-soft: color-mix(in srgb, #0053fd 10%, #ffffff);
-    --theme-midground: #0053fd;
+    --theme-foreground: #1a1714;
+    --theme-primary: #7a6a55;
+    --theme-secondary: color-mix(in srgb, #7a6a55 7%, #ffffff);
+    --theme-accent-soft: color-mix(in srgb, #7a6a55 10%, #ffffff);
+    --theme-midground: #7a6a55;
     --theme-warm: #cf806d;
-    --theme-background-seed: #f8faff;
-    --theme-sidebar-seed: #f3f7ff;
-    --theme-card-seed: #ffffff;
-    --theme-elevated-seed: #ffffff;
-    --theme-bubble-seed: color-mix(in srgb, #0053fd 6%, #ffffff);
-    --theme-neutral-chrome: #f3f3f3;
-    --theme-neutral-sidebar: #f3f3f3;
-    --theme-neutral-card: #fcfcfc;
+    --theme-background-seed: #faf7f2;
+    --theme-sidebar-seed: #f5f1e9;
+    --theme-card-seed: #fffdf9;
+    --theme-elevated-seed: #fffdf9;
+    --theme-bubble-seed: color-mix(in srgb, #7a6a55 6%, #fffdf9);
+    --theme-neutral-chrome: #f2eee7;
+    --theme-neutral-sidebar: #efebe3;
+    --theme-neutral-card: #fbf8f3;
     --theme-mix-chrome: 92%;
     --theme-mix-sidebar: 100%;
     --theme-mix-card: 22%;
@@ -205,7 +209,7 @@
       var(--theme-neutral-card)
     );
     --ui-bg-card: color-mix(in srgb, var(--ui-accent) 4%, color-mix(in srgb, var(--ui-base) 4%, transparent));
-    --ui-bg-input: #fcfcfc;
+    --ui-bg-input: #fbf8f3;
     --ui-bg-primary: color-mix(
       in srgb,
       var(--ui-accent) var(--theme-fill-primary-accent-mix),
@@ -289,7 +293,7 @@
     --ui-chat-bubble-opaque-background: var(--ui-bg-editor);
     --ui-inline-code-background: color-mix(in srgb, #141414 5%, transparent);
     --ui-inline-code-foreground: color-mix(in srgb, #141414 88%, transparent);
-    --ui-selection-background: color-mix(in srgb, #ffd24a 55%, transparent);
+    --ui-selection-background: color-mix(in srgb, #c99a5b 48%, transparent);
 
     --dt-background: var(--ui-bg-chrome);
     --dt-foreground: var(--ui-text-primary);
@@ -426,14 +430,24 @@
   }
 
   :root.dark {
+    --theme-foreground: #f2ece1;
+    --theme-primary: #c6b49a;
+    --theme-secondary: color-mix(in srgb, #c6b49a 10%, #141311);
+    --theme-accent-soft: color-mix(in srgb, #c6b49a 14%, #141311);
+    --theme-midground: #c6b49a;
+    --theme-background-seed: #141311;
+    --theme-sidebar-seed: #100f0e;
+    --theme-card-seed: #1c1a17;
+    --theme-elevated-seed: #211e1a;
+    --theme-bubble-seed: color-mix(in srgb, #c6b49a 8%, #1c1a17);
     /* Per-mode mix knobs — overridden inline by `applyTheme()` per skin. */
     --theme-mix-chrome: 74%;
     --theme-mix-card: 38%;
     --theme-mix-elevated: 46%;
     --theme-mix-bubble: 46%;
-    --theme-neutral-chrome: #0d0d0e;
-    --theme-neutral-sidebar: #0a0a0b;
-    --theme-neutral-card: #161618;
+    --theme-neutral-chrome: #141311;
+    --theme-neutral-sidebar: #100f0e;
+    --theme-neutral-card: #1c1a17;
 
     /* Dark-only accent palette overrides. */
     --ui-red: #e75e78;
@@ -450,7 +464,7 @@
 
     --ui-inline-code-background: color-mix(in srgb, #ffffff 7%, transparent);
     --ui-inline-code-foreground: color-mix(in srgb, #ffffff 88%, transparent);
-    --ui-selection-background: color-mix(in srgb, #ffd24a 38%, transparent);
+    --ui-selection-background: color-mix(in srgb, #c99a5b 34%, transparent);
   }
 
   * {
@@ -724,19 +738,26 @@
   }
 }
 
-/* No focus rings, anywhere. Kills the native outline plus Tailwind's
-   `focus-visible:ring-*` (a box-shadow driven by --tw-ring-*). Unlayered so it
-   beats the utilities layer without !important on the outline. The composer /
-   .desktop-input-chrome focus glow is untouched — those set `box-shadow`
-   directly rather than through the ring vars. */
-*:focus,
-*:focus-visible {
+/* Mouse focus stays quiet; keyboard focus uses the designed Atum token below.
+   Tailwind's box-shadow ring is still nulled so controls never show a double
+   focus treatment. */
+*:focus {
   outline: none;
 }
 
 *:focus-visible {
+  outline: 2px solid var(--ui-focus-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
   --tw-ring-shadow: 0 0 #0000 !important;
   --tw-ring-offset-shadow: 0 0 #0000 !important;
+}
+
+/* Text-entry surfaces own focus through their border/glow ladder. */
+[data-slot='composer-rich-input']:focus-visible,
+[data-slot='composer-surface']:focus-within,
+.desktop-input-chrome:focus-visible {
+  outline: none;
 }
 
 button {
@@ -1829,4 +1850,245 @@ text-* variant utilities. */ .btn-arc {
     width: 100%;
     opacity: 0.4;
   }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Atum product shell — tokens + material recipes
+   ───────────────────────────────────────────────────────────────────────────
+   Scoped to `.atum-shell` (the shell root) rather than a skin attribute: the
+   desktop applies themes by writing CSS vars from `themes/presets.ts`, so
+   there is no `[data-skin]` selector to hang these off. Scoping to the root
+   also guarantees the legacy Hermes chrome is byte-for-byte unaffected.
+
+   "Liquid glass" here is exactly three pure-CSS effects and nothing else:
+     1. depth by elevation, not borders — `--atum-shadow-chat` sits above
+        `--atum-shadow-panel`, and no divider borders run between regions;
+     2. translucent veils on PINNED structural surfaces only — the rim and
+        plates carry a backdrop-filter; scrolling
+        content (rows, transcript, workspace body) carries none, so nothing
+        repaints during scroll;
+     3. a soft specular hairline on plate TOP edges (`--atum-sheen`).
+   The BrowserWindow supplies native macOS vibrancy during pre-paint. The Atum
+   root itself is opaque so wallpaper never becomes product content; glass is
+   created only by layering Atum's own surfaces.
+
+   The transcript is the ONE opaque plane: `--atum-chat` /
+   `--atum-chat-solid` are near-fully opaque so no desktop image or legacy
+   Hermes art can leak through the main panel. Glass stays on the rim, rail,
+   panels, and edges — never by making the transcript transparent. */
+.atum-shell {
+  /* surfaces */
+  --atum-desk: rgb(222 218 210);
+  --atum-panel: rgb(249 248 245 / 74%);
+  --atum-card: rgb(255 255 255 / 88%);
+  --atum-chat: rgb(252 251 248);
+  --atum-chat-solid: rgb(252 251 248);
+  --atum-chat-veil: rgb(253 252 250 / 62%);
+  --atum-rim: rgb(250 249 246 / 60%);
+  --atum-sunk: rgb(236 233 227 / 88%);
+
+  /* ink */
+  --atum-ink: #1c1b19;
+  --atum-ink-deep: #141311;
+  --atum-ink-strong: #1f1e1b;
+  --atum-ink-soft: #63625d;
+  --atum-ink-muted: #6b6963;
+  --atum-ink-faint: #6f6d67;
+  --atum-verified: #a9701c;
+  --atum-app-moon: #6a4bbc;
+  --atum-app-andy: #5a9b8a;
+  --atum-app-ben: #a9701c;
+  --atum-app-taylor: #e8c547;
+
+  /* hairlines & interaction */
+  --atum-line: rgb(0 0 0 / 5%);
+  --atum-line-strong: rgb(0 0 0 / 10%);
+  --atum-hover: rgb(0 0 0 / 4.5%);
+  --atum-pressed: rgb(0 0 0 / 7%);
+  --atum-focus: rgb(28 27 25 / 28%);
+  --atum-auth-field-line: rgb(28 27 25 / 48%);
+  --atum-auth-focus: rgb(28 27 25 / 58%);
+  --atum-sheen: inset 0 1px 0 color-mix(in srgb, white 62%, transparent);
+
+  /* radii */
+  --atum-r-surface: 16px;
+  --atum-r-composer: 18px;
+  --atum-r-card: 13px;
+  --atum-r-row: 12px;
+  --atum-r-control: 10px;
+  --atum-r-sm: 9px;
+  --atum-r-tile: 9px;
+
+  /* geometry */
+  --atum-rim-h: 34px;
+
+  /* Consumer transcript density. Legacy Hermes retains its 13/18px scale. */
+  --conversation-text-font-size: 0.875rem;
+  --conversation-line-height: 1.375rem;
+  --conversation-caption-font-size: 0.8125rem;
+  --conversation-caption-line-height: 1.25rem;
+  --atum-text-title: 0.875rem;
+  --atum-text-body: 0.8125rem;
+  --atum-text-meta: 0.75rem;
+
+  /* elevation */
+  --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 6%), 0 8px 20px -12px rgb(0 0 0 / 22%);
+  --atum-shadow-chat: 0 1px 1px rgb(0 0 0 / 7%), 0 24px 48px -24px rgb(0 0 0 / 34%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 6%), 0 8px 18px -12px rgb(0 0 0 / 24%);
+  --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 18%);
+
+  /* motion */
+  --atum-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --atum-dur-fast: 150ms;
+  --atum-dur: 200ms;
+  --atum-dur-slow: 300ms;
+
+  /* Inside Atum the "chat surface" every Hermes chat descendant paints
+     (thread column, sticky user-message headers, empty states) is the OPAQUE
+     Atum chat ground — this is what stops any desktop image or legacy art
+     from leaking through the main panel. Scoped, so the legacy shell keeps
+     its own chrome color. */
+  --ui-chat-surface-background: var(--atum-chat-solid);
+
+  /* The Hermes input recess reads as a black inset on the warm Atum material;
+     the floating composer below replaces it with elevation. */
+  --dt-input-inset: none;
+
+  /* Composer geometry inside the Atum chat plate. */
+  --composer-width: 45rem;
+  --composer-surface-pad-x: 0.5rem;
+  --composer-surface-pad-y: 0.375rem;
+  --composer-shell-pad-block-end: 0.875rem;
+}
+
+/* BrowserWindow supplies the NSVisualEffectView during pre-paint. The opaque
+   Atum desk below prevents wallpaper from becoming recognizable product UI. */
+html:has(.atum-shell),
+body:has(.atum-shell),
+#root:has(.atum-shell) {
+  background: var(--atum-desk, rgb(222 218 210));
+}
+
+/* Neutral, high-contrast dark material. Warmth stays in the app accents and
+   surfaces; long-form transcript text follows the calmer Codex-style ramp. */
+.dark .atum-shell {
+  --atum-desk: rgb(13 13 13);
+  --atum-panel: rgb(32 32 32);
+  --atum-card: rgb(49 49 49);
+  --atum-chat: rgb(24 24 24);
+  --atum-chat-solid: rgb(24 24 24);
+  --atum-chat-veil: rgb(24 24 24 / 92%);
+  --atum-rim: rgb(27 27 27);
+  --atum-sunk: rgb(19 19 19);
+
+  --atum-ink: #f1f1f1;
+  --atum-ink-deep: #0d0d0d;
+  --atum-ink-strong: #fafafa;
+  --atum-ink-soft: #d1d1d1;
+  --atum-ink-muted: #a8a8a8;
+  --atum-ink-faint: #858585;
+
+  --atum-line: rgb(255 255 255 / 8%);
+  --atum-line-strong: rgb(255 255 255 / 15%);
+  --atum-hover: rgb(255 255 255 / 7%);
+  --atum-pressed: rgb(255 255 255 / 11%);
+  --atum-focus: rgb(255 255 255 / 34%);
+  --atum-auth-field-line: rgb(255 255 255 / 42%);
+  --atum-auth-focus: rgb(255 255 255 / 62%);
+  --atum-sheen: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
+
+  --atum-shadow-panel: 0 1px 1px rgb(0 0 0 / 32%), 0 8px 20px -12px rgb(0 0 0 / 55%);
+  --atum-shadow-chat: 0 1px 1px rgb(0 0 0 / 40%), 0 24px 48px -24px rgb(0 0 0 / 85%);
+  --atum-shadow-row: 0 1px 2px rgb(0 0 0 / 38%), 0 8px 18px -12px rgb(0 0 0 / 62%);
+  --atum-shadow-tile: 0 1px 2px rgb(0 0 0 / 50%);
+}
+
+.atum-plate {
+  border: 1px solid var(--atum-line);
+  border-radius: var(--atum-r-surface);
+  background: var(--atum-panel);
+  box-shadow: var(--atum-shadow-panel), var(--atum-sheen);
+  backdrop-filter: blur(30px) saturate(180%);
+  contain: layout paint;
+}
+
+.atum-auth-plate {
+  border-color: var(--atum-line-strong);
+  box-shadow: var(--atum-shadow-chat), var(--atum-sheen);
+}
+
+.atum-plate-chat {
+  border: 1px solid var(--atum-line);
+  border-radius: var(--atum-r-surface);
+  background: var(--atum-chat);
+  box-shadow: var(--atum-shadow-chat), var(--atum-sheen);
+  backdrop-filter: blur(30px) saturate(180%);
+  contain: layout paint;
+}
+
+/* The top rim: one native-height conversation band that hosts the traffic
+   lights and gives the plates a lid. Same pinned-veil recipe as the plates. */
+.atum-rim {
+  height: var(--atum-rim-h);
+  background: var(--atum-rim);
+  border-bottom: 1px solid var(--atum-line);
+  box-shadow: var(--atum-sheen);
+  backdrop-filter: blur(30px) saturate(180%);
+}
+
+/* ── Atum composer — the floating rounded surface. Scoped to `.atum-shell` so
+   the Hermes composer is byte-for-byte untouched outside the product shell. */
+.atum-shell [data-slot='composer-root'] {
+  border-radius: var(--atum-r-composer);
+}
+
+.atum-shell [data-slot='composer-surface'] {
+  border-color: var(--atum-line-strong) !important;
+  background: color-mix(in srgb, var(--atum-card) 92%, transparent);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 5%),
+    0 10px 24px -18px rgb(0 0 0 / 35%),
+    var(--atum-sheen);
+  min-height: 44px;
+}
+
+.atum-shell [data-slot='composer-surface']:focus-within {
+  border-color: var(--atum-focus) !important;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--atum-focus) 32%, transparent),
+    var(--atum-sheen);
+}
+
+/* The fade above the composer must merge into the ATUM chat ground, not the
+   legacy Hermes surface color — otherwise a faint band floats over the plate. */
+.atum-shell [data-slot='composer-root'] > .pointer-events-none {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--atum-chat-solid) 92%, transparent)
+  ) !important;
+}
+
+/* A heading is not an interactive control and must not receive the global
+   keyboard-focus pill if assistive technology or host code targets it. */
+.atum-auth-heading:focus,
+.atum-auth-heading:focus-visible {
+  outline: none;
+}
+
+/* Credential boundaries remain locatable in glare and low-vision conditions.
+   These stronger values are scoped to the auth gate so the calmer plate
+   hairlines elsewhere keep their liquid-material hierarchy. */
+.atum-auth-plate input {
+  border-color: var(--atum-auth-field-line);
+}
+
+/* Hermes' global focus rule deliberately normalizes border-radius via inherit;
+   inside the Atum gate that produced a square outline around an otherwise
+   rounded input. Keep keyboard focus visible, but use the product radius and a
+   quiet material halo rather than a second hard rectangle. */
+.atum-auth-plate input:focus-visible {
+  border-radius: var(--atum-r-control);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--atum-auth-focus);
 }

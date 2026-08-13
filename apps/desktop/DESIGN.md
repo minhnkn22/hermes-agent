@@ -15,7 +15,7 @@ This doc contains two kinds of content, maintained differently:
 - **Principles** (flatness, intent, feedback, motion, cancellation) are durable.
   They hold as components come and go.
 - **Named contracts** (tokens, `Button` variants, primitive names) are the
-  design system's current API. They are maintained *with* the code: if you
+  design system's current API. They are maintained _with_ the code: if you
   change a primitive, token, or variant, update its entry here **in the same
   change** — a stale name in this file is a bug, exactly like a stale type.
 
@@ -88,18 +88,121 @@ for call-site shadow or border inventions.
 
 ## Stroke & color tokens
 
-| Token | Use |
-| --- | --- |
-| `--ui-stroke-primary…quaternary` | hairlines, in descending strength |
-| `--ui-stroke-tertiary` | the default in-panel divider / list hairline |
-| `--stroke-nous` | the overlay hairline (pairs with `shadow-nous`) |
-| `--ui-text-primary / -secondary / -tertiary` | text hierarchy |
-| `--ui-bg-quaternary` | soft control fill (secondary button) |
-| `--chrome-action-hover` | hover fill for quiet controls |
-| `--theme-primary`, `--ui-accent` | brand/accent |
+Atum is the fresh-profile desktop theme. Its warm monochrome palette is a
+named registry entry (`atum`) rather than a component fork; existing Hermes
+themes remain available. Brand warmth must never replace semantic diff,
+destructive, warning, or success colors.
+
+| Token                                        | Use                                             |
+| -------------------------------------------- | ----------------------------------------------- |
+| `--ui-stroke-primary…quaternary`             | hairlines, in descending strength               |
+| `--ui-stroke-tertiary`                       | the default in-panel divider / list hairline    |
+| `--stroke-nous`                              | the overlay hairline (pairs with `shadow-nous`) |
+| `--ui-text-primary / -secondary / -tertiary` | text hierarchy                                  |
+| `--ui-bg-quaternary`                         | soft control fill (secondary button)            |
+| `--chrome-action-hover`                      | hover fill for quiet controls                   |
+| `--theme-primary`, `--ui-accent`             | brand/accent                                    |
 
 Never hardcode `border-gray-*`, `bg-white`, `text-black`, etc. The white tile in
 `BrandMark` is the one sanctioned literal (the mark needs a fixed backdrop).
+
+## The Atum product shell
+
+`$atumShellEnabled` (`src/store/atum-shell.ts`, default on) selects the product
+chrome. Both shells mount **inside** `ContribWiring`, so contributions,
+keybinds, overlays, dialogs, notifications, the command palette, and boot
+surfaces are identical either way — only the chrome differs. Setting the flag
+false restores the legacy Hermes chrome (titlebar tool clusters, pane tree,
+statusbar) verbatim.
+
+Structure (`src/app/atum/`): a full-width **34px top rim** (macOS/Hermes
+geometry, Atum contents only), then a bare **52px rail** on the desk, then
+three floating plates — **roster 274px**, **chat flex-1**, **workspace
+360–640px collapsible** — inside `gap-2.5 p-2.5`. The rim band and the gutter
+are the drag regions; there is no Hermes titlebar content and no statusbar.
+
+- **The rim carries the foreground conversation title and workspace toggle**.
+  In compact layouts it also carries the roster toggle. The rim hosts the macOS
+  traffic lights. Session/profile/project/worktree pickers, pin, split, flip,
+  model pill, approval mode, context usage, gateway, and tool clusters are
+  Hermes organisation and never return — they live in Advanced Settings and
+  ⌘K.
+- **The rail has exactly four controls**: account, chat, devices, settings. The
+  account control is a circular user initial/icon, never the Atum brand mark,
+  and opens a focused identity dialog. Language and appearance belong in
+  Settings, not the account dialog. Devices is
+  `aria-disabled` with no `onClick` and no pairing UI — a capability we do not
+  have is shown honestly, not faked.
+- **There is no second chat header.** Conversation identity appears once in the
+  34px rim; the transcript begins directly beneath it.
+- **The chat body is `WiredPane part="chatRoutes"`** — the same transcript, tool
+  cards, and approvals the Hermes shell renders. Never fork a second one.
+- **The workspace file tab is the Atum consumer browser**: Finder-style grid
+  by default, persistent grid/list switch, back/up navigation, and no dot
+  entries. Files still open through Hermes' existing preview pipeline. The
+  legacy Hermes developer tree remains unchanged behind Advanced surfaces.
+  Preview and conversation-detail tabs are derived from live capability and
+  never rendered-and-disabled.
+- **Sign-in is a full-window gate** (`atum/auth-view.tsx`, route
+  `ATUM_AUTH_ROUTE = '/sign-in'`). Credentials are never collected in a rail.
+- **Settings is consumer-first in the Atum shell**: language, light/dark/system,
+  and persistent text size are the default surface. The complete Hermes
+  configuration remains intact behind one **Advanced / Nâng cao** disclosure;
+  disabling the Atum shell preserves the legacy Settings navigation verbatim.
+- **Account identity is truthful and read-only until the hosted profile seam
+  supports edits**: display name, handle, and account ID come from the native
+  account contract; unavailable email/phone are plain text, never disabled
+  inputs or fake save actions.
+- **The roster is Atum-only**: search first; the local Atum assistant as its own
+  class; first-party app chats in curated order; then person-to-person chats by
+  recency. Empty app/person headings are omitted. Hermes sessions, profiles,
+  projects, worktrees, pins, and cron are not product nouns and must not appear.
+
+### Atum tokens & material recipes
+
+Scoped to `.atum-shell` in `src/styles.css` (desktop themes write CSS vars from
+`themes/presets.ts`, so there is no skin selector to hang these off), with a
+`.dark .atum-shell` ramp derived from `atumTheme.darkColors`.
+
+| Token family           | Members                                                                                                                           |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| surfaces               | `--atum-desk`, `--atum-panel`, `--atum-card`, `--atum-chat`, `--atum-chat-solid`, `--atum-chat-veil`, `--atum-rim`, `--atum-sunk` |
+| ink                    | `--atum-ink`, `-deep`, `-strong`, `-soft`, `-muted`, `-faint`                                                                     |
+| identity               | `--atum-verified`, `--atum-app-moon`, `--atum-app-andy`, `--atum-app-ben`, `--atum-app-taylor`                                    |
+| hairline / interaction | `--atum-line`, `-strong`, `--atum-hover`, `--atum-pressed`, `--atum-focus`, `--atum-sheen`                                        |
+| radii                  | `--atum-r-surface` (16px), `-composer`, `-card`, `-row`, `-control`, `-sm`, `-tile`                                               |
+| geometry               | `--atum-rim-h` (34px)                                                                                                             |
+| conversation density   | `--conversation-text-font-size`, `--conversation-line-height`, `--conversation-caption-*`, `--atum-text-title/body/meta`          |
+| elevation              | `--atum-shadow-panel`, `-chat`, `-row`, `-tile`                                                                                   |
+| motion                 | `--atum-ease`, `--atum-dur-fast`, `--atum-dur`, `--atum-dur-slow`                                                                 |
+
+Three material classes; call sites pass nothing else:
+
+```
+.atum-rim         the top rim band
+.atum-plate       roster / workspace plate
+.atum-plate-chat  the chat plate — MORE elevation, which is what makes chat
+                  read as the product centre
+```
+
+**Liquid glass, honestly.** Electron cannot claim `NSVisualEffectView` from CSS
+and this system does not pretend to. It is exactly three pure-CSS effects:
+depth by elevation (not divider borders), translucent veils with
+`backdrop-filter` on **pinned structural surfaces only** (rim and plates;
+scrolling content like rows, the transcript, and the workspace body
+carries none, so nothing repaints on scroll), and a soft specular hairline on
+plate **top** edges. Do not put a `backdrop-filter` on scrolling content,
+animate blur, or reach for BrowserWindow `vibrancy` — real vibrancy is a
+main-process change with its own spec.
+
+**The transcript is the one opaque plane.** `--atum-chat` /
+`--atum-chat-solid` are near-fully opaque, and `.atum-shell` re-points
+`--ui-chat-surface-background` at the solid ground so every chat descendant
+(thread column, sticky headers, empty states) paints opaquely. No desktop
+image or legacy Hermes art may be recognizable through the main panel; the
+legacy `Backdrop` is not mounted by the Atum product transcript at all. Glass
+stays on the rim, rail, panels, and edges — never by making the transcript
+transparent.
 
 ## Buttons — one component
 
@@ -134,6 +237,7 @@ hardcode combos in components — always read from the `$bindings` store via
 `useKeybindHint` or `TipKeybindLabel`.
 
 Notes:
+
 - Text buttons are square (no radius) and sized by padding + line-height (no
   fixed heights). Only icon buttons carry the shared 4px radius.
 - SVGs inherit `size-3.5` (`size-3` at `xs`). Don't re-set icon size.
@@ -205,17 +309,28 @@ Notes:
 - Pick the vocabulary by semantic context and reuse the existing icon for an
   action. Do not introduce a third icon set or mix styles within one control
   group.
-- **`BrandMark`** (`src/components/brand-mark.tsx`) is the brand glyph — the
-  `nous-girl` mark on a white tile, softly rounded, identical in light/dark.
-  It replaced scattered Sparkles glyphs in updates / onboarding / about. Use it
-  for hero/brand moments; don't reintroduce decorative star/sparkle icons.
+- **`BrandMark`** (`src/components/brand-mark.tsx`) is the Atum orbit glyph.
+  Use it for hero/brand moments; don't reintroduce decorative star/sparkle
+  icons. The packaged macOS icon uses the same mark on a transparent 1024 px
+  canvas with an inset rounded body so its perceived Dock size matches native
+  apps.
+
+## Language and product naming
+
+- Vietnamese (`vi`) is the fresh-profile locale; English remains the complete
+  fallback catalog for untranslated settings and provider instructions.
+- Product-facing shell copy says **Atum**. Internal `hermes` package names,
+  config keys, environment variables, IPC identifiers, and the `hermes:` URL
+  scheme remain stable for upstream compatibility.
+- The founder-approved onboarding support line is maintained in the Vietnamese
+  catalog, not duplicated in components.
 
 ## Motion
 
 - Quick, functional transitions (~100ms on controls). Respect
   `prefers-reduced-motion` for anything beyond a fade.
 - Choreographed exits (e.g. onboarding's "matrix" fade-down) stagger per-element
-  then settle the surface — the outer container's fade is *delayed* so it
+  then settle the surface — the outer container's fade is _delayed_ so it
   doesn't swallow the inner animation. Don't let a global fade race the detail.
 - Motion follows state; it never delays state. Selection, drag targets, cancel,
   and pressed feedback paint in the current frame.

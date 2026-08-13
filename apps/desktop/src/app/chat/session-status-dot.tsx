@@ -21,7 +21,7 @@ type DotVariant = {
 }
 
 // Shared base for every active dot; idle is smaller and uses its own class.
-const DOT_BASE = 'relative size-1.5 rounded-full'
+const DOT_BASE = 'relative size-1.5'
 
 // Pseudo-element ping ring that scales outward and fades — shared scaffold for
 // the two pulsing dots. The `before:bg-*` color is written inline per variant
@@ -34,21 +34,21 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
   // pulsing) reads as "your turn", distinct from the accent pulse of a turn.
   'needs-input': {
     ariaLabel: r => r.needsInput,
-    className: `${DOT_BASE} quest-glow bg-amber-500`,
+    className: `${DOT_BASE} quest-glow rounded-[2px] bg-amber-500`,
     role: 'status',
     title: r => r.waitingForAnswer
   },
   // Accent pulse — the LLM turn is actively running.
   working: {
     ariaLabel: r => r.sessionRunning,
-    className: `${DOT_BASE} bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)] ${PING} before:bg-(--ui-accent) before:opacity-70`,
+    className: `${DOT_BASE} rounded-full bg-(--ui-accent) shadow-[0_0_0.625rem_color-mix(in_srgb,var(--ui-accent)_55%,transparent)] ${PING} before:bg-(--ui-accent) before:opacity-70`,
     role: 'status'
   },
   // Quiet accent pulse — the turn is still authoritative-running, but no
   // stream activity has arrived for the watchdog window.
   stalled: {
     ariaLabel: r => r.sessionRunning,
-    className: `${DOT_BASE} bg-(--ui-accent) opacity-70 ${PING} before:bg-(--ui-accent) before:opacity-40`,
+    className: `${DOT_BASE} rounded-full border border-(--ui-accent) bg-transparent opacity-80 ${PING} before:bg-(--ui-accent) before:opacity-35`,
     role: 'status',
     title: r => r.sessionRunning
   },
@@ -57,7 +57,7 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
   // than muted-foreground so it's visible against the surface.
   background: {
     ariaLabel: r => r.backgroundRunning,
-    className: `${DOT_BASE} bg-muted-foreground/80 ${PING} before:bg-muted-foreground/80 before:opacity-60`,
+    className: `${DOT_BASE} rotate-45 rounded-[1px] bg-muted-foreground/80 ${PING} before:bg-muted-foreground/80 before:opacity-60`,
     role: 'status',
     title: r => r.backgroundRunning
   },
@@ -65,12 +65,14 @@ const DOT_VARIANTS: Record<SessionDotState, DotVariant> = {
   // opened it since. "Something new here, go look."
   unread: {
     ariaLabel: r => r.finishedUnread,
-    className: `${DOT_BASE} bg-emerald-500`,
+    className: `${DOT_BASE} rounded-full bg-emerald-500`,
     role: 'status',
     title: r => r.finishedUnread
   },
   idle: {
-    className: 'size-1 rounded-full bg-(--ui-text-quaternary) opacity-80'
+    ariaLabel: r => r.sessionIdle ?? 'Idle',
+    className: 'size-1 rounded-full bg-(--ui-text-quaternary) opacity-80',
+    role: 'status'
   }
 }
 
@@ -127,7 +129,12 @@ export function SessionStatusDot({ storedSessionId, session, branchStem, classNa
         </span>
       ) : null}
       {dotState === 'idle' && color ? (
-        <span aria-hidden="true" className="size-1 rounded-full" style={{ backgroundColor: color }} />
+        <span
+          aria-label={r.sessionIdle ?? 'Idle'}
+          className="size-1 rounded-full"
+          role="status"
+          style={{ backgroundColor: color }}
+        />
       ) : (
         <span
           aria-label={DOT_VARIANTS[dotState].ariaLabel?.(r)}

@@ -544,9 +544,13 @@ describe('assistant-ui streaming renderer', () => {
   })
 
   it('renders assistant provider errors inline', () => {
-    render(<MessageHarness message={assistantErrorMessage('OpenRouter rejected the request (403).')} />)
+    const { container } = render(
+      <MessageHarness message={assistantErrorMessage('OpenRouter rejected the request (403).')} />
+    )
 
     expect(screen.getByRole('alert').textContent).toContain('OpenRouter rejected the request (403).')
+    expect(container.querySelector('[data-slot="aui_msg-actions"]')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy()
   })
 
   it('omits the dismiss control when no onDismissError handler is supplied', () => {

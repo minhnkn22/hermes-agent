@@ -42,6 +42,12 @@ export default defineConfig({
     postcss: { plugins: [] }
   },
   build: {
+    // Rolldown's single-chunk production transform currently drops Shiki's
+    // generated `__reExport$1` helper while retaining a call to it. The
+    // source/UI suites stay green, but a packaged renderer then fails before
+    // React mounts and presents a black window. Keep tree-shaking and skip
+    // minification while allowing Shiki's native chunk boundaries.
+    minify: false,
     // Keep desktop packaging stable: Shiki ships many dynamic chunks by
     // default, and electron-builder can OOM scanning thousands of files.
     // Collapsing to a single chunk is intentional, so the renderer bundle is
@@ -49,11 +55,7 @@ export default defineConfig({
     // cosmetic "chunk larger than 500 kB" nag stays quiet, while still acting
     // as a regression alarm if the bundle balloons well past today's size.
     chunkSizeWarningLimit: 25000,
-    rolldownOptions: {
-      output: {
-        codeSplitting: false
-      }
-    }
+    rolldownOptions: { output: { codeSplitting: true } }
   },
   resolve: {
     alias: {

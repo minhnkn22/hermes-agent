@@ -27,6 +27,67 @@ const PSYCHE_WARM = '#FFE6CB'
 const nousTint = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, #FFFFFF)`
 const nousTintTransparent = (pct: number) => `color-mix(in srgb, ${NOUS_BLUE} ${pct}%, transparent)`
 
+/** Atum — warm monochrome chrome with semantic status colors left intact. */
+export const atumTheme: DesktopTheme = {
+  name: 'atum',
+  label: 'Atum',
+  description: 'Warm Vietnamese-first Atum identity',
+  colors: {
+    background: '#FAF7F2',
+    foreground: '#1A1714',
+    card: '#FFFDF9',
+    cardForeground: '#1A1714',
+    muted: '#F3EDE3',
+    mutedForeground: '#63625D',
+    popover: '#FFFDF9',
+    popoverForeground: '#1A1714',
+    primary: '#7A6A55',
+    primaryForeground: '#FFFDF9',
+    secondary: '#F7F3EC',
+    secondaryForeground: '#1A1714',
+    accent: '#F3EDE3',
+    accentForeground: '#1A1714',
+    border: '#DED5C8',
+    input: '#CFC3B3',
+    ring: '#7A6A55',
+    midground: '#7A6A55',
+    composerRing: '#7A6A55',
+    destructive: '#9F3535',
+    destructiveForeground: '#FFFDF9',
+    sidebarBackground: '#F5F1E9',
+    sidebarBorder: '#DED5C8',
+    userBubble: '#F8F2E8',
+    userBubbleBorder: '#DED5C8'
+  },
+  darkColors: {
+    background: '#141311',
+    foreground: '#F2ECE1',
+    card: '#1C1A17',
+    cardForeground: '#F2ECE1',
+    muted: '#29251F',
+    mutedForeground: '#AFA69A',
+    popover: '#211E1A',
+    popoverForeground: '#F2ECE1',
+    primary: '#C6B49A',
+    primaryForeground: '#141311',
+    secondary: '#2B2721',
+    secondaryForeground: '#F2ECE1',
+    accent: '#302A23',
+    accentForeground: '#F2ECE1',
+    border: '#39332B',
+    input: '#443C32',
+    ring: '#C6B49A',
+    midground: '#C6B49A',
+    composerRing: '#C6B49A',
+    destructive: '#C75B5B',
+    destructiveForeground: '#FFF7F2',
+    sidebarBackground: '#100F0E',
+    sidebarBorder: '#332E28',
+    userBubble: '#25211C',
+    userBubbleBorder: '#443C32'
+  }
+}
+
 /**
  * Nous — canonical Hermes desktop identity. The palette keeps the current
  * glass geometry neutral, then lets the old bb/gui blue and psyche cream
@@ -278,6 +339,7 @@ export const slateTheme: DesktopTheme = {
 }
 
 export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
+  atum: atumTheme,
   nous: nousTheme,
   midnight: midnightTheme,
   ember: emberTheme,
@@ -289,4 +351,4 @@ export const BUILTIN_THEMES: Record<string, DesktopTheme> = {
 export const BUILTIN_THEME_LIST = Object.values(BUILTIN_THEMES)
 
 /** Skin used when nothing is persisted or the persisted name is retired. */
-export const DEFAULT_SKIN_NAME = 'nous'
+export const DEFAULT_SKIN_NAME = 'atum'

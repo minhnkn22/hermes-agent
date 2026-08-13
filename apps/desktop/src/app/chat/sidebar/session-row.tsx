@@ -11,7 +11,12 @@ import type { SessionInfo } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
 import { sessionTitle } from '@/lib/chat-runtime'
 import { triggerHaptic } from '@/lib/haptics'
-import { handoffOriginSource, isMessagingSource, normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
+import {
+  handoffOriginSource,
+  isMessagingSource,
+  normalizeSessionSource,
+  sessionSourceLabel
+} from '@/lib/session-source'
 import { coarseElapsed } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { $attentionSessionIds, openSessionTile } from '@/store/session-states'
@@ -164,6 +169,7 @@ export function SidebarSessionRow({
         ref={ref}
         style={style}
         {...rest}
+        role="listitem"
       >
         {sessionShowsRunningArc({ isWorking, needsInput }) && <span aria-hidden="true" className="arc-border" />}
         <SidebarRowBody

@@ -2862,8 +2862,16 @@ install_desktop() {
     fi
 
     local app=""
+    local product_name="Hermes"
+    local executable_name="Hermes"
+    if command -v node >/dev/null 2>&1 && [ -f "$desktop_dir/package.json" ]; then
+        product_name="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.build?.productName || p.productName || "Hermes"))' "$desktop_dir/package.json")"
+        executable_name="$(node -e 'const p=require(process.argv[1]); process.stdout.write(String(p.build?.executableName || p.build?.productName || p.productName || "Hermes"))' "$desktop_dir/package.json")"
+    fi
     if [ "$OS" = "linux" ]; then
-        if [ -x "$desktop_dir/release/linux-unpacked/Hermes" ]; then
+        if [ -x "$desktop_dir/release/linux-unpacked/$executable_name" ]; then
+            app="$desktop_dir/release/linux-unpacked/$executable_name"
+        elif [ -x "$desktop_dir/release/linux-unpacked/Hermes" ]; then
             app="$desktop_dir/release/linux-unpacked/Hermes"
         elif [ -x "$desktop_dir/release/linux-unpacked/hermes" ]; then
             app="$desktop_dir/release/linux-unpacked/hermes"
@@ -2871,6 +2879,8 @@ install_desktop() {
     else
         local cand
         for cand in \
+            "$desktop_dir/release/mac-arm64/$product_name.app" \
+            "$desktop_dir/release/mac/$product_name.app" \
             "$desktop_dir/release/mac-arm64/Hermes.app" \
             "$desktop_dir/release/mac/Hermes.app"; do
             if [ -d "$cand" ]; then

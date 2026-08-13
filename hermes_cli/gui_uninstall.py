@@ -17,8 +17,8 @@ the Python agent or the user's config/data:
   2. Packaged distributable (DMG / NSIS / AppImage / deb / rpm)
      Installed by the OS to a standard application location and carrying its
      own bundled Electron + a per-user Electron ``userData`` directory:
-       - macOS:   ``/Applications/Hermes.app`` or ``~/Applications/Hermes.app``
-       - Windows: ``%LOCALAPPDATA%\\Programs\\Hermes`` (NSIS per-user)
+       - macOS:   ``/Applications/Atum.app`` (plus legacy Hermes locations)
+       - Windows: ``%LOCALAPPDATA%\\Programs\\Atum`` (plus legacy Hermes)
        - Linux:   ``~/.local/share/applications`` .desktop entry + AppImage
 
 In both shapes the Electron runtime keeps a ``userData`` directory keyed on
@@ -113,12 +113,15 @@ def packaged_gui_app_paths() -> "list[Path]":
 
     Returns every candidate for the current OS; the caller filters to those
     that actually exist. We never glob system-wide — only the well-known
-    electron-builder output locations for the "Hermes" product.
+    electron-builder output locations for the current Atum product plus the
+    legacy Hermes product retained for upgrade and rollback cleanup.
     """
     home = Path.home()
     paths: list[Path] = []
     if sys.platform == "darwin":
         paths += [
+            Path("/Applications/Atum.app"),
+            home / "Applications" / "Atum.app",
             Path("/Applications/Hermes.app"),
             home / "Applications" / "Hermes.app",
         ]
@@ -126,6 +129,8 @@ def packaged_gui_app_paths() -> "list[Path]":
         local = os.environ.get("LOCALAPPDATA")
         local_base = Path(local) if local else (home / "AppData" / "Local")
         paths += [
+            # Current Atum NSIS per-user install.
+            local_base / "Programs" / "Atum",
             # NSIS per-user install (perMachine=false → Programs\Hermes).
             local_base / "Programs" / "Hermes",
             # Older / alternate layout some builds used.
@@ -134,6 +139,7 @@ def packaged_gui_app_paths() -> "list[Path]":
         program_files = os.environ.get("ProgramFiles")
         if program_files:
             # NSIS per-machine fallback (needs admin to remove).
+            paths.append(Path(program_files) / "Atum")
             paths.append(Path(program_files) / "Hermes")
     else:
         # Linux: AppImage is a single file the user placed somewhere; we can
@@ -145,6 +151,8 @@ def packaged_gui_app_paths() -> "list[Path]":
         data = os.environ.get("XDG_DATA_HOME")
         data_base = Path(data) if data else (home / ".local" / "share")
         paths += [
+            data_base / "applications" / "atum.desktop",
+            data_base / "applications" / "Atum.desktop",
             data_base / "applications" / "hermes.desktop",
             data_base / "applications" / "Hermes.desktop",
         ]

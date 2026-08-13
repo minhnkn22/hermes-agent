@@ -45,6 +45,115 @@ export const zhHant = defineLocale({
     off: '關閉'
   },
 
+  atum: {
+    nav: {
+      aria: '主導覽',
+      chat: '對話',
+      devices: '電腦',
+      devicesSoon: '電腦 — 即將推出',
+      settings: '設定',
+      account: '帳戶'
+    },
+    account: {
+      menu: '帳戶選單',
+      signedOut: '尚未登入',
+      language: '語言',
+      theme: '外觀',
+      title: '你的帳戶',
+      description: '目前連接至 Atum 的資訊。',
+      name: '姓名',
+      username: '使用者名稱',
+      email: '電子郵件',
+      phone: '電話號碼',
+      id: 'Atum ID',
+      unavailable: '暫無資訊',
+      editUnavailable: '目前版本的 Atum 尚不支援編輯這些資訊。'
+    },
+    settings: {
+      title: '設定',
+      description: '自訂 Atum 在這台電腦上的外觀和閱讀大小。',
+      general: '一般',
+      advanced: '進階',
+      systemConfiguration: '系統設定',
+      appearance: '外觀',
+      appearanceDescription: '自動跟隨 Mac，或選擇淺色或深色模式。',
+      textSize: '文字大小',
+      textSizeDescription: '調整 Atum 中的文字和控制項大小。',
+      model: '模型',
+      speed: '速度',
+      standard: '標準',
+      useDefault: '使用預設值',
+      advancedOptions: '進階選項…'
+    },
+    roster: {
+      title: '對話',
+      search: '搜尋對話',
+      assistant: 'Atum',
+      assistantHint: '你這台電腦上的助理',
+      groupAssistant: 'Atum',
+      groupApps: '應用程式',
+      groupPeople: '聯絡人',
+      signedOutTitle: '登入後檢視專家',
+      signedOutBody: '登入後，你與 Atum 專家的對話會顯示在這裡。',
+      signIn: '登入',
+      retry: '重試',
+      emptyChats: '暫無其他對話',
+      unread: count => `${count} 則未讀`,
+      results: count => `${count} 筆結果`,
+      emptySearch: '找不到對話',
+      emptySearchHint: '換個關鍵字試試。',
+      loadFailed: '無法載入對話清單',
+      verified: '已驗證'
+    },
+    empty: {
+      chips: ['隨便問 Atum 一個問題', '在這台電腦上交辦一項任務', '傳訊息給專家']
+    },
+    chat: {
+      none: '選擇一個對話',
+      noneHint: '在左側選擇一個對話即可開始。',
+      openRoster: '顯示對話清單',
+      closeRoster: '隱藏對話清單'
+    },
+    workspace: {
+      title: '工作區',
+      open: '開啟工作區',
+      close: '關閉工作區',
+      none: '這個對話目前沒有可操作的內容',
+      resize: '調整寬度',
+      tabView: '檢視',
+      tabFiles: '檔案',
+      tabDetails: '詳細資料',
+      empty: '目前沒有內容',
+      detailsConversation: '對話',
+      detailsParticipants: '成員',
+      detailsUpdated: '最近活動',
+      filesBack: '返回',
+      filesUp: '上一層資料夾',
+      filesRoot: '我的檔案',
+      filesView: '檔案顯示方式',
+      filesGrid: '圖示',
+      filesList: '列表',
+      filesLoading: '正在開啟資料夾…',
+      filesEmpty: '此資料夾是空的',
+      filesError: '無法開啟此資料夾。',
+      filesOpenError: '無法開啟此檔案。',
+      filesRetry: '重試',
+      filesNoFolder: '尚未開啟資料夾',
+      filesNoFolderHint: '與 Atum 開始任務後，檔案會顯示在這裡。'
+    },
+    auth: {
+      title: '歡迎使用 Atum',
+      expiredTitle: '請重新登入以繼續',
+      expiredBody: '登入已過期。你的對話仍然保留。',
+      terms: '繼續即表示你同意 Atum 的條款。'
+    },
+    offline: {
+      banner: '離線 — 顯示已儲存的內容',
+      reconnecting: '正在重新連線…',
+      reconnected: '已重新連線'
+    }
+  },
+
   fileMenu: {
     revealFinder: '在 Finder 中顯示',
     revealExplorer: '在檔案總管中顯示',

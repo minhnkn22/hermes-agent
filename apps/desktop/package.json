@@ -1,9 +1,9 @@
 {
   "name": "hermes",
-  "productName": "Hermes",
+  "productName": "Atum",
   "private": true,
   "version": "0.17.0",
-  "description": "Native desktop shell for Hermes Agent.",
+  "description": "Atum — AI Superapp cho người Việt.",
   "author": "Nous Research",
   "type": "module",
   "main": "dist/electron-main.mjs",
@@ -12,9 +12,9 @@
   },
   "scripts": {
     "clean": "npm run clean:e2e && npm run clean:renderer && npm run clean:electron",
-    "clean:e2e":"tsc --build tsconfig.e2e.json --clean",
-    "clean:renderer":"tsc --build tsconfig.json --clean ",
-    "clean:electron":"tsc --build tsconfig.electron.json --clean",
+    "clean:e2e": "tsc --build tsconfig.e2e.json --clean",
+    "clean:renderer": "tsc --build tsconfig.json --clean ",
+    "clean:electron": "tsc --build tsconfig.electron.json --clean",
     "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:fake-boot": "cross-env HERMES_DESKTOP_BOOT_FAKE=1 HERMES_DESKTOP_BOOT_FAKE_STEP_MS=650 npm run dev",
     "dev:mock": "node scripts/dev-mock.mjs",
@@ -26,6 +26,8 @@
     "prebuild": "npm run clean",
     "build": "node scripts/assert-root-install.mjs && node scripts/write-build-stamp.mjs && vite build && node scripts/bundle-electron-main.mjs && node scripts/stage-native-deps.mjs",
     "postbuild": "node scripts/assert-dist-built.mjs",
+    "runtime:stage": "node scripts/stage-bundled-runtime.mjs build/runtime-test",
+    "verify:bundled-app": "node scripts/verify-packaged-bundled-runtime.mjs",
     "prebuilder": "node scripts/patch-electron-builder-mac-binary.mjs",
     "builder": "cross-env NODE_OPTIONS=--max-old-space-size=16384 node scripts/run-electron-builder.mjs",
     "pack": "npm run build && npm run builder -- --dir",
@@ -52,7 +54,7 @@
     "fix": "npm run lint:fix && npm run fmt",
     "test:ui": "vitest run --project ui",
     "test:desktop:platforms": "vitest run --project electron",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/atum-branding.test.mjs",
     "preview": "node scripts/assert-root-install.mjs && vite preview --host 127.0.0.1 --port 4174",
     "check:test:desktop:platforms": "npm run test:desktop:platforms",
     "check:test:ui": "npm run test:ui",
@@ -169,9 +171,9 @@
   },
   "build": {
     "electronVersion": "40.10.2",
-    "appId": "com.nousresearch.hermes",
-    "productName": "Hermes",
-    "executableName": "Hermes",
+    "appId": "com.atum.desktop",
+    "productName": "Atum",
+    "executableName": "Atum",
     "protocols": [
       {
         "name": "Hermes Protocol",
@@ -180,7 +182,7 @@
         ]
       }
     ],
-    "artifactName": "Hermes-${version}-${os}-${arch}.${ext}",
+    "artifactName": "Atum-${version}-${os}-${arch}.${ext}",
     "icon": "assets/icon",
     "directories": {
       "output": "release"
@@ -215,12 +217,13 @@
       "category": "public.app-category.developer-tools",
       "entitlements": "electron/entitlements.mac.plist",
       "entitlementsInherit": "electron/entitlements.mac.inherit.plist",
+      "icon": "assets/icon-mac.icns",
       "extendInfo": {
-        "CFBundleDisplayName": "Hermes",
-        "CFBundleExecutable": "Hermes",
-        "CFBundleName": "Hermes",
-        "NSAudioCaptureUsageDescription": "Hermes uses audio capture for voice conversations.",
-        "NSMicrophoneUsageDescription": "Hermes uses the microphone for voice input and voice conversations."
+        "CFBundleDisplayName": "Atum",
+        "CFBundleExecutable": "Atum",
+        "CFBundleName": "Atum",
+        "NSAudioCaptureUsageDescription": "Atum cần truy cập âm thanh cho các cuộc trò chuyện bằng giọng nói.",
+        "NSMicrophoneUsageDescription": "Atum cần dùng micrô để bạn có thể trò chuyện bằng giọng nói."
       },
       "gatekeeperAssess": false,
       "hardenedRuntime": true,
@@ -230,7 +233,7 @@
       ]
     },
     "dmg": {
-      "title": "Install Hermes",
+      "title": "Cài đặt Atum",
       "backgroundColor": "#f5f5f7",
       "iconSize": 96,
       "window": {
@@ -252,7 +255,7 @@
       ]
     },
     "win": {
-      "legalTrademarks": "Hermes",
+      "legalTrademarks": "Atum",
       "target": [
         "nsis",
         "msi"
@@ -262,7 +265,7 @@
     "linux": {
       "category": "Development",
       "maintainer": "Nous Research <support@nousresearch.com>",
-      "synopsis": "Native desktop shell for Hermes Agent.",
+      "synopsis": "Atum — AI Superapp cho người Việt.",
       "target": [
         "AppImage",
         "deb",
@@ -273,8 +276,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,
-      "shortcutName": "Hermes",
-      "uninstallDisplayName": "Hermes",
+      "shortcutName": "Atum",
+      "uninstallDisplayName": "Atum",
       "warningsAsErrors": false
     }
   }

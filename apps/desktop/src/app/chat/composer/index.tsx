@@ -764,6 +764,7 @@ export function ChatBar({
     <div className={cn('relative', stacked ? 'w-full' : 'min-w-(--composer-input-inline-min-width) flex-1')}>
       <div
         aria-disabled={inputDisabled ? true : undefined}
+        aria-keyshortcuts="Enter Shift+Enter"
         aria-label={t.composer.message}
         autoCapitalize="off"
         autoCorrect="off"

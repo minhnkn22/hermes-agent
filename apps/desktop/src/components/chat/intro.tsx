@@ -1,6 +1,12 @@
 import { type CSSProperties, useState } from 'react'
 
+import { useStore } from '@nanostores/react'
+
+import { requestComposerInsert } from '@/app/chat/composer/focus'
+import { BrandMark } from '@/components/brand-mark'
+import { useI18n } from '@/i18n'
 import { capitalize, normalize } from '@/lib/text'
+import { $atumShellEnabled } from '@/store/atum-shell'
 
 import introCopyJsonl from './intro-copy.jsonl?raw'
 
@@ -144,8 +150,6 @@ function pickCopy(copies: IntroCopy[], seed = 0): IntroCopy {
   return copies[Math.abs(seed) % copies.length] || FALLBACK_COPY[0]
 }
 
-const WORDMARK = 'HERMES AGENT'
-
 function resolveCopy(personality?: string, seed?: number): IntroCopy {
   const personalityKey = normalizeKey(personality)
 
@@ -157,27 +161,61 @@ function resolveCopy(personality?: string, seed?: number): IntroCopy {
 }
 
 export function Intro({ personality, seed }: IntroProps) {
+  const { t } = useI18n()
+  const atumShell = useStore($atumShellEnabled)
   const [mountSeed] = useState(() => Math.floor(Math.random() * 100000))
   const copy = resolveCopy(personality, mountSeed + (seed ?? 0))
+  const wordmark = t.intro.heading || 'ATUM'
+  const body = t.intro.body || copy.body
+
+  // The Atum product shell gets its own branded empty state: brand mark,
+  // headline, body, and starter chips that drop a real prompt into the
+  // composer. No Nous/Hermes art, no portrait, no fit-text wordmark.
+  if (atumShell) {
+    return (
+      <div
+        className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center sm:px-6 lg:px-8"
+        data-atum-empty
+        data-slot="aui_intro"
+      >
+        <div className="flex w-full max-w-[420px] min-w-0 flex-col items-center">
+          <BrandMark className="size-11 rounded-[12px] opacity-90" />
+          <p className="mt-2.5 mb-1.5 text-[15px] font-semibold tracking-[-0.01em] text-(--atum-ink)">{wordmark}</p>
+          <p className="m-0 max-w-[34rem] text-[12.5px] leading-[1.45] text-(--atum-ink-muted)">{body}</p>
+          <div className="pointer-events-auto mt-3.5 flex flex-wrap items-center justify-center gap-2">
+            {t.atum.empty.chips.map(chip => (
+              <button
+                className="h-[30px] rounded-full bg-(--atum-hover) px-3 text-[12px] text-(--atum-ink-muted) transition-colors hover:bg-(--atum-pressed) hover:text-(--atum-ink)"
+                key={chip}
+                onClick={() => requestComposerInsert(chip)}
+                type="button"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
       className="pointer-events-none flex w-full min-w-0 flex-col items-center justify-center px-0.5 py-6 text-center text-muted-foreground sm:px-6 lg:px-8"
       data-slot="aui_intro"
     >
-      <div className="w-full min-w-0">
+      <div className="flex w-full min-w-0 flex-col items-center">
+        <BrandMark className="mb-4 size-12" />
         <p
-          aria-label={WORDMARK}
-          className="fit-text mx-auto mb-1 w-[calc(100%-1rem)] font-['Collapse'] font-bold uppercase leading-[0.9] tracking-[0.08em] text-midground mix-blend-plus-lighter dark:text-foreground/90"
-          style={{ '--fit-min': '2.75rem' } as CSSProperties}
+          className="fit-text mx-auto mb-2 w-[calc(100%-1rem)] font-semibold leading-[1.05] tracking-[0.06em] text-(--ui-text-secondary)"
+          style={{ '--fit-min': '2.25rem' } as CSSProperties}
         >
           <span>
-            <span>{WORDMARK}</span>
+            <span>{wordmark}</span>
           </span>
-          <span aria-hidden="true">{WORDMARK}</span>
         </p>
 
-        <p className="m-0 text-center leading-normal tracking-tight">{copy.body}</p>
+        <p className="m-0 text-center leading-normal tracking-tight">{body}</p>
       </div>
     </div>
   )

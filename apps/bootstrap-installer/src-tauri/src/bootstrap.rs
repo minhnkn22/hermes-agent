@@ -210,23 +210,67 @@ pub async fn launch_hermes_desktop(
 /// Walks the well-known electron-builder unpacked-app paths under
 /// `install_root`. Mirrors the resolver in `cmd_gui` (apps/desktop/release/
 /// <os>-unpacked/<exe>).
+pub(crate) fn desktop_product_layout(install_root: &std::path::Path) -> (String, String) {
+    let package_path = install_root.join("apps").join("desktop").join("package.json");
+    let parsed = std::fs::read_to_string(package_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+    let product_name = parsed
+        .as_ref()
+        .and_then(|value| value.get("build"))
+        .and_then(|build| build.get("productName"))
+        .and_then(|value| value.as_str())
+        .or_else(|| parsed.as_ref().and_then(|value| value.get("productName")).and_then(|value| value.as_str()))
+        .unwrap_or("Hermes")
+        .to_string();
+    let executable_name = parsed
+        .as_ref()
+        .and_then(|value| value.get("build"))
+        .and_then(|build| build.get("executableName"))
+        .and_then(|value| value.as_str())
+        .unwrap_or(&product_name)
+        .to_string();
+    (product_name, executable_name)
+}
+
 pub(crate) fn resolve_hermes_desktop_exe(install_root: &std::path::Path) -> Option<PathBuf> {
     let release_dir = install_root.join("apps").join("desktop").join("release");
-    let candidates: &[(&str, &str)] = if cfg!(target_os = "windows") {
-        &[
-            ("win-unpacked", "Hermes.exe"),
-            ("win-arm64-unpacked", "Hermes.exe"),
-        ]
+    let (product_name, executable_name) = desktop_product_layout(install_root);
+    let mut candidates = Vec::new();
+    if cfg!(target_os = "windows") {
+        for directory in ["win-unpacked", "win-arm64-unpacked"] {
+            candidates.push(release_dir.join(directory).join(format!("{executable_name}.exe")));
+            if executable_name != "Hermes" {
+                candidates.push(release_dir.join(directory).join("Hermes.exe"));
+            }
+        }
     } else if cfg!(target_os = "macos") {
-        &[
-            ("mac/Hermes.app/Contents/MacOS", "Hermes"),
-            ("mac-arm64/Hermes.app/Contents/MacOS", "Hermes"),
-        ]
+        for directory in ["mac", "mac-arm64"] {
+            candidates.push(
+                release_dir
+                    .join(directory)
+                    .join(format!("{product_name}.app"))
+                    .join("Contents")
+                    .join("MacOS")
+                    .join(&executable_name),
+            );
+            if (product_name.as_str(), executable_name.as_str()) != ("Hermes", "Hermes") {
+                candidates.push(
+                    release_dir
+                        .join(directory)
+                        .join("Hermes.app")
+                        .join("Contents")
+                        .join("MacOS")
+                        .join("Hermes"),
+                );
+            }
+        }
     } else {
-        &[("linux-unpacked", "hermes")]
-    };
-    for (subdir, exe) in candidates {
-        let p = release_dir.join(subdir).join(exe);
+        candidates.push(release_dir.join("linux-unpacked").join(&executable_name));
+        candidates.push(release_dir.join("linux-unpacked").join(executable_name.to_lowercase()));
+        candidates.push(release_dir.join("linux-unpacked").join("hermes"));
+    }
+    for p in candidates {
         if p.exists() {
             return Some(p);
         }
@@ -840,26 +884,33 @@ mod tests {
     // Build a fake built-desktop release tree at the platform's expected path
     // and return (install_root, expected_app_bundle_or_exe).
     fn make_release_tree(install_root: &Path) -> PathBuf {
+        let desktop_dir = install_root.join("apps").join("desktop");
+        std::fs::create_dir_all(&desktop_dir).unwrap();
+        std::fs::write(
+            desktop_dir.join("package.json"),
+            r#"{"productName":"Atum","build":{"productName":"Atum","executableName":"Atum"}}"#,
+        )
+        .unwrap();
         let release = install_root.join("apps").join("desktop").join("release");
         if cfg!(target_os = "macos") {
             let macos_dir = release
                 .join("mac-arm64")
-                .join("Hermes.app")
+                .join("Atum.app")
                 .join("Contents")
                 .join("MacOS");
             std::fs::create_dir_all(&macos_dir).unwrap();
-            std::fs::write(macos_dir.join("Hermes"), b"#!/bin/sh\n").unwrap();
-            macos_dir.parent().unwrap().parent().unwrap().to_path_buf() // .../Hermes.app
+            std::fs::write(macos_dir.join("Atum"), b"#!/bin/sh\n").unwrap();
+            macos_dir.parent().unwrap().parent().unwrap().to_path_buf() // .../Atum.app
         } else if cfg!(target_os = "windows") {
             let dir = release.join("win-unpacked");
             std::fs::create_dir_all(&dir).unwrap();
-            let exe = dir.join("Hermes.exe");
+            let exe = dir.join("Atum.exe");
             std::fs::write(&exe, b"stub").unwrap();
             exe
         } else {
             let dir = release.join("linux-unpacked");
             std::fs::create_dir_all(&dir).unwrap();
-            let exe = dir.join("hermes");
+            let exe = dir.join("Atum");
             std::fs::write(&exe, b"stub").unwrap();
             exe
         }

@@ -45,6 +45,165 @@ export const en: Translations = {
     off: 'Off'
   },
 
+  intro: {
+    heading: 'Start with Atum',
+    body: 'Ask anything, or give Atum a task on your computer.'
+  },
+
+  dm: {
+    sectionTitle: 'Messages',
+    brandLine: 'Control every task on your computer, use your favorite apps, message your friends - all in one place.',
+    compose: 'Type a message...',
+    send: 'Send',
+    retry: 'Retry',
+    sending: 'Sending...',
+    sendFailed: 'Send failed',
+    noMessages: 'No messages yet',
+    startConversation: name => `Start a conversation with ${name}`,
+    noConversations: 'No conversations yet',
+    offline: 'Offline',
+    reconnecting: 'Reconnecting...',
+    authExpired: 'Session expired',
+    authExpiredAction: 'Sign in again',
+    errorGeneric: 'Connection error',
+    loadingMessages: 'Loading messages...',
+    today: 'Today',
+    yesterday: 'Yesterday',
+    unreadCount: count => `${count} unread`,
+    signedInAs: name => `Signed in as ${name}`,
+    notSignedIn: 'Not signed in',
+    signIn: 'Sign in',
+    identifier: 'Username',
+    identifierHint: '@handle, email, or phone',
+    identifierPlaceholder: '@minh · you@email.com · 0912…',
+    identifierRequired: 'Enter your username, email, or phone number.',
+    password: 'Password',
+    passwordRequired: 'Enter your password.',
+    signingIn: 'Signing in…',
+    googlePending: 'Opening your browser…',
+    signInFailed: 'Incorrect username or password.',
+    signInOffline: "Can't connect. Check your network and try again.",
+    signInProviderDown: 'Sign-in is temporarily unavailable. Try again in a few minutes.',
+    signInRetry: 'Try again',
+    continueWithGoogle: 'Continue with Google',
+    or: 'or',
+    signOut: 'Sign out',
+    cancelSignIn: 'Cancel',
+    you: 'You',
+    messageDelivered: 'Delivered',
+    messageRead: 'Read',
+    unavailable: "Sign-in isn't available in this build."
+  },
+
+  atum: {
+    nav: {
+      aria: 'Main navigation',
+      chat: 'Chats',
+      devices: 'Computer',
+      devicesSoon: 'Computer — coming soon',
+      settings: 'Settings',
+      account: 'Account'
+    },
+    account: {
+      menu: 'Account menu',
+      signedOut: 'Signed out',
+      language: 'Language',
+      theme: 'Appearance',
+      title: 'Your account',
+      description: 'The information currently connected to Atum.',
+      name: 'Name',
+      username: 'Username',
+      email: 'Email',
+      phone: 'Phone number',
+      id: 'Atum ID',
+      unavailable: 'Not available',
+      editUnavailable: 'Editing these details is not available in this version of Atum yet.'
+    },
+    settings: {
+      title: 'Settings',
+      description: 'Personalize how Atum looks and reads on this computer.',
+      general: 'General',
+      advanced: 'Advanced',
+      systemConfiguration: 'System configuration',
+      appearance: 'Appearance',
+      appearanceDescription: 'Follow your Mac automatically, or choose light or dark mode.',
+      textSize: 'Text size',
+      textSizeDescription: 'Make text and controls smaller or larger across Atum.',
+      model: 'Model',
+      speed: 'Speed',
+      standard: 'Standard',
+      useDefault: 'Use default',
+      advancedOptions: 'Advanced options…'
+    },
+    roster: {
+      title: 'Chats',
+      search: 'Search chats',
+      assistant: 'Atum',
+      assistantHint: 'Your assistant on this computer',
+      groupAssistant: 'Atum',
+      groupApps: 'Apps',
+      groupPeople: 'People',
+      signedOutTitle: 'Sign in to see specialists',
+      signedOutBody: 'Your Atum specialist chats will appear here once you sign in.',
+      signIn: 'Sign in',
+      retry: 'Retry',
+      emptyChats: 'No other conversations yet',
+      unread: count => `${count} unread`,
+      results: count => `${count} results`,
+      emptySearch: 'No chats found',
+      emptySearchHint: 'Try another keyword.',
+      loadFailed: "Couldn't load your chats",
+      verified: 'Verified'
+    },
+    empty: {
+      chips: ['Ask Atum anything', 'Hand off a task on this computer', 'Message a specialist']
+    },
+    chat: {
+      none: 'Pick a chat',
+      noneHint: 'Choose a chat on the left to get started.',
+      openRoster: 'Show chats',
+      closeRoster: 'Hide chats'
+    },
+    workspace: {
+      title: 'Workspace',
+      open: 'Open workspace',
+      close: 'Close workspace',
+      none: 'This chat has nothing to work on yet',
+      resize: 'Resize workspace',
+      tabView: 'View',
+      tabFiles: 'Files',
+      tabDetails: 'Details',
+      empty: 'Nothing to show yet',
+      detailsConversation: 'Conversation',
+      detailsParticipants: 'Participants',
+      detailsUpdated: 'Last activity',
+      filesBack: 'Back',
+      filesUp: 'Up one folder',
+      filesRoot: 'My files',
+      filesView: 'File view',
+      filesGrid: 'Icons',
+      filesList: 'List',
+      filesLoading: 'Opening folder…',
+      filesEmpty: 'This folder is empty',
+      filesError: "Couldn't open this folder.",
+      filesOpenError: "Couldn't open this file.",
+      filesRetry: 'Try again',
+      filesNoFolder: 'No folder is open',
+      filesNoFolderHint: 'Start a task with Atum to see its files here.'
+    },
+    auth: {
+      title: 'Welcome to Atum',
+      expiredTitle: 'Sign in again to continue',
+      expiredBody: 'Your session expired. Your chats are still here.',
+      terms: 'By continuing you agree to the Atum Terms.'
+    },
+    offline: {
+      banner: 'Offline — showing saved content',
+      reconnecting: 'Reconnecting…',
+      reconnected: 'Back online'
+    }
+  },
+
   fileMenu: {
     revealFinder: 'Reveal in Finder',
     revealExplorer: 'Reveal in File Explorer',
@@ -1647,6 +1806,8 @@ export const en: Translations = {
   },
 
   sidebar: {
+    navAria: 'Main navigation',
+    emptyRoster: 'No conversations yet',
     nav: {
       'new-session': 'New session',
       skills: 'Capabilities',
@@ -1742,6 +1903,7 @@ export const en: Translations = {
     loadMore: 'Load more',
     loadCount: step => `Load ${step} more`,
     row: {
+      sessionIdle: 'Idle',
       pin: 'Pin',
       unpin: 'Unpin',
       copyId: 'Copy ID',
@@ -2066,6 +2228,7 @@ export const en: Translations = {
 
   onboarding: {
     headerTitle: "Let's get you setup with Hermes Agent",
+    headerSub: 'AI superapp for getting things done',
     headerDesc: 'Connect a model provider to start chatting. Most options take one click.',
     preparingInstall: 'Hermes is finishing install. This usually takes under a minute on first run.',
     starting: 'Starting Hermes…',
@@ -2472,6 +2635,8 @@ export const en: Translations = {
   },
 
   assistant: {
+    retry: 'Retry',
+    copy: 'Copy',
     thread: {
       loadingSession: 'Loading session',
       showEarlier: 'Show earlier messages',
@@ -2538,6 +2703,11 @@ export const en: Translations = {
       lateAnswerHint: 'This prompt is no longer waiting. Pick an option to draft it as a follow-up message.'
     },
     tool: {
+      approvalTitle: 'Atum wants to run this command',
+      approveOnce: 'Allow once',
+      approveSession: 'Allow for this session',
+      approveAlways: 'Always allow',
+      deny: 'Deny',
       code: 'Code',
       copyCode: 'Copy code',
       renderingImage: 'Rendering image',
@@ -2709,6 +2879,8 @@ export const en: Translations = {
   },
 
   errors: {
+    offline: 'Connection lost. Atum will reconnect automatically.',
+    turnFailed: 'Could not send. Select Retry.',
     genericFailure: 'Something went wrong',
     boundaryTitle: 'Something broke in the interface',
     boundaryDesc: 'The view hit an unexpected error. Your chats and settings are safe.',

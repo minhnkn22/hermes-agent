@@ -28,6 +28,7 @@ import { type ChatMessage, chatMessageText, preserveLocalAssistantErrors, toChat
 import { sessionMessagesSignature } from '@/lib/session-signatures'
 import { isMessagingSource } from '@/lib/session-source'
 import { latestSessionTodos } from '@/lib/todos'
+import { $atumShellEnabled } from '@/store/atum-shell'
 import { $billingSettingsRequest } from '@/store/billing-block'
 import { setCronFocusJobId } from '@/store/cron'
 import { $pinnedSessionIds, pinSession, restoreWorktree, unpinSession } from '@/store/layout'
@@ -93,7 +94,6 @@ import { startWorkspaceSession } from '../session/workspace-session-target'
 import { useOverlayRouting } from '../shell/hooks/use-overlay-routing'
 import { useWindowControlsOverlayWidth } from '../shell/hooks/use-window-controls-overlay-width'
 import { titlebarControlsPosition } from '../shell/titlebar'
-import { TitlebarControls } from '../shell/titlebar-controls'
 import { UpdatesOverlay } from '../updates-overlay'
 
 import { ContribWiringContext } from './context'
@@ -102,6 +102,7 @@ import { useDesktopIntegrations } from './hooks/use-desktop-integrations'
 import { usePetBridge } from './hooks/use-pet-bridge'
 import { useSessionTileDelegate } from './hooks/use-session-tile-delegate'
 import { $restartPreviewServer, useTitlebarToolContributions } from './panes'
+import { ProductTitlebarControls } from './product-titlebar-controls'
 import { ChatRoutesSurface, SidebarSurface, StatusbarSurface, TerminalSurface } from './surfaces'
 import type { WiringActions, WiringApi } from './types'
 
@@ -123,6 +124,7 @@ export { WiredPane } from './context'
 export function ContribWiring({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const location = useLocation()
+  const atumShellEnabled = useStore($atumShellEnabled)
   const navigate = useNavigate()
 
   const busyRef = useRef(false)
@@ -914,7 +916,8 @@ export function ContribWiring({ children }: { children: ReactNode }) {
           } as CSSProperties
         }
       >
-        <TitlebarControls
+        <ProductTitlebarControls
+          atumShellEnabled={atumShellEnabled}
           leftTools={leftTitlebarTools}
           onOpenSettings={() => navigate(SETTINGS_ROUTE)}
           tools={rightTitlebarTools}

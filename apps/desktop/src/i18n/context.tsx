@@ -3,7 +3,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { getHermesConfigRecord, type HermesConfigRecord, saveHermesConfig } from '@/hermes'
 
 import { TRANSLATIONS } from './catalog'
-import { DEFAULT_LOCALE, localeConfigValue, normalizeLocale } from './languages'
+import { DEFAULT_LOCALE, FALLBACK_LOCALE, localeConfigValue, normalizeLocale } from './languages'
 import { setRuntimeI18nLocale } from './runtime'
 import type { Locale, Translations } from './types'
 
@@ -69,10 +69,12 @@ const I18nContext = createContext<I18nContextValue>({
   configLoadError: null,
   isLoadingConfig: false,
   isSavingLocale: false,
-  locale: DEFAULT_LOCALE,
+  // The mounted app always owns an I18nProvider. English here keeps isolated
+  // components and emergency renders on the complete catalog.
+  locale: FALLBACK_LOCALE,
   saveError: null,
   setLocale: async () => {},
-  t: TRANSLATIONS[DEFAULT_LOCALE]
+  t: TRANSLATIONS[FALLBACK_LOCALE]
 })
 
 export interface I18nProviderProps {
@@ -92,6 +94,7 @@ export function I18nProvider({ children, configClient = defaultConfigClient, ini
   useEffect(() => {
     localeRef.current = locale
     setRuntimeI18nLocale(locale)
+    document.documentElement.lang = locale
   }, [locale])
 
   useEffect(() => {
